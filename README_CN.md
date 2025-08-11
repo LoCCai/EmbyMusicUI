@@ -1,71 +1,63 @@
 # ![preview](image/README/preview.png)
 
-EmbyLyricEnhance 是一个用于增强 Emby 中歌词显示的插件。
+EmbyLyricEnhance 是一个用于增强 Emby 歌词显示的插件，功能包括：
 
 - 双语歌词单块高亮显示
 - 解析歌词中 html 代码
+- 歌词垂直显示
 
-Emby 版本：4.8.8.0
+兼容 emby 版本：4.8.11.0
 
-目前无法做到独立加载 JavaScript 文件以装载该插件，只能修改 Emby 程序。
+目前无法做到独立加载 JavaScript 文件以装载该插件，必须修改 Emby 程序。
 
 欢迎提交issue和pr！
 
 ## 如何使用
 
-[修改文件](#修改文件) 和 [刷新缓存](#刷新缓存)。
+### 自动安装（推荐）
 
-### 修改文件
-
-#### 手动修改
-
-将 [replacement/emby-itemscontainer.js](replacement/emby-itemscontainer.js) 的所有内容复制，
-
-插入到 `dashboard-ui/modules/emby-elements/emby-itemscontainer/emby-itemscontainer.js` 文件末尾的 `});` 之前
-
-将 [replacement/listview.js](replacement/listview.js) 的所有内容复制，
-
-插入到 `dashboard-ui/modules/listview/listview.js` 文件末尾的 `});` 之前
-
-#### Docker Emby 自动修改
-
-如果使用的是 Docker 版本的 Emby，可以运行脚本一键修改。
+若 Emby 版本与上面相同，可直接下载 [Release](https://github.com/oldkingOK/EmbyLyricEnhance/releases) 中的文件进行替换，Docker 版本可下载 `main.sh` 一键更改。
 
 ```bash
 docker ps # 找到 container 名称
-docker exec -it <container-name> /bin/sh # 把 container-name 换成容器的名称
+docker cp ./main.sh <container-name>:/tmp/ # 把 container-name 换成容器的名称
+docker exec -it <container-name> /bin/sh /tmp/main.sh
 ```
 
-复制 [prebuild/output_process.sh](prebuild/output_process.sh) 的内容，粘贴回车运行。
-
-运行 [prebuild/output_undo.sh](./prebuild/output_undo.sh) 可以撤销更改。
-
-也可以手动生成脚本：
-
-> 其实只是把 js 压缩了放进脚本模板里
+若要撤销修改：
 
 ```bash
-npm install uglify-js
-node main.js
+docker exec -it <container-name> /bin/sh main.sh undo
 ```
 
-脚本输出于 `output` 文件夹
+### 手动安装
+
+> 请备份这两个文件
+>
+> - `dashboard-ui/modules/emby-elements/emby-itemscontainer/emby-itemscontainer.js`
+> - `dashboard-ui/modules/listview/listview.js`
+
+1. 将 [replacement/emby-itemscontainer.js](replacement/emby-itemscontainer.js) 的内容复制，插入到 `dashboard-ui/modules/emby-elements/emby-itemscontainer/emby-itemscontainer.js` 文件末尾的 `});` 之前
+
+2. 编辑 `dashboard-ui/modules/emby-elements/emby-itemscontainer/emby-itemscontainer.js` ，搜索 `toStart` 替换为 `toCenter`
+
+3. 将 [replacement/listview.js](replacement/listview.js) 的内容复制，插入到 `dashboard-ui/modules/listview/listview.js` 文件末尾的 `});` 之前
 
 ### 刷新缓存
 
-> 如果此时已经成功显示多语歌词，可以忽略这一步
+如果你已经看到多语言歌词显示，可以跳过此步骤。
 
 两种方法
 
-1. 右键 检查——网络——“禁用缓存”
-2. 右键 检查——应用程序——存储——清除网站数据
+方法一：浏览器右键检查 → 网络 → 勾选“禁用缓存”，然后刷新页面
 
-然后刷新页面
+方法二：浏览器右键检查 → 应用程序 → 存储 → 清除网站数据，然后刷新页面
 
 ## 原理
 
-- 劫持歌词文本加载，合并“开始时间”相同的歌词
-- 劫持歌词渲染成 html 的过程，解析歌词里的 html 代码
+- 劫持歌词文本加载，合并开始时间相同的歌词行
+- 劫持歌词渲染过程，支持歌词中 HTML 代码解析
+- 修改滚动调用的函数
 
 ## 另外
 

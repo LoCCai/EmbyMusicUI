@@ -2,74 +2,61 @@
 
 [中文说明](./README_CN.md)
 
-EmbyLyricEnhance is a plugin for enhancing the display of lyrics in Emby.
+EmbyLyricEnhance is a plugin for enhancing the display of lyrics in Emby. Features include:
 
-- Bilingual lyrics highlighting in single block
-- Parsing the html code in the lyrics
+* Bilingual lyrics highlighting in a single block
+* Parsing HTML code within the lyrics
+* Vertically centered lyrics display
 
-Emby version: 4.8.8.0
+Compatible Emby version: 4.8.11.0
 
-Limitations: Currently, this plugin cannot be loaded as a standalone JavaScript file. It can only be loaded by modifying the Emby program.
+Currently, this plugin cannot be loaded as a standalone JavaScript file and requires modifying the Emby program.
 
 Welcome to submit issues and PRs!
 
-## How To Use
+## How to Use
 
-[Edit Files](#edit-files) and [Refresh Cache](#refresh-cache)。
+### Automatic Installation (Recommended)
 
-### Edit files
-
-#### Manual Editing
-
-> Remember to back up these two files.
-
-Copy all the contents of [replacement/emby-itemscontainer.js](replacement/emby-itemscontainer.js) ,
-
-Insert at the end of `dashboard-ui/modules/emby-elements/emby-itemscontainer/emby-itemscontainer.js` file before `});`
-
-Copy all the contents of [replacement/listview.js](replacement/listview.js) ,
-
-Insert at the end of `dashboard-ui/modules/listview/listview.js` file before `});`.
-
-#### Automatic Editing in Docker Emby
-
-If you are using the Docker version of Emby, you can run the script to modify it with one click.
+If your Emby version matches the above, you can directly download the files from the [Release](https://github.com/oldkingOK/EmbyLyricEnhance/releases) page and replace them. For Docker users, you can use the provided `main.sh` script for one-click modification:
 
 ```bash
-docker ps # Find the container name
-docker exec -it <container-name> /bin/sh
+docker ps # Find the container name  
+docker cp ./main.sh <container-name>:/tmp/ # Replace <container-name> with your container's name  
+docker exec -it <container-name> /bin/sh /tmp/main.sh  
 ```
 
-Copy the contents of [prebuild/output_process.sh](prebuild/output_process.sh), paste it and press Enter to run it.
-
-Run [prebuild/output_undo.sh](./prebuild/output_undo.sh) to undo the changes.
-
-You can also generate the script manually:
-
-> In fact, I just compressed the JavaScript file and put it into the script template.
+To undo the changes:
 
 ```bash
-npm install uglify-js
-node main.js
+docker exec -it <container-name> /bin/sh main.sh undo  
 ```
 
-The script is output in the `output` folder
+### Manual Installation
+
+> Please back up these two files first:
+>
+> - `dashboard-ui/modules/emby-elements/emby-itemscontainer/emby-itemscontainer.js`
+> - `dashboard-ui/modules/listview/listview.js`
+
+1. Copy the entire content of [replacement/emby-itemscontainer.js](replacement/emby-itemscontainer.js) and paste it before the last `});` in `dashboard-ui/modules/emby-elements/emby-itemscontainer/emby-itemscontainer.js`.
+2. In the same file, replace all occurrences of `toStart` with `toCenter`.
+3. Copy the entire content of [replacement/listview.js](replacement/listview.js) and paste it before the last `});` in `dashboard-ui/modules/listview/listview.js`.
 
 ### Refresh Cache
 
-> If the multilingual lyrics have been successfully displayed, you can ignore this step.
+If multilingual lyrics display correctly, you can skip this step.
 
-There are two ways:
+Two ways to clear cache:
 
-1. Right click And click Inspect - Network - "Disable Cache"
-2. Right click And click Inspect - Application - Storage - Clear site data
+1. Right-click → Inspect → Network → check *Disable cache*, then refresh the page
+2. Right-click → Inspect → Application → Storage → Clear site data, then refresh the page
 
-Then refresh the page.
+## How It Works
 
-## What This Plugin Does
-
-- Hijack lyrics text loading and merge lyrics with the same "start time"
-- Hijack the process of rendering lyrics into HTML and parse the HTML code in the lyrics
+* Hijacks the lyrics text loading to merge lyrics lines with the same start time
+* Hijacks the rendering process to parse HTML code inside lyrics
+* Modifies the lyrics scroll function
 
 ## In Addition
 
@@ -97,5 +84,12 @@ Share a lyrics css that I use myself, just paste it into the custom css in the s
 	.listItem.lyricsItem {
 		font-size: 100%;
 	}
+}
+.lyricsItem-selected .lineplus {
+	width: max-content;
+    background: linear-gradient(to right, lightblue 0%, white 0%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0 auto;
 }
 ```
