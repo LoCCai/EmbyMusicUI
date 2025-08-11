@@ -29,6 +29,7 @@ else
     filecontent="{include ./replacement/emby-itemscontainer.js}"
     sed -i '1s/.\{3\}$//' ${file}
     echo "${filecontent}" >> ${file}
+    sed -i 's/toStart/toCenter/g' ${file}
     echo "});" >> ${file}
 fi
 
