@@ -295,15 +295,8 @@
 
     function getThemeControlHost(renderer) {
         var container = renderer.itemsContainer;
-        if (!container) {
-            return null;
-        }
-        var parent = container.parentNode;
-        if (parent
-            && parent !== document.body
-            && parent !== document.documentElement
-            && parent.appendChild) {
-            return parent;
+        if (document.body && document.body.appendChild) {
+            return document.body;
         }
         return container;
     }
@@ -386,8 +379,16 @@
         }
         applyTheme(renderer, renderer.__elyricTheme, false);
 
+        var visible = isThemeContextVisible(renderer);
         if (!renderer.__elyricThemeControl) {
+            if (!visible) {
+                return;
+            }
             renderer.__elyricThemeControl = createThemeControl(renderer);
+        }
+        if (!visible) {
+            syncThemeControlVisibility(renderer);
+            return;
         }
         var host = getThemeControlHost(renderer);
         removeStaleThemeControls(host, renderer.__elyricThemeControl);
@@ -468,17 +469,41 @@
     }
 
     function ensureObserver(renderer) {
-        if (renderer.__elyricObserver || "undefined" === typeof MutationObserver) {
+        if ("undefined" === typeof MutationObserver) {
             return;
         }
         var container = renderer.itemsContainer;
         if (!container) {
             return;
         }
+        var parent = container.parentNode;
+        if (renderer.__elyricObserver && renderer.__elyricObservedParent === parent) {
+            return;
+        }
+        if (renderer.__elyricObserver) {
+            renderer.__elyricObserver.disconnect();
+        }
         renderer.__elyricObserver = new MutationObserver(function () {
             renderVisibleLyrics(renderer);
+            ensureThemeControl(renderer);
         });
         renderer.__elyricObserver.observe(container, { childList: true, subtree: true });
+        var ancestor = parent;
+        while (ancestor) {
+            var options = {
+                attributes: true,
+                attributeFilter: ["aria-hidden", "class", "hidden", "style"]
+            };
+            if (ancestor === document.body) {
+                options.childList = true;
+            }
+            renderer.__elyricObserver.observe(ancestor, options);
+            if (ancestor === document.body) {
+                break;
+            }
+            ancestor = ancestor.parentNode;
+        }
+        renderer.__elyricObservedParent = parent;
     }
 
     function setWordState(element, state) {
@@ -647,6 +672,7 @@
 
     LyricsRenderer.prototype.onTimeUpdate = function (positionTicks, runtimeTicks) {
         originalOnTimeUpdate.apply(this, arguments);
+        ensureObserver(this);
         ensureThemeControl(this);
         renderVisibleLyrics(this);
         updateWordStates(this, positionTicks);
@@ -660,6 +686,7 @@
             this.__elyricObserver.disconnect();
         }
         this.__elyricObserver = null;
+        this.__elyricObservedParent = null;
         this.__elyricItems = null;
         this.__elyricClock = null;
         return originalDestroy.apply(this, arguments);

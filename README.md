@@ -56,7 +56,7 @@ When the lyric view is open, use the **Lyric style** selector in the upper-right
 
 Switching does not require a refresh, reinjection, or Emby restart. The choice is stored in the current browser's `localStorage` under `emby-lyric-enhance.theme` and is restored on the next lyric view. Each browser and device keeps its own choice.
 
-The selector is scoped to the active lyric playback page. It hides when playback is left, the page is hidden, or the old playback host leaves the document. Reopening playback moves the existing selector to the current host and removes stale duplicates.
+The selector's visual overlay is mounted at the document level so Emby's clipped playback containers cannot cut it off, while visibility remains owned by the active lyric playback page. It hides when playback is left, hidden, covered by another page, or detached from the document. Reopening playback restores it and removes stale duplicates.
 
 This release remains an Emby Web frontend adapter. It covers Emby Web and clients that reuse that frontend, but cannot force native Android, iOS, or TV lyric views to use these themes. A C# administration plugin and server-wide defaults remain a later phase.
 

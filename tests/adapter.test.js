@@ -236,14 +236,25 @@ function createLyricElement(index) {
     assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 1);
     const themeSelect = document.body.querySelector(".elyric-theme-select");
     assert(themeSelect, "theme picker should be attached to the playback page overlay");
-    assert.strictEqual(renderer.__elyricThemeControl.parentNode, playbackPage,
-        "theme picker must stay inside the playback page instead of document.body");
+    assert.strictEqual(renderer.__elyricThemeControl.parentNode, document.body,
+        "the visual overlay should use document.body to avoid playback host clipping");
     assert.strictEqual(themeSelect.children.length, 5, "all built-in themes should be selectable");
 
     themeSelect.value = "focus";
     themeSelect.dispatchEvent({ type: "change", stopPropagation() {} });
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), "focus");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.theme"), "focus");
+
+    const hiddenRenderer = new LyricsRenderer();
+    hiddenRenderer.itemsContainer = new FakeNode("div");
+    hiddenRenderer.sourceEvents = renderer.sourceEvents;
+    await hiddenRenderer.getItemsInternal();
+    hiddenRenderer.onTimeUpdate(0, 20000000);
+    assert(!hiddenRenderer.__elyricThemeControl,
+        "a detached renderer must not create or take over the global visual overlay");
+    assert.strictEqual(document.body.querySelector(".elyric-theme-select"), themeSelect,
+        "an invisible old renderer must not replace the active picker");
+    hiddenRenderer.destroy();
 
     renderer.onTimeUpdate(0, 20000000);
     let words = renderer.itemsContainer.querySelectorAll("[data-elyric-start][data-elyric-end]");
@@ -270,11 +281,9 @@ function createLyricElement(index) {
         "the picker should return when playback is topmost again");
 
     document.body.removeChild(playbackPage);
-    assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 0,
-        "leaving the playback page must also remove the picker from the visible document tree");
     renderer.onTimeUpdate(0, 20000000);
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("hidden"), "hidden",
-        "a detached playback page must hide its retained picker");
+        "a detached playback page must hide its body-mounted picker");
     const reopenedPlaybackPage = new FakeNode("div");
     document.body.appendChild(reopenedPlaybackPage);
     const staleControl = new FakeNode("div");
@@ -282,8 +291,8 @@ function createLyricElement(index) {
     reopenedPlaybackPage.appendChild(staleControl);
     reopenedPlaybackPage.appendChild(renderer.itemsContainer);
     renderer.onTimeUpdate(0, 20000000);
-    assert.strictEqual(renderer.__elyricThemeControl.parentNode, reopenedPlaybackPage,
-        "reopening playback should move the existing picker to the current page host");
+    assert.strictEqual(renderer.__elyricThemeControl.parentNode, document.body,
+        "reopening playback should keep the visual overlay outside clipping hosts");
     assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 1,
         "reopening playback must restore exactly one picker");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("hidden"), null,
