@@ -13,7 +13,7 @@ Stream.js / TrackEvents
   → Emby 原生 listview 安全输出
   → MutationObserver 重建歌词专属 DOM
   → LyricsRenderer.onTimeUpdate(positionTicks, runtimeTicks)
-  → 原生整行滚动 + 逐字状态更新
+  → 原生整行滚动 + requestAnimationFrame 逐字状态更新
 ```
 
 ### 数据处理
@@ -29,6 +29,15 @@ Stream.js / TrackEvents
 
 原生 listview 保持不变。适配器仅在 `.osdLyricsItemsContainer` 内处理带 `data-index` 的歌词节点，所有歌词内容通过 `createTextNode` 写入。白名单只允许 `<br>` 产生换行，其他标签和属性均作为文本显示。
 
+### 平滑时间驱动
+
+- Emby 原生 `onTimeUpdate` 继续负责整行选择与滚动
+- 连续两个原生位置确认播放前进后，逐字层使用 `requestAnimationFrame` 插值
+- 原生位置每次到达都会重新校准，不累积时间误差
+- 暂停、缓冲、快进、后退和页面隐藏时停止插值
+- 单个原生样本最多向前外推 800ms，超时后保持当前状态
+- 逐字颜色、透明度和阴影过渡由 120ms 缩短为 80ms
+
 ### 安装安全
 
 - 适配版本：Emby 4.9.5.0
@@ -37,4 +46,3 @@ Stream.js / TrackEvents
 - 同时生成 JS/CSS 后再替换目标文件
 - 原版与增强版均保存在 `/config/emby-lyric-enhance/4.9.5.0/`
 - 未知文件状态会停止，避免用旧备份覆盖升级后的 Emby 前端
-
