@@ -35,6 +35,8 @@ class FakeNode {
         this.attributes = {};
         this._className = "";
         this.classList = new FakeClassList(this);
+        this.parentNode = null;
+        this.listeners = {};
     }
     set className(value) {
         this._className = String(value);
@@ -49,12 +51,30 @@ class FakeNode {
     getAttribute(name) {
         return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
     }
+    removeAttribute(name) {
+        delete this.attributes[name];
+    }
     appendChild(child) {
+        if (child.parentNode && child.parentNode !== this) {
+            child.parentNode.removeChild(child);
+        }
         this.children.push(child);
+        child.parentNode = this;
         return child;
     }
     removeChild(child) {
-        this.children.splice(this.children.indexOf(child), 1);
+        const index = this.children.indexOf(child);
+        if (index >= 0) this.children.splice(index, 1);
+        child.parentNode = null;
+        return child;
+    }
+    addEventListener(type, listener) {
+        if (!this.listeners[type]) this.listeners[type] = [];
+        this.listeners[type].push(listener);
+    }
+    dispatchEvent(event) {
+        (this.listeners[event.type] || []).forEach((listener) => listener.call(this, event));
+        return true;
     }
     get firstChild() {
         return this.children[0] || null;
@@ -70,6 +90,8 @@ class FakeNode {
         if (selector === "[data-elyric-start][data-elyric-end]") {
             return null != this.getAttribute("data-elyric-start") && null != this.getAttribute("data-elyric-end");
         }
+        if (selector === ".elyric-theme-picker") return this.classList.contains("elyric-theme-picker");
+        if (selector === ".elyric-theme-select") return this.classList.contains("elyric-theme-select");
         return false;
     }
     querySelector(selector) {
@@ -89,12 +111,23 @@ class FakeNode {
 const createdTags = [];
 const document = {
     hidden: false,
+    body: new FakeNode("body"),
     createElement(tagName) {
         createdTags.push(tagName.toLowerCase());
         return new FakeNode(tagName.toLowerCase());
     },
     createTextNode(text) {
         return new FakeNode(null, String(text));
+    }
+};
+
+const storedValues = new Map();
+const localStorage = {
+    getItem(key) {
+        return storedValues.has(key) ? storedValues.get(key) : null;
+    },
+    setItem(key, value) {
+        storedValues.set(key, String(value));
     }
 };
 
@@ -140,8 +173,9 @@ new Function(
     "performance",
     "requestAnimationFrame",
     "cancelAnimationFrame",
+    "localStorage",
     adapter
-)(LyricsRenderer, document, MutationObserver, performance, requestAnimationFrame, cancelAnimationFrame);
+)(LyricsRenderer, document, MutationObserver, performance, requestAnimationFrame, cancelAnimationFrame, localStorage);
 
 function createLyricElement(index) {
     const item = new FakeNode("div");
@@ -171,6 +205,16 @@ function createLyricElement(index) {
     const items = await renderer.getItemsInternal();
     assert.strictEqual(items.length, 1, "same-time events should be grouped");
     assert.strictEqual(items[0].__elyric.sublines.length, 2);
+    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), "classic");
+    assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 1);
+    const themeSelect = document.body.querySelector(".elyric-theme-select");
+    assert(themeSelect, "theme picker should be attached to the playback page overlay");
+    assert.strictEqual(themeSelect.children.length, 5, "all built-in themes should be selectable");
+
+    themeSelect.value = "focus";
+    themeSelect.dispatchEvent({ type: "change", stopPropagation() {} });
+    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), "focus");
+    assert.strictEqual(storedValues.get("emby-lyric-enhance.theme"), "focus");
 
     renderer.onTimeUpdate(0, 20000000);
     let words = renderer.itemsContainer.querySelectorAll("[data-elyric-start][data-elyric-end]");
@@ -179,6 +223,8 @@ function createLyricElement(index) {
     assert(visible.body.textContent.includes("<img src=x onerror=bad>translation"));
     assert(!createdTags.includes("img"), "lyric HTML must remain text");
     assert.strictEqual(frames.size, 0, "one native sample must not start interpolation");
+    assert(visible.item.classList.contains("elyric-line-current"));
+    assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 1, "time updates must not duplicate the picker");
 
     clockNow = 400;
     renderer.onTimeUpdate(4000000, 20000000);
@@ -187,10 +233,14 @@ function createLyricElement(index) {
     words = renderer.itemsContainer.querySelectorAll("[data-elyric-start][data-elyric-end]");
     assert(words[0].classList.contains("elyric-word-played"));
     assert(words[1].classList.contains("elyric-word-active"), "animation frame should cross the 500ms boundary");
-    assert(
-        /\.elyric-word-active\s*,\s*\.elyric-word-played\s*\{[^}]*color:[^}]*opacity:\s*1[^}]*text-shadow:/s.test(adapterCss),
-        "played and active words should share the cumulative highlight style"
+    const classicRule = adapterCss.match(
+        /\[data-elyric-theme="classic"\] \.elyric-word-active,\s*\[data-elyric-theme="classic"\] \.elyric-word-played\s*\{([^}]*)\}/s
     );
+    assert(classicRule && /color:/.test(classicRule[1]) && /opacity:\s*1/.test(classicRule[1]) && /text-shadow:/.test(classicRule[1]),
+        "classic played and active words should share cumulative highlighting");
+    ["classic", "focus", "gradient", "apple", "minimal"].forEach((themeId) => {
+        assert(adapterCss.includes(`[data-elyric-theme="${themeId}"]`), `${themeId} theme CSS should exist`);
+    });
 
     clockNow = 800;
     renderer.onTimeUpdate(4000000, 20000000);
@@ -210,11 +260,24 @@ function createLyricElement(index) {
 
     clockNow = 2600;
     renderer.onTimeUpdate(19500000, 20000000);
+    renderer.onTimeUpdate(20000000, 20000000);
+    assert(visible.item.classList.contains("elyric-line-past"));
+    const themeControl = renderer.__elyricThemeControl;
     renderer.destroy();
     assert.strictEqual(frames.size, 0, "destroy should cancel any pending animation frame");
     assert.strictEqual(renderer.__elyricClock, null);
+    assert.strictEqual(themeControl.parentNode, null, "destroy should remove theme controls");
+    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), null);
 
-    console.log("adapter parsing, safety, seeking, pause and smooth timing: ok");
+    const secondRenderer = new LyricsRenderer();
+    secondRenderer.itemsContainer = new FakeNode("div");
+    secondRenderer.sourceEvents = renderer.sourceEvents;
+    await secondRenderer.getItemsInternal();
+    assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-theme"), "focus",
+        "the selected theme should be restored from browser storage");
+    secondRenderer.destroy();
+
+    console.log("adapter parsing, safety, themes, seeking, pause and smooth timing: ok");
 })().catch((error) => {
     console.error(error);
     process.exitCode = 1;

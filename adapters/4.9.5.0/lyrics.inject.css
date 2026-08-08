@@ -20,19 +20,157 @@
     opacity: .6;
 }
 
-.elyric-word {
-    transition: color .08s linear, opacity .08s linear, text-shadow .08s linear;
+.elyric-theme-picker {
+    position: fixed;
+    z-index: 1200;
+    top: calc(env(safe-area-inset-top, 0px) + 4.25rem);
+    right: calc(env(safe-area-inset-right, 0px) + 1rem);
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .38rem .5rem;
+    border: 1px solid rgba(255, 255, 255, .18);
+    border-radius: .7rem;
+    color: #fff;
+    background: rgba(16, 16, 20, .72);
+    box-shadow: 0 .35rem 1.2rem rgba(0, 0, 0, .28);
+    -webkit-backdrop-filter: blur(.75rem);
+    backdrop-filter: blur(.75rem);
+    font-size: .78rem;
+    line-height: 1;
+    pointer-events: auto;
 }
 
-.elyric-word-pending {
+.elyric-theme-picker-label::before {
+    content: "🎨";
+    margin-right: .3rem;
+}
+
+.elyric-theme-select {
+    max-width: 8.5rem;
+    padding: .28rem 1.8rem .28rem .5rem;
+    border: 1px solid rgba(255, 255, 255, .22);
+    border-radius: .45rem;
+    color: #fff;
+    background-color: rgba(255, 255, 255, .1);
+    font: inherit;
+    cursor: pointer;
+}
+
+.elyric-theme-select:focus-visible {
+    outline: 2px solid var(--theme-primary-color, #fff);
+    outline-offset: 2px;
+}
+
+.elyric-theme-select option {
+    color: #fff;
+    background: #18181c;
+}
+
+.elyric-word {
+    transition: color .08s linear, opacity .08s linear, text-shadow .08s linear, transform .12s ease;
+}
+
+[data-elyric-theme] .lyricsItem .listItemBodyText {
+    transform-origin: center;
+    transition: opacity .2s ease, filter .2s ease, transform .22s ease;
+}
+
+[data-elyric-theme="classic"] .elyric-word-pending {
     opacity: .46;
 }
 
-.elyric-word-active,
-.elyric-word-played {
+[data-elyric-theme="classic"] .elyric-word-active,
+[data-elyric-theme="classic"] .elyric-word-played {
     color: var(--theme-primary-color, #fff);
     opacity: 1;
     text-shadow: 0 0 .45em color-mix(in srgb, var(--theme-primary-color, #fff) 45%, transparent);
+}
+
+[data-elyric-theme="focus"] .elyric-word-pending {
+    opacity: .34;
+}
+
+[data-elyric-theme="focus"] .elyric-word-played {
+    opacity: .5;
+    text-shadow: none;
+}
+
+[data-elyric-theme="focus"] .elyric-word-active {
+    display: inline-block;
+    color: var(--theme-primary-color, #fff);
+    opacity: 1;
+    text-shadow: 0 0 .55em color-mix(in srgb, var(--theme-primary-color, #fff) 60%, transparent);
+    transform: scale(1.08);
+}
+
+[data-elyric-theme="gradient"] .elyric-word-pending {
+    opacity: .32;
+}
+
+[data-elyric-theme="gradient"] .elyric-word-played {
+    color: var(--theme-primary-color, #fff);
+    opacity: 1;
+    text-shadow: 0 0 .38em color-mix(in srgb, var(--theme-primary-color, #fff) 38%, transparent);
+}
+
+[data-elyric-theme="gradient"] .elyric-word-active {
+    color: var(--theme-primary-color, #fff);
+    background: linear-gradient(90deg, var(--theme-primary-color, #fff), #fff 52%, rgba(255, 255, 255, .38));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    opacity: 1;
+    filter: drop-shadow(0 0 .28em color-mix(in srgb, var(--theme-primary-color, #fff) 52%, transparent));
+}
+
+[data-elyric-theme="apple"] .elyric-word-pending {
+    opacity: .28;
+}
+
+[data-elyric-theme="apple"] .elyric-word-active,
+[data-elyric-theme="apple"] .elyric-word-played {
+    color: var(--theme-primary-color, #fff);
+    opacity: 1;
+    text-shadow: 0 0 .5em color-mix(in srgb, var(--theme-primary-color, #fff) 48%, transparent);
+}
+
+[data-elyric-theme="apple"] .elyric-line-current .listItemBodyText {
+    opacity: 1;
+    filter: none;
+    transform: scale(1.08);
+}
+
+[data-elyric-theme="apple"] .elyric-line-future .listItemBodyText,
+[data-elyric-theme="apple"] .elyric-line-past .listItemBodyText {
+    opacity: .34;
+    filter: blur(.025em);
+    transform: scale(.94);
+}
+
+[data-elyric-theme="minimal"] .elyric-word {
+    color: inherit;
+    opacity: 1;
+    text-shadow: none;
+}
+
+[data-elyric-theme="minimal"] .elyric-line-current .listItemBodyText {
+    color: var(--theme-primary-color, #fff);
+    opacity: 1;
+    text-shadow: 0 0 .32em color-mix(in srgb, var(--theme-primary-color, #fff) 30%, transparent);
+}
+
+[data-elyric-theme="minimal"] .elyric-line-future .listItemBodyText,
+[data-elyric-theme="minimal"] .elyric-line-past .listItemBodyText {
+    opacity: .42;
+    text-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .elyric-word,
+    [data-elyric-theme] .lyricsItem .listItemBodyText {
+        transition: none;
+    }
 }
 
 @media (max-width: 500px) {
@@ -42,6 +180,21 @@
 
     .elyric-subline + .elyric-subline {
         font-size: .7em;
+    }
+
+    .elyric-theme-picker {
+        top: calc(env(safe-area-inset-top, 0px) + 3.5rem);
+        right: calc(env(safe-area-inset-right, 0px) + .55rem);
+        padding: .32rem;
+    }
+
+    .elyric-theme-picker-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
     }
 }
 

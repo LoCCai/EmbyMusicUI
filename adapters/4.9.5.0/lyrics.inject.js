@@ -4,6 +4,14 @@
 
     var TICKS_PER_SECOND = 10000000;
     var MAX_INTERPOLATION_MS = 800;
+    var THEME_STORAGE_KEY = "emby-lyric-enhance.theme";
+    var THEMES = [
+        { id: "classic", label: "经典累积" },
+        { id: "focus", label: "单字聚焦" },
+        { id: "gradient", label: "渐变扫光" },
+        { id: "apple", label: "Apple 风格" },
+        { id: "minimal", label: "简洁整行" }
+    ];
     var originalGetItemsInternal = LyricsRenderer.prototype.getItemsInternal;
     var originalOnTimeUpdate = LyricsRenderer.prototype.onTimeUpdate;
     var originalDestroy = LyricsRenderer.prototype.destroy;
@@ -184,6 +192,132 @@
         });
     }
 
+    function isKnownTheme(themeId) {
+        for (var i = 0; i < THEMES.length; i++) {
+            if (THEMES[i].id === themeId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function loadStoredTheme() {
+        try {
+            if ("undefined" !== typeof localStorage) {
+                var themeId = localStorage.getItem(THEME_STORAGE_KEY);
+                if (isKnownTheme(themeId)) {
+                    return themeId;
+                }
+            }
+        } catch (error) {
+            // Storage can be disabled by browser privacy settings.
+        }
+        return "classic";
+    }
+
+    function storeTheme(themeId) {
+        try {
+            if ("undefined" !== typeof localStorage) {
+                localStorage.setItem(THEME_STORAGE_KEY, themeId);
+            }
+        } catch (error) {
+            // Theme switching still works for the current page without storage.
+        }
+    }
+
+    function applyTheme(renderer, themeId, persist) {
+        themeId = isKnownTheme(themeId) ? themeId : "classic";
+        renderer.__elyricTheme = themeId;
+
+        var container = renderer.itemsContainer;
+        if (renderer.__elyricThemeContainer
+            && renderer.__elyricThemeContainer !== container
+            && renderer.__elyricThemeContainer.removeAttribute) {
+            renderer.__elyricThemeContainer.removeAttribute("data-elyric-theme");
+        }
+        if (container && container.setAttribute) {
+            container.setAttribute("data-elyric-theme", themeId);
+            renderer.__elyricThemeContainer = container;
+        }
+        if (renderer.__elyricThemeSelect) {
+            renderer.__elyricThemeSelect.value = themeId;
+        }
+        if (persist) {
+            storeTheme(themeId);
+        }
+    }
+
+    function stopControlEvent(event) {
+        if (event && event.stopPropagation) {
+            event.stopPropagation();
+        }
+    }
+
+    function createThemeControl(renderer) {
+        var control = document.createElement("div");
+        control.className = "elyric-theme-picker";
+        control.setAttribute("data-elyric-control", "theme");
+
+        var label = document.createElement("span");
+        label.className = "elyric-theme-picker-label";
+        label.appendChild(document.createTextNode("歌词样式"));
+        control.appendChild(label);
+
+        var select = document.createElement("select");
+        select.className = "elyric-theme-select";
+        select.setAttribute("aria-label", "歌词样式");
+        select.setAttribute("title", "切换歌词样式");
+        THEMES.forEach(function (theme) {
+            var option = document.createElement("option");
+            option.value = theme.id;
+            option.appendChild(document.createTextNode(theme.label));
+            select.appendChild(option);
+        });
+        select.value = renderer.__elyricTheme;
+        select.addEventListener("change", function () {
+            applyTheme(renderer, select.value, true);
+        });
+        control.appendChild(select);
+
+        control.addEventListener("click", stopControlEvent);
+        control.addEventListener("pointerdown", stopControlEvent);
+        renderer.__elyricThemeSelect = select;
+        return control;
+    }
+
+    function ensureThemeControl(renderer) {
+        var container = renderer.itemsContainer;
+        if (!container || !container.appendChild || "undefined" === typeof document) {
+            return;
+        }
+        if (!renderer.__elyricTheme) {
+            renderer.__elyricTheme = loadStoredTheme();
+        }
+        applyTheme(renderer, renderer.__elyricTheme, false);
+
+        if (!renderer.__elyricThemeControl) {
+            renderer.__elyricThemeControl = createThemeControl(renderer);
+        }
+        var host = document.body && document.body.appendChild ? document.body : container;
+        if (renderer.__elyricThemeControl.parentNode !== host) {
+            host.appendChild(renderer.__elyricThemeControl);
+        }
+    }
+
+    function removeThemeControl(renderer) {
+        var control = renderer.__elyricThemeControl;
+        if (control && control.parentNode) {
+            control.parentNode.removeChild(control);
+        }
+        if (renderer.__elyricThemeContainer && renderer.__elyricThemeContainer.removeAttribute) {
+            renderer.__elyricThemeContainer.removeAttribute("data-elyric-theme");
+        }
+        renderer.__elyricThemeControl = null;
+        renderer.__elyricThemeSelect = null;
+        renderer.__elyricThemeContainer = null;
+        renderer.__elyricTheme = null;
+    }
+
     function renderLyricElement(renderer, element) {
         var index = Number(element.getAttribute("data-index"));
         var item = renderer.__elyricItems && renderer.__elyricItems[index];
@@ -263,11 +397,43 @@
         element.setAttribute("data-elyric-state", state);
     }
 
+    function setLineState(element, state) {
+        if (element.getAttribute("data-elyric-line-state") === state) {
+            return;
+        }
+        element.classList.remove("elyric-line-future", "elyric-line-current", "elyric-line-past");
+        element.classList.add("elyric-line-" + state);
+        element.setAttribute("data-elyric-line-state", state);
+    }
+
+    function updateLineStates(renderer, positionTicks) {
+        var container = renderer.itemsContainer;
+        if (!container || !container.querySelectorAll) {
+            return;
+        }
+        var elements = container.querySelectorAll(".lyricsItem[data-index]");
+        for (var i = 0; i < elements.length; i++) {
+            var element = elements[i];
+            var index = Number(element.getAttribute("data-index"));
+            var item = renderer.__elyricItems && renderer.__elyricItems[index];
+            if (!item || !item.__elyric) {
+                continue;
+            }
+            var state = positionTicks < item.__elyric.startTicks
+                ? "future"
+                : positionTicks >= item.__elyric.endTicks
+                    ? "past"
+                    : "current";
+            setLineState(element, state);
+        }
+    }
+
     function updateWordStates(renderer, positionTicks) {
         var container = renderer.itemsContainer;
         if (!container || !container.querySelectorAll) {
             return;
         }
+        updateLineStates(renderer, positionTicks);
         var words = container.querySelectorAll("[data-elyric-start][data-elyric-end]");
         for (var i = 0; i < words.length; i++) {
             var word = words[i];
@@ -381,12 +547,14 @@
             renderer.__elyricGeneration = (renderer.__elyricGeneration || 0) + 1;
             renderer.__elyricItems = prepareEnhancedLyrics(events);
             ensureObserver(renderer);
+            ensureThemeControl(renderer);
             return renderer.__elyricItems;
         });
     };
 
     LyricsRenderer.prototype.onTimeUpdate = function (positionTicks, runtimeTicks) {
         originalOnTimeUpdate.apply(this, arguments);
+        ensureThemeControl(this);
         renderVisibleLyrics(this);
         updateWordStates(this, positionTicks);
         syncSmoothClock(this, positionTicks, runtimeTicks);
@@ -394,6 +562,7 @@
 
     LyricsRenderer.prototype.destroy = function () {
         cancelSmoothFrame(this);
+        removeThemeControl(this);
         if (this.__elyricObserver) {
             this.__elyricObserver.disconnect();
         }

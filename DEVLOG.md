@@ -39,6 +39,16 @@ Stream.js / TrackEvents
 - 逐字颜色、透明度和阴影过渡由 120ms 缩短为 80ms
 - `played` 与 `active` 共享高亮样式，使高亮从行首累积到当前字，不再只点亮单个活动字
 
+### 主题系统
+
+- 内置 `classic`、`focus`、`gradient`、`apple`、`minimal` 五种主题
+- 在播放页顶层注入一个固定定位的原生选择器，不污染虚拟歌词列表，也不修改 `videoosd.html`
+- 主题通过歌词容器的 `data-elyric-theme` 属性和作用域 CSS 切换，不复制或分叉计时逻辑
+- 可见歌词行根据绝对播放位置标记为 `future`、`current` 或 `past`，平滑动画帧也会同步更新行状态
+- 用户选择写入浏览器 `localStorage`，存储失败时仍可在当前页面临时切换
+- 播放器重复回调不会重复创建选择器，`LyricsRenderer.destroy()` 会移除控件及主题属性
+- 尊重 `prefers-reduced-motion`，关闭主题缩放与淡化过渡动画
+
 ### 安装安全
 
 - 适配版本：Emby 4.9.5.0
