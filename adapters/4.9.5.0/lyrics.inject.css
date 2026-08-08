@@ -21,7 +21,7 @@
 }
 
 .elyric-word {
-    transition: color .12s linear, opacity .12s linear, text-shadow .12s linear;
+    transition: color .08s linear, opacity .08s linear, text-shadow .08s linear;
 }
 
 .elyric-word-pending {
