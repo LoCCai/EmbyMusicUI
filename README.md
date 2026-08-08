@@ -79,6 +79,8 @@ It does not modify shared list rendering, `videoosd.js`, or `videoosd.html`.
 
 The word layer uses `requestAnimationFrame` to interpolate playback position between native callbacks, normally updating at the display refresh rate. Interpolation starts only after two consecutive native samples confirm forward playback. It stops for pause, buffering, seeking, or a hidden page, and never extrapolates one sample for more than 800 ms. Emby's native line selection and scrolling retain their original cadence.
 
+Played and active words share the highlight style, so the highlighted portion grows cumulatively from the beginning of the line through the current word instead of lighting only one word at a time.
+
 ## Safety and validation
 
 The installer recognizes these unmodified Emby 4.9.5.0 files:
@@ -90,6 +92,6 @@ lyrics.css  82c4df323c0a6dd100863d0e261a5e09317530c8f39cd55c203ebac8899224b7
 
 Installation stops if a file was modified by another patch, the version is unknown, a backup is incomplete, or the injection anchor is not unique.
 
-Run `node tests/adapter.test.js` to validate grouping, safe text rendering, seeking, pause detection, animation-frame interpolation, and the 800 ms extrapolation limit.
+Run `node tests/adapter.test.js` to validate grouping, safe text rendering, cumulative highlighting, seeking, pause detection, animation-frame interpolation, and the 800 ms extrapolation limit.
 
 The legacy `replacement/` files and `main.template.sh` belong to the previous Emby 4.8.11.0 global-hook adapter. Do not inject both adapters into one container.
