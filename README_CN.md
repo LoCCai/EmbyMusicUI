@@ -8,6 +8,7 @@ EmbyLyricEnhance 用于增强 Emby Web 歌词显示。
 
 - 合并开始时间相同的原文、注音和翻译，支持两行、三行及更多子行
 - 解析增强 LRC 的 `<mm:ss.xx>` 逐字时间，并随播放、快进和后退重新计算状态
+- 使用 `requestAnimationFrame` 在 Emby 原生时间回调之间平滑插值，逐字效果不再以约 400ms 为步长跳动
 - 保留 Emby 原生整行选中、点击跳转和滚动行为
 - 仅在歌词专属模块中注入，不修改通用的 `listview.js` 和 `emby-itemscontainer.js`
 - 歌词文本使用 DOM `textContent` 安全渲染，只把 `<br>` 识别为换行
@@ -108,6 +109,8 @@ adapters/4.9.5.0/lyrics.inject.css
 
 会转换为带绝对开始、结束时间的逐字数据。每次 Emby 调用 `onTimeUpdate(positionTicks, runtimeTicks)` 时，先执行原生整行选中和滚动，再按绝对播放位置将字词设置为 `pending`、`active` 或 `played`，因此快进和后退不依赖旧状态。
 
+逐字层使用 `requestAnimationFrame` 在相邻原生回调之间插值播放位置，通常按显示器刷新率更新。只有连续两次原生位置表明播放正在前进时才会启动插值；暂停、缓冲、前后跳转或页面隐藏时立即停止。单次最多外推 800ms，避免播放器停止回调后歌词继续自行前进。Emby 原生整行选择与滚动频率保持不变。
+
 歌词虚拟列表变化由 `MutationObserver` 监听；新增或复用的可见节点会根据 `data-index` 重建。歌词文本永远不会整体写入 `innerHTML`，因此 `<img>`、`<script>` 和事件属性只会显示成文字。
 
 ## 版本校验
@@ -124,7 +127,14 @@ lyrics.css
 
 文件已被其他插件修改、Emby 版本不同、原始备份不完整或注入锚点数量不为 1 时，安装会停止。
 
+开发者可运行：
+
+```bash
+node tests/adapter.test.js
+```
+
+验证歌词合并、安全文本渲染、快进/后退、暂停识别、动画帧插值与 800ms 超时停止。
+
 ## 旧版本说明
 
 `replacement/` 和 `main.template.sh` 是原有 4.8.11.0 全局劫持方案，4.9.5.0 安装器不会使用它们。不要把两套适配同时注入同一个容器。
-
