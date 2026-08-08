@@ -1,89 +1,130 @@
 # ![preview](image/README/preview.png)
 
-EmbyLyricEnhance 是一个用于增强 Emby 歌词显示的插件，功能包括：
+EmbyLyricEnhance 用于增强 Emby Web 歌词显示。
 
-- 双语歌词单块高亮显示
-- 解析歌词中 html 代码
-- 歌词垂直显示
+当前适配版本：**Emby Server 4.9.5.0**
 
-兼容 emby 版本：4.8.11.0
+## 功能
 
-目前无法做到独立加载 JavaScript 文件以装载该插件，必须修改 Emby 程序。
+- 合并开始时间相同的原文、注音和翻译，支持两行、三行及更多子行
+- 解析增强 LRC 的 `<mm:ss.xx>` 逐字时间，并随播放、快进和后退重新计算状态
+- 保留 Emby 原生整行选中、点击跳转和滚动行为
+- 仅在歌词专属模块中注入，不修改通用的 `listview.js` 和 `emby-itemscontainer.js`
+- 歌词文本使用 DOM `textContent` 安全渲染，只把 `<br>` 识别为换行
+- 自动备份，可在原版和增强版之间反复切换
+- 通过 4.9.5.0 文件 SHA-256 和唯一注入锚点阻止误覆盖其他版本
 
-欢迎提交issue和pr！
+## Docker 一键安装
 
-## 如何使用
-
-### 自动安装（推荐）
-
-若 Emby 版本与上面相同，可直接下载 [Release](https://github.com/oldkingOK/EmbyLyricEnhance/releases) 中的文件进行替换，Docker 版本可下载 `main.sh` 一键更改。
-
-```bash
-docker ps # 找到 container 名称
-docker cp ./main.sh <container-name>:/tmp/ # 把 container-name 换成容器的名称
-docker exec -it <container-name> /bin/sh /tmp/main.sh
-```
-
-若要撤销修改：
+在 **Emby Docker 宿主机**下载或克隆本仓库，然后执行：
 
 ```bash
-docker exec -it <container-name> /bin/sh main.sh undo
+cd EmbyLyricEnhance
+sh docker-install.sh
 ```
 
-### 手动安装
+脚本会列出正在运行的容器，并提示输入：
 
-> 请备份这两个文件
->
-> - `dashboard-ui/modules/emby-elements/emby-itemscontainer/emby-itemscontainer.js`
-> - `dashboard-ui/modules/listview/listview.js`
-
-1. 将 [replacement/emby-itemscontainer.js](replacement/emby-itemscontainer.js) 的内容复制，插入到 `dashboard-ui/modules/emby-elements/emby-itemscontainer/emby-itemscontainer.js` 文件末尾的 `});` 之前
-
-2. 编辑 `dashboard-ui/modules/emby-elements/emby-itemscontainer/emby-itemscontainer.js` ，搜索 `toStart` 替换为 `toCenter`
-
-3. 将 [replacement/listview.js](replacement/listview.js) 的内容复制，插入到 `dashboard-ui/modules/listview/listview.js` 文件末尾的 `});` 之前
-
-### 刷新缓存
-
-如果你已经看到多语言歌词显示，可以跳过此步骤。
-
-两种方法
-
-方法一：浏览器右键检查 → 网络 → 勾选“禁用缓存”，然后刷新页面
-
-方法二：浏览器右键检查 → 应用程序 → 存储 → 清除网站数据，然后刷新页面
-
-## 原理
-
-- 劫持歌词文本加载，合并开始时间相同的歌词行
-- 劫持歌词渲染过程，支持歌词中 HTML 代码解析
-- 修改滚动调用的函数
-
-## 另外
-
-分享一个歌词css，粘贴到设置里的自定义css即可
-
-- 字体大小：电脑端 150%，手机端 100%
-- 歌词居中
-
-```css
-.listItem.lyricsItem {
-	margin: 0 0;
-	font-size: 150%;
-}
-.listItemBody.itemAction.listItemBody-noleftpadding.listItemBody-noverticalpadding.listItemBody-reduceypadding.listItemBody-1-lines {
-    text-align: center;
-}
-:root{
-	--lyrics-transform-origin: center center !important;
-}
-.vertical-list.itemsContainer.osdLyricsItemsContainer.padded-bottom{
-	-webkit-padding-end: 0 !important;
-    padding-inline-end: 0 !important;
-}
-@media(max-width:500px){
-	.listItem.lyricsItem {
-		font-size: 100%;
-	}
-}
+```text
+Emby 容器名或容器 ID（不是镜像名）
 ```
+
+之后可以选择：
+
+1. 安装或重新生成并启用增强版
+2. 切换到原版，保留全部备份
+3. 重新启用增强版
+4. 查看状态
+
+也可以直接传参：
+
+```bash
+sh docker-install.sh <容器名或ID> install
+sh docker-install.sh <容器名或ID> original
+sh docker-install.sh <容器名或ID> enhanced
+sh docker-install.sh <容器名或ID> status
+```
+
+`undo` 可作为 `original` 的兼容别名：
+
+```bash
+sh docker-install.sh <容器名或ID> undo
+```
+
+切换文件后不需要重启 Emby，更不要为了切换而重建容器。请强制刷新浏览器；仍显示旧内容时，再清除 Emby 站点缓存。
+
+## 备份与容器更新警告
+
+原始文件和生成后的增强文件保存在：
+
+```text
+/config/emby-lyric-enhance/4.9.5.0/
+├── original/
+│   ├── lyrics.js
+│   └── lyrics.css
+└── enhanced/
+    ├── lyrics.js
+    └── lyrics.css
+```
+
+> **不要通过删除、重建容器或重建镜像来切换原版/增强版。** 注入发生在容器的 `/system` 中，容器更新或重建会覆盖该目录，当前增强效果会消失。
+
+如果 `/config` 已正确映射到宿主机，备份会随 `/config` 保留。重建后仍是 Emby 4.9.5.0 时，可以重新运行本脚本注入；如果已经升级到其他 Emby 版本，请等待对应适配，脚本会因文件指纹不同而停止，不会用 4.9.5.0 的旧备份覆盖新版本。
+
+如果脚本未检测到 `/config` 持久挂载，会先警告并要求确认。
+
+## 修改范围
+
+4.9.5.0 适配只修改容器中的：
+
+```text
+/system/dashboard-ui/videoosd/lyrics.js
+/system/dashboard-ui/videoosd/lyrics.css
+```
+
+不会修改：
+
+```text
+/system/dashboard-ui/modules/emby-elements/emby-itemscontainer/emby-itemscontainer.js
+/system/dashboard-ui/modules/listview/listview.js
+/system/dashboard-ui/videoosd/videoosd.js
+/system/dashboard-ui/videoosd/videoosd.html
+```
+
+仓库中的注入载荷位于：
+
+```text
+adapters/4.9.5.0/lyrics.inject.js
+adapters/4.9.5.0/lyrics.inject.css
+```
+
+## 工作原理
+
+`lyrics.js` 原生请求返回 `TrackEvents` 后，适配器按 `StartPositionTicks + 原始顺序` 稳定排序，并把相同开始时间的事件合并为一个歌词项目。增强 LRC 示例：
+
+```text
+<00:59.62>四<00:59.87>周<01:00.24>环<01:01.49>
+```
+
+会转换为带绝对开始、结束时间的逐字数据。每次 Emby 调用 `onTimeUpdate(positionTicks, runtimeTicks)` 时，先执行原生整行选中和滚动，再按绝对播放位置将字词设置为 `pending`、`active` 或 `played`，因此快进和后退不依赖旧状态。
+
+歌词虚拟列表变化由 `MutationObserver` 监听；新增或复用的可见节点会根据 `data-index` 重建。歌词文本永远不会整体写入 `innerHTML`，因此 `<img>`、`<script>` 和事件属性只会显示成文字。
+
+## 版本校验
+
+本适配识别的原始文件：
+
+```text
+lyrics.js
+32b712b634d0191da1dec23eebd63bde2a94bba67ba1fd6cea5b2959309649bb
+
+lyrics.css
+82c4df323c0a6dd100863d0e261a5e09317530c8f39cd55c203ebac8899224b7
+```
+
+文件已被其他插件修改、Emby 版本不同、原始备份不完整或注入锚点数量不为 1 时，安装会停止。
+
+## 旧版本说明
+
+`replacement/` 和 `main.template.sh` 是原有 4.8.11.0 全局劫持方案，4.9.5.0 安装器不会使用它们。不要把两套适配同时注入同一个容器。
+
