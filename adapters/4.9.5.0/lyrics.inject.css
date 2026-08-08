@@ -28,15 +28,11 @@
     opacity: .46;
 }
 
-.elyric-word-active {
+.elyric-word-active,
+.elyric-word-played {
     color: var(--theme-primary-color, #fff);
     opacity: 1;
     text-shadow: 0 0 .45em color-mix(in srgb, var(--theme-primary-color, #fff) 45%, transparent);
-}
-
-.elyric-word-played {
-    color: var(--theme-primary-color, currentColor);
-    opacity: .9;
 }
 
 @media (max-width: 500px) {
