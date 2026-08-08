@@ -131,6 +131,8 @@ LyricsRenderer.prototype.destroy = function () {};
 
 const adapterPath = path.join(__dirname, "..", "adapters", "4.9.5.0", "lyrics.inject.js");
 const adapter = fs.readFileSync(adapterPath, "utf8");
+const adapterCssPath = path.join(__dirname, "..", "adapters", "4.9.5.0", "lyrics.inject.css");
+const adapterCss = fs.readFileSync(adapterCssPath, "utf8");
 new Function(
     "LyricsRenderer",
     "document",
@@ -185,6 +187,10 @@ function createLyricElement(index) {
     words = renderer.itemsContainer.querySelectorAll("[data-elyric-start][data-elyric-end]");
     assert(words[0].classList.contains("elyric-word-played"));
     assert(words[1].classList.contains("elyric-word-active"), "animation frame should cross the 500ms boundary");
+    assert(
+        /\.elyric-word-active\s*,\s*\.elyric-word-played\s*\{[^}]*color:[^}]*opacity:\s*1[^}]*text-shadow:/s.test(adapterCss),
+        "played and active words should share the cumulative highlight style"
+    );
 
     clockNow = 800;
     renderer.onTimeUpdate(4000000, 20000000);
