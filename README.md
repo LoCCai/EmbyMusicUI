@@ -2,94 +2,88 @@
 
 [中文说明](./README_CN.md)
 
-EmbyLyricEnhance is a plugin for enhancing the display of lyrics in Emby. Features include:
+EmbyLyricEnhance improves lyric rendering in Emby Web.
 
-* Bilingual lyrics highlighting in a single block
-* Parsing HTML code within the lyrics
-* Vertically centered lyrics display
+Current adapter: **Emby Server 4.9.5.0**
 
-Compatible Emby version: 4.8.11.0
+## Features
 
-Currently, this plugin cannot be loaded as a standalone JavaScript file and requires modifying the Emby program.
+- Groups original lyrics, romanization, and translations that share a start time
+- Parses enhanced LRC `<mm:ss.xx>` word timing and recomputes state after playback, seek forward, or seek backward
+- Preserves Emby's native line selection, seek action, and scrolling
+- Injects only into the lyric-specific module; it does not patch the shared `listview.js` or `emby-itemscontainer.js`
+- Safely renders lyric text with DOM text nodes; only `<br>` is treated as markup
+- Keeps persistent original/enhanced backups and supports switching between them
+- Refuses unknown files through exact Emby 4.9.5.0 SHA-256 checks
 
-Welcome to submit issues and PRs!
+## Docker installation
 
-## How to Use
-
-### Automatic Installation (Recommended)
-
-If your Emby version matches the above, you can directly download the files from the [Release](https://github.com/oldkingOK/EmbyLyricEnhance/releases) page and replace them. For Docker users, you can use the provided `main.sh` script for one-click modification:
-
-```bash
-docker ps # Find the container name  
-docker cp ./main.sh <container-name>:/tmp/ # Replace <container-name> with your container's name  
-docker exec -it <container-name> /bin/sh /tmp/main.sh  
-```
-
-To undo the changes:
+Download or clone this repository on the **Docker host**, then run:
 
 ```bash
-docker exec -it <container-name> /bin/sh main.sh undo  
+cd EmbyLyricEnhance
+sh docker-install.sh
 ```
 
-### Manual Installation
+The script lists running containers and asks for the Emby **container name or container ID**, not the image name. Its menu can install, switch to the original files, re-enable the enhanced files, or show status.
 
-> Please back up these two files first:
->
-> - `dashboard-ui/modules/emby-elements/emby-itemscontainer/emby-itemscontainer.js`
-> - `dashboard-ui/modules/listview/listview.js`
+Non-interactive commands are also available:
 
-1. Copy the entire content of [replacement/emby-itemscontainer.js](replacement/emby-itemscontainer.js) and paste it before the last `});` in `dashboard-ui/modules/emby-elements/emby-itemscontainer/emby-itemscontainer.js`.
-2. In the same file, replace all occurrences of `toStart` with `toCenter`.
-3. Copy the entire content of [replacement/listview.js](replacement/listview.js) and paste it before the last `});` in `dashboard-ui/modules/listview/listview.js`.
-
-### Refresh Cache
-
-If multilingual lyrics display correctly, you can skip this step.
-
-Two ways to clear cache:
-
-1. Right-click → Inspect → Network → check *Disable cache*, then refresh the page
-2. Right-click → Inspect → Application → Storage → Clear site data, then refresh the page
-
-## How It Works
-
-* Hijacks the lyrics text loading to merge lyrics lines with the same start time
-* Hijacks the rendering process to parse HTML code inside lyrics
-* Modifies the lyrics scroll function
-
-## In Addition
-
-Share a lyrics css that I use myself, just paste it into the custom css in the settings
-
-- Font size: 150% on PC, 100% on mobile
-- Lyrics centered
-
-```css
-.listItem.lyricsItem {
-	margin: 0 0;
-	font-size: 150%;
-}
-.listItemBody.itemAction.listItemBody-noleftpadding.listItemBody-noverticalpadding.listItemBody-reduceypadding.listItemBody-1-lines {
-    text-align: center;
-}
-:root{
-	--lyrics-transform-origin: center center !important;
-}
-.vertical-list.itemsContainer.osdLyricsItemsContainer.padded-bottom{
-	-webkit-padding-end: 0 !important;
-    padding-inline-end: 0 !important;
-}
-@media(max-width:500px){
-	.listItem.lyricsItem {
-		font-size: 100%;
-	}
-}
-.lyricsItem-selected .lineplus {
-	width: max-content;
-    background: linear-gradient(to right, lightblue 0%, white 0%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin: 0 auto;
-}
+```bash
+sh docker-install.sh <container-name-or-id> install
+sh docker-install.sh <container-name-or-id> original
+sh docker-install.sh <container-name-or-id> enhanced
+sh docker-install.sh <container-name-or-id> status
 ```
+
+`undo` is accepted as an alias for `original`.
+
+No Emby restart is required after switching. Force-refresh Emby Web and clear the site cache only if the old frontend remains cached.
+
+## Backup and container recreation warning
+
+Backups are stored under:
+
+```text
+/config/emby-lyric-enhance/4.9.5.0/
+├── original/
+└── enhanced/
+```
+
+> **Do not delete/recreate the container or rebuild the image merely to switch between original and enhanced files.** The active patch lives under `/system`, so an image update or container recreation removes the injected copy.
+
+When `/config` is mounted persistently, the backups remain available. If a recreated container still runs Emby 4.9.5.0, run the installer again. Do not apply this adapter after upgrading to a different Emby version; fingerprint validation will stop instead of overwriting a newer frontend with a 4.9.5.0 backup.
+
+The host script warns and asks for confirmation if it cannot detect a persistent `/config` mount.
+
+## Modified files
+
+The 4.9.5.0 adapter changes only:
+
+```text
+/system/dashboard-ui/videoosd/lyrics.js
+/system/dashboard-ui/videoosd/lyrics.css
+```
+
+The payload is stored in:
+
+```text
+adapters/4.9.5.0/lyrics.inject.js
+adapters/4.9.5.0/lyrics.inject.css
+```
+
+It does not modify shared list rendering, `videoosd.js`, or `videoosd.html`.
+
+## Safety and validation
+
+The installer recognizes these unmodified Emby 4.9.5.0 files:
+
+```text
+lyrics.js   32b712b634d0191da1dec23eebd63bde2a94bba67ba1fd6cea5b2959309649bb
+lyrics.css  82c4df323c0a6dd100863d0e261a5e09317530c8f39cd55c203ebac8899224b7
+```
+
+Installation stops if a file was modified by another patch, the version is unknown, a backup is incomplete, or the injection anchor is not unique.
+
+The legacy `replacement/` files and `main.template.sh` belong to the previous Emby 4.8.11.0 global-hook adapter. Do not inject both adapters into one container.
+
