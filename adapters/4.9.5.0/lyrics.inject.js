@@ -35,7 +35,7 @@
         return (Number(minutes) * 60 + Number(seconds)) * TICKS_PER_SECOND + fractionTicks;
     }
 
-    function parseEnhancedLine(value, fallbackEndTicks) {
+    function parseEnhancedLine(value, fallbackEndTicks, allowOpenEnded) {
         var text = null == value ? "" : String(value);
         var pattern = /<(\d{1,4}):([0-5]\d)(?:[.:](\d{1,3}))?>/g;
         var markers = [];
@@ -72,7 +72,11 @@
 
             var endTicks = i + 1 < markers.length ? markers[i + 1].ticks : fallbackEndTicks;
             if (!(endTicks > markers[i].ticks)) {
-                return null;
+                if (allowOpenEnded && i === markers.length - 1) {
+                    endTicks = markers[i].ticks + TICKS_PER_SECOND;
+                } else {
+                    return null;
+                }
             }
 
             words.push({
@@ -90,7 +94,10 @@
         return {
             text: plainText,
             words: words,
-            lastBoundaryTicks: markers[markers.length - 1].ticks
+            lastBoundaryTicks: Math.max(
+                markers[markers.length - 1].ticks,
+                words[words.length - 1].endTicks
+            )
         };
     }
 
@@ -154,8 +161,9 @@
                     : group.startTicks + 5 * TICKS_PER_SECOND;
 
             var lastBoundaryTicks = group.startTicks;
+            var allowOpenEnded = !(nextStartTicks > group.startTicks);
             var sublines = group.events.map(function (event) {
-                var parsed = parseEnhancedLine(event.Text, fallbackEndTicks);
+                var parsed = parseEnhancedLine(event.Text, fallbackEndTicks, allowOpenEnded);
                 if (parsed) {
                     if (parsed.lastBoundaryTicks > lastBoundaryTicks) {
                         lastBoundaryTicks = parsed.lastBoundaryTicks;
@@ -285,6 +293,89 @@
         return control;
     }
 
+    function getThemeControlHost(renderer) {
+        var container = renderer.itemsContainer;
+        if (!container) {
+            return null;
+        }
+        var parent = container.parentNode;
+        if (parent
+            && parent !== document.body
+            && parent !== document.documentElement
+            && parent.appendChild) {
+            return parent;
+        }
+        return container;
+    }
+
+    function removeStaleThemeControls(host, currentControl) {
+        if (!host || !host.querySelectorAll) {
+            return;
+        }
+        var controls = host.querySelectorAll(".elyric-theme-picker");
+        for (var i = 0; i < controls.length; i++) {
+            if (controls[i] !== currentControl && controls[i].parentNode) {
+                controls[i].parentNode.removeChild(controls[i]);
+            }
+        }
+    }
+
+    function isThemeContextVisible(renderer) {
+        var container = renderer.itemsContainer;
+        if (!container) {
+            return false;
+        }
+        if ("boolean" === typeof container.isConnected && !container.isConnected) {
+            return false;
+        }
+        if (container.getClientRects && !container.getClientRects().length) {
+            return false;
+        }
+        if (container.getBoundingClientRect
+            && container.contains
+            && document.elementFromPoint) {
+            var rect = container.getBoundingClientRect();
+            var left = Math.max(0, rect.left);
+            var right = Math.min(
+                "undefined" !== typeof window && window.innerWidth ? window.innerWidth : rect.right,
+                rect.right
+            );
+            var top = Math.max(0, rect.top);
+            var bottom = Math.min(
+                "undefined" !== typeof window && window.innerHeight ? window.innerHeight : rect.bottom,
+                rect.bottom
+            );
+            if (!(right > left && bottom > top)) {
+                return false;
+            }
+            var front = document.elementFromPoint(
+                left + (right - left) / 2,
+                top + (bottom - top) / 2
+            );
+            if (front
+                && front !== container
+                && !container.contains(front)
+                && !(front.contains && front.contains(container))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function syncThemeControlVisibility(renderer) {
+        var control = renderer.__elyricThemeControl;
+        if (!control) {
+            return;
+        }
+        if (isThemeContextVisible(renderer)) {
+            control.removeAttribute("hidden");
+            control.setAttribute("aria-hidden", "false");
+        } else {
+            control.setAttribute("hidden", "hidden");
+            control.setAttribute("aria-hidden", "true");
+        }
+    }
+
     function ensureThemeControl(renderer) {
         var container = renderer.itemsContainer;
         if (!container || !container.appendChild || "undefined" === typeof document) {
@@ -298,10 +389,12 @@
         if (!renderer.__elyricThemeControl) {
             renderer.__elyricThemeControl = createThemeControl(renderer);
         }
-        var host = document.body && document.body.appendChild ? document.body : container;
+        var host = getThemeControlHost(renderer);
+        removeStaleThemeControls(host, renderer.__elyricThemeControl);
         if (renderer.__elyricThemeControl.parentNode !== host) {
             host.appendChild(renderer.__elyricThemeControl);
         }
+        syncThemeControlVisibility(renderer);
     }
 
     function removeThemeControl(renderer) {

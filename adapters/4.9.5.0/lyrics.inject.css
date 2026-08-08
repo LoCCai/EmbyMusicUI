@@ -41,6 +41,10 @@
     pointer-events: auto;
 }
 
+.elyric-theme-picker[hidden] {
+    display: none !important;
+}
+
 .elyric-theme-picker-label::before {
     content: "🎨";
     margin-right: .3rem;

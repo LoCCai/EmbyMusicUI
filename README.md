@@ -56,6 +56,8 @@ When the lyric view is open, use the **Lyric style** selector in the upper-right
 
 Switching does not require a refresh, reinjection, or Emby restart. The choice is stored in the current browser's `localStorage` under `emby-lyric-enhance.theme` and is restored on the next lyric view. Each browser and device keeps its own choice.
 
+The selector is scoped to the active lyric playback page. It hides when playback is left, the page is hidden, or the old playback host leaves the document. Reopening playback moves the existing selector to the current host and removes stale duplicates.
+
 This release remains an Emby Web frontend adapter. It covers Emby Web and clients that reuse that frontend, but cannot force native Android, iOS, or TV lyric views to use these themes. A C# administration plugin and server-wide defaults remain a later phase.
 
 ## Backup and container recreation warning
@@ -97,6 +99,8 @@ It does not modify shared list rendering, `videoosd.js`, or `videoosd.html`.
 The word layer uses `requestAnimationFrame` to interpolate playback position between native callbacks, normally updating at the display refresh rate. Interpolation starts only after two consecutive native samples confirm forward playback. It stops for pause, buffering, seeking, or a hidden page, and never extrapolates one sample for more than 800 ms. Emby's native line selection and scrolling retain their original cadence.
 
 Played and active words share the highlight style, so the highlighted portion grows cumulatively from the beginning of the line through the current word instead of lighting only one word at a time.
+
+The final enhanced lyric group may omit its closing timestamp. If its last word extends beyond the event's fallback end, the adapter gives only that final word a one-second safety boundary. Intermediate groups still have to close before the next line starts, preventing highlight spillover.
 
 ## Safety and validation
 

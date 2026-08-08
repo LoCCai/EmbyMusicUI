@@ -79,6 +79,26 @@ class FakeNode {
     get firstChild() {
         return this.children[0] || null;
     }
+    get isConnected() {
+        let node = this;
+        while (node.parentNode) node = node.parentNode;
+        return node === document.body;
+    }
+    getClientRects() {
+        return this.isConnected ? [{}] : [];
+    }
+    getBoundingClientRect() {
+        return this.isConnected
+            ? { left: 0, right: 100, top: 0, bottom: 100 }
+            : { left: 0, right: 0, top: 0, bottom: 0 };
+    }
+    contains(node) {
+        while (node) {
+            if (node === this) return true;
+            node = node.parentNode;
+        }
+        return false;
+    }
     get textContent() {
         return this.tagName ? this.children.map((child) => child.textContent).join("") : this.nodeText;
     }
@@ -112,6 +132,10 @@ const createdTags = [];
 const document = {
     hidden: false,
     body: new FakeNode("body"),
+    frontElement: null,
+    elementFromPoint() {
+        return this.frontElement || this.body;
+    },
     createElement(tagName) {
         createdTags.push(tagName.toLowerCase());
         return new FakeNode(tagName.toLowerCase());
@@ -190,7 +214,10 @@ function createLyricElement(index) {
 (async () => {
     const renderer = new LyricsRenderer();
     const visible = createLyricElement(0);
+    const playbackPage = new FakeNode("div");
+    document.body.appendChild(playbackPage);
     renderer.itemsContainer = new FakeNode("div");
+    playbackPage.appendChild(renderer.itemsContainer);
     renderer.itemsContainer.appendChild(visible.item);
     renderer.sourceEvents = [
         {
@@ -209,6 +236,8 @@ function createLyricElement(index) {
     assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 1);
     const themeSelect = document.body.querySelector(".elyric-theme-select");
     assert(themeSelect, "theme picker should be attached to the playback page overlay");
+    assert.strictEqual(renderer.__elyricThemeControl.parentNode, playbackPage,
+        "theme picker must stay inside the playback page instead of document.body");
     assert.strictEqual(themeSelect.children.length, 5, "all built-in themes should be selectable");
 
     themeSelect.value = "focus";
@@ -222,9 +251,44 @@ function createLyricElement(index) {
     assert(words[1].classList.contains("elyric-word-pending"));
     assert(visible.body.textContent.includes("<img src=x onerror=bad>translation"));
     assert(!createdTags.includes("img"), "lyric HTML must remain text");
+    assert(!createdTags.includes("canvas") && !createdTags.includes("svg"),
+        "the lyric adapter must never create waveform or curve elements");
     assert.strictEqual(frames.size, 0, "one native sample must not start interpolation");
     assert(visible.item.classList.contains("elyric-line-current"));
     assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 1, "time updates must not duplicate the picker");
+
+    const coveringPage = new FakeNode("div");
+    document.body.appendChild(coveringPage);
+    document.frontElement = coveringPage;
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("hidden"), "hidden",
+        "a different page covering playback must hide the picker");
+    document.frontElement = null;
+    document.body.removeChild(coveringPage);
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("hidden"), null,
+        "the picker should return when playback is topmost again");
+
+    document.body.removeChild(playbackPage);
+    assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 0,
+        "leaving the playback page must also remove the picker from the visible document tree");
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("hidden"), "hidden",
+        "a detached playback page must hide its retained picker");
+    const reopenedPlaybackPage = new FakeNode("div");
+    document.body.appendChild(reopenedPlaybackPage);
+    const staleControl = new FakeNode("div");
+    staleControl.classList.add("elyric-theme-picker");
+    reopenedPlaybackPage.appendChild(staleControl);
+    reopenedPlaybackPage.appendChild(renderer.itemsContainer);
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(renderer.__elyricThemeControl.parentNode, reopenedPlaybackPage,
+        "reopening playback should move the existing picker to the current page host");
+    assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 1,
+        "reopening playback must restore exactly one picker");
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("hidden"), null,
+        "the picker should become visible again on the active playback page");
+    assert.strictEqual(staleControl.parentNode, null, "reopening playback should remove stale duplicate controls");
 
     clockNow = 400;
     renderer.onTimeUpdate(4000000, 20000000);
@@ -270,14 +334,71 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), null);
 
     const secondRenderer = new LyricsRenderer();
+    const secondPlaybackPage = new FakeNode("div");
+    document.body.appendChild(secondPlaybackPage);
     secondRenderer.itemsContainer = new FakeNode("div");
+    secondPlaybackPage.appendChild(secondRenderer.itemsContainer);
     secondRenderer.sourceEvents = renderer.sourceEvents;
     await secondRenderer.getItemsInternal();
     assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-theme"), "focus",
         "the selected theme should be restored from browser storage");
     secondRenderer.destroy();
 
-    console.log("adapter parsing, safety, themes, seeking, pause and smooth timing: ok");
+    const openEndedRenderer = new LyricsRenderer();
+    const openEndedPlaybackPage = new FakeNode("div");
+    document.body.appendChild(openEndedPlaybackPage);
+    openEndedRenderer.itemsContainer = new FakeNode("div");
+    openEndedPlaybackPage.appendChild(openEndedRenderer.itemsContainer);
+    openEndedRenderer.sourceEvents = [
+        {
+            Id: "last-original",
+            Text: "夕阳山外山",
+            StartPositionTicks: 2239800000,
+            EndPositionTicks: 0
+        },
+        {
+            Id: "last-romanization",
+            Text: "<03:43.98>zi <03:45.00>yoeng <03:46.03>san <03:47.31>oi <03:49.40>san",
+            StartPositionTicks: 2239800000,
+            EndPositionTicks: 0
+        }
+    ];
+    const openEndedItems = await openEndedRenderer.getItemsInternal();
+    const openEndedLine = openEndedItems[0].__elyric.sublines[1];
+    assert(openEndedLine.words, "the final enhanced line should allow a missing closing timestamp");
+    assert.strictEqual(openEndedLine.words.length, 5);
+    assert.strictEqual(openEndedLine.text.trim(), "zi yoeng san oi san");
+    assert(openEndedLine.words[4].endTicks > openEndedLine.words[4].startTicks,
+        "the final open-ended word should receive an inferred end time");
+    assert(openEndedItems[0].EndPositionTicks >= openEndedLine.words[4].endTicks,
+        "the final lyric item should include the inferred word boundary");
+    openEndedRenderer.destroy();
+
+    const boundedRenderer = new LyricsRenderer();
+    const boundedPlaybackPage = new FakeNode("div");
+    document.body.appendChild(boundedPlaybackPage);
+    boundedRenderer.itemsContainer = new FakeNode("div");
+    boundedPlaybackPage.appendChild(boundedRenderer.itemsContainer);
+    boundedRenderer.sourceEvents = [
+        {
+            Id: "malformed-middle",
+            Text: "<00:00.00>A<00:02.00>B",
+            StartPositionTicks: 0,
+            EndPositionTicks: 0
+        },
+        {
+            Id: "next-line",
+            Text: "next",
+            StartPositionTicks: 15000000,
+            EndPositionTicks: 25000000
+        }
+    ];
+    const boundedItems = await boundedRenderer.getItemsInternal();
+    assert.strictEqual(boundedItems[0].__elyric.sublines[0].words, null,
+        "an intermediate open ending must not extend beyond the next lyric line");
+    boundedRenderer.destroy();
+
+    console.log("adapter parsing, open endings, safety, themes, navigation, seeking, pause and smooth timing: ok");
 })().catch((error) => {
     console.error(error);
     process.exitCode = 1;
