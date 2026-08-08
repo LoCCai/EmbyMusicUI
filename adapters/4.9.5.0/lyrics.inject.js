@@ -3,6 +3,7 @@
     "use strict";
 
     var TICKS_PER_SECOND = 10000000;
+    var MAX_INTERPOLATION_MS = 800;
     var originalGetItemsInternal = LyricsRenderer.prototype.getItemsInternal;
     var originalOnTimeUpdate = LyricsRenderer.prototype.onTimeUpdate;
     var originalDestroy = LyricsRenderer.prototype.destroy;
@@ -281,6 +282,99 @@
         }
     }
 
+    function nowMilliseconds() {
+        if ("undefined" !== typeof performance && performance && performance.now) {
+            return performance.now();
+        }
+        return Date.now();
+    }
+
+    function cancelSmoothFrame(renderer) {
+        if (null != renderer.__elyricFrameId && "undefined" !== typeof cancelAnimationFrame) {
+            cancelAnimationFrame(renderer.__elyricFrameId);
+        }
+        renderer.__elyricFrameId = null;
+        if (renderer.__elyricClock) {
+            renderer.__elyricClock.running = false;
+        }
+    }
+
+    function scheduleSmoothFrame(renderer) {
+        if (null != renderer.__elyricFrameId || "undefined" === typeof requestAnimationFrame) {
+            return;
+        }
+
+        renderer.__elyricFrameId = requestAnimationFrame(function (frameNow) {
+            renderer.__elyricFrameId = null;
+            var clock = renderer.__elyricClock;
+            if (!clock || !clock.running || ("undefined" !== typeof document && document.hidden)) {
+                cancelSmoothFrame(renderer);
+                return;
+            }
+
+            var elapsedMs = Math.max(0, frameNow - clock.anchorNow);
+            var interpolatedMs = Math.min(elapsedMs, MAX_INTERPOLATION_MS);
+            var positionTicks = clock.anchorPositionTicks
+                + interpolatedMs * TICKS_PER_SECOND / 1000;
+            if (clock.runtimeTicks > 0) {
+                positionTicks = Math.min(positionTicks, clock.runtimeTicks);
+            }
+            updateWordStates(renderer, positionTicks);
+
+            if (elapsedMs < MAX_INTERPOLATION_MS
+                && (!clock.runtimeTicks || positionTicks < clock.runtimeTicks)) {
+                scheduleSmoothFrame(renderer);
+            } else {
+                clock.running = false;
+            }
+        });
+    }
+
+    function syncSmoothClock(renderer, positionTicks, runtimeTicks) {
+        positionTicks = Number(positionTicks);
+        runtimeTicks = Number(runtimeTicks);
+        if (!isFinite(positionTicks)) {
+            cancelSmoothFrame(renderer);
+            return;
+        }
+
+        var now = nowMilliseconds();
+        var clock = renderer.__elyricClock;
+        if (!clock) {
+            clock = renderer.__elyricClock = {
+                anchorNow: now,
+                anchorPositionTicks: positionTicks,
+                lastNativeNow: null,
+                lastNativePositionTicks: null,
+                runtimeTicks: 0,
+                running: false
+            };
+        }
+
+        var running = false;
+        if (null != clock.lastNativeNow && null != clock.lastNativePositionTicks) {
+            var wallDeltaMs = now - clock.lastNativeNow;
+            var positionDeltaMs = (positionTicks - clock.lastNativePositionTicks)
+                / TICKS_PER_SECOND * 1000;
+            running = wallDeltaMs > 0
+                && positionDeltaMs >= Math.max(1, wallDeltaMs * .1)
+                && positionDeltaMs <= wallDeltaMs * 2.5 + 250;
+        }
+
+        clock.anchorNow = now;
+        clock.anchorPositionTicks = positionTicks;
+        clock.lastNativeNow = now;
+        clock.lastNativePositionTicks = positionTicks;
+        clock.runtimeTicks = isFinite(runtimeTicks) && runtimeTicks > 0 ? runtimeTicks : 0;
+        clock.running = running && !("undefined" !== typeof document && document.hidden);
+
+        if (clock.running) {
+            scheduleSmoothFrame(renderer);
+        } else {
+            cancelSmoothFrame(renderer);
+        }
+    }
+
     LyricsRenderer.prototype.getItemsInternal = function () {
         var renderer = this;
         return originalGetItemsInternal.apply(this, arguments).then(function (events) {
@@ -295,14 +389,17 @@
         originalOnTimeUpdate.apply(this, arguments);
         renderVisibleLyrics(this);
         updateWordStates(this, positionTicks);
+        syncSmoothClock(this, positionTicks, runtimeTicks);
     };
 
     LyricsRenderer.prototype.destroy = function () {
+        cancelSmoothFrame(this);
         if (this.__elyricObserver) {
             this.__elyricObserver.disconnect();
         }
         this.__elyricObserver = null;
         this.__elyricItems = null;
+        this.__elyricClock = null;
         return originalDestroy.apply(this, arguments);
     };
 })();
