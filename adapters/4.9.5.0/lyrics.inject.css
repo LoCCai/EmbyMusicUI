@@ -1,0 +1,57 @@
+/* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
+.elyric-subline {
+    display: block;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.elyric-subline + .elyric-subline {
+    margin-top: .16em;
+    font-size: .66em;
+    font-weight: 400;
+    line-height: 1.25;
+    opacity: .72;
+}
+
+.elyric-subline-3,
+.elyric-subline-4 {
+    font-size: .6em;
+    opacity: .6;
+}
+
+.elyric-word {
+    transition: color .12s linear, opacity .12s linear, text-shadow .12s linear;
+}
+
+.elyric-word-pending {
+    opacity: .46;
+}
+
+.elyric-word-active {
+    color: var(--theme-primary-color, #fff);
+    opacity: 1;
+    text-shadow: 0 0 .45em color-mix(in srgb, var(--theme-primary-color, #fff) 45%, transparent);
+}
+
+.elyric-word-played {
+    color: var(--theme-primary-color, currentColor);
+    opacity: .9;
+}
+
+@media (max-width: 500px) {
+    .lyricsItem {
+        font-size: 150%;
+    }
+
+    .elyric-subline + .elyric-subline {
+        font-size: .7em;
+    }
+}
+
+@media (hover: none) and (min-width: 1000px) {
+    .elyric-subline + .elyric-subline {
+        font-size: .72em;
+    }
+}
+/* ELYRIC_ENHANCE_END:4.9.5.0 */
