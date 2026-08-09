@@ -293,10 +293,11 @@ function createLyricElement(index) {
 }
 
 (async () => {
-    const nativeClicks = { back: 0, previous: 0, playPause: 0, stop: 0, next: 0, lyrics: 0, shuffle: 0, repeat: 0, queue: 0, mute: 0 };
+    const nativeClicks = { back: 0, cast: 0, previous: 0, playPause: 0, stop: 0, next: 0, lyrics: 0, shuffle: 0, repeat: 0, queue: 0, mute: 0 };
     const nativeControls = {};
     const nativeDefinitions = [
         ["back", "headerBackButton"],
+        ["cast", "headerCastButton"],
         ["previous", "btnPreviousTrack"],
         ["playPause", "videoOsd-btnPause"],
         ["stop", "btnVideoOsd-stop"],
@@ -340,6 +341,8 @@ function createLyricElement(index) {
     playbackPage.classList.add("view-videoosd-videoosd");
     document.body.appendChild(playbackPage);
     Object.values(nativeControls).forEach((button) => playbackPage.appendChild(button));
+    document.body.appendChild(nativeControls.back);
+    document.body.appendChild(nativeControls.cast);
     playbackPage.appendChild(nativeSeek);
     playbackPage.appendChild(nativeVolume);
     renderer.itemsContainer = new FakeNode("div");
@@ -390,6 +393,10 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricPlayerArtist.textContent, "Emby 音乐");
     assert.strictEqual(renderer.__elyricPlayerButtons.shuffle.getAttribute("data-elyric-active"), "true",
         "native shuffle state should be reflected by the custom control");
+    assert.strictEqual(renderer.__elyricPlayerButtons.back.disabled, false,
+        "the custom back button should find Emby's body-level playback header");
+    assert.strictEqual(renderer.__elyricPlayerButtons.cast.disabled, false,
+        "the custom cast button should proxy Emby's body-level cast control");
     const themeSelect = document.body.querySelector(".elyric-theme-select");
     assert(themeSelect, "theme picker should be attached to the playback page overlay");
     assert.strictEqual(themeSelect.value, "apple");
@@ -482,17 +489,25 @@ function createLyricElement(index) {
     assert(!createdTags.includes("canvas") && !createdTags.includes("svg"),
         "the lyric adapter must never create waveform or curve elements");
     renderer.__elyricPlayerButtons.next.click();
+    renderer.__elyricPlayerButtons.playPause.dispatchEvent({ type: "pointerdown", stopPropagation() {} });
     renderer.__elyricPlayerButtons.playPause.click();
     renderer.__elyricPlayerButtons.stop.click();
     renderer.__elyricPlayerButtons.mute.click();
+    renderer.__elyricPlayerButtons.back.click();
+    renderer.__elyricPlayerButtons.cast.click();
     renderer.__elyricSettingsButton.click();
     renderer.__elyricPlayerButtons.queue.click();
     renderer.itemsContainer.classList.add("hide");
     renderer.onTimeUpdate(0, 20000000);
     assert.strictEqual(nativeClicks.next, 1, "custom next should delegate to Emby's native transport");
     assert.strictEqual(nativeClicks.playPause, 1, "custom play/pause should delegate to Emby's native transport");
+    assert.strictEqual(renderer.__elyricPlayerButtons.playPause.getAttribute("data-elyric-playing"), "true",
+        "pointer-down playback should update the custom control optimistically");
+    assert.strictEqual(renderer.__elyricPlayerButtons.playPause.textContent, "Ⅱ");
     assert.strictEqual(nativeClicks.stop, 1);
     assert.strictEqual(nativeClicks.mute, 1);
+    assert.strictEqual(nativeClicks.back, 1);
+    assert.strictEqual(nativeClicks.cast, 1);
     assert.strictEqual(nativeClicks.queue, 1, "custom queue should delegate to Emby's native queue view");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("hidden"), null,
         "hiding the lyric section for the queue must keep the page-level player shell visible");
@@ -531,17 +546,25 @@ function createLyricElement(index) {
     assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 1, "time updates must not duplicate the picker");
 
     const coveringPage = new FakeNode("div");
+    renderer.__elyricSettingsButton.click();
+    assert.strictEqual(settingsPanel.getAttribute("hidden"), null);
     document.body.appendChild(coveringPage);
     document.frontElement = coveringPage;
     renderer.onTimeUpdate(0, 20000000);
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("hidden"), "hidden",
         "a different page covering playback must hide the picker");
+    assert.strictEqual(settingsPanel.getAttribute("hidden"), "hidden",
+        "a temporarily covered playback page must also hide its settings drawer");
+    assert.strictEqual(renderer.__elyricSettingsButton.getAttribute("aria-expanded"), "true",
+        "transient visibility sampling must not convert a hidden drawer into a user close action");
     assert(!document.body.classList.contains("elyric-player-active-page"));
     document.frontElement = null;
     document.body.removeChild(coveringPage);
     renderer.onTimeUpdate(0, 20000000);
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("hidden"), null,
         "the picker should return when playback is topmost again");
+    assert.strictEqual(settingsPanel.getAttribute("hidden"), null,
+        "an open settings drawer should return with the same playback renderer");
     assert(document.body.classList.contains("elyric-player-active-page"));
 
     document.body.removeChild(playbackPage);
@@ -591,6 +614,10 @@ function createLyricElement(index) {
         "the native queue should be restyled inside the enhanced player");
     assert(adapterCss.includes(".elyric-player-settings-panel"),
         "the enhanced player should provide a themed settings drawer");
+    assert(adapterCss.includes(".videoOsdBottom-maincontrols"),
+        "the native OSD control layer should be visually suppressed behind custom controls");
+    assert(adapterCss.includes(".videoOsdHeader"),
+        "the native header should be visually replaced after back and cast actions are proxied");
     ["album", "vinyl", "lyrics"].forEach((layoutId) => {
         assert(adapterCss.includes(`data-elyric-player-layout="${layoutId}"`), `${layoutId} layout CSS should exist`);
     });

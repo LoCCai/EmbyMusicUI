@@ -782,6 +782,11 @@
     font-weight: 300;
 }
 
+.elyric-player-button-cast {
+    margin-left: auto;
+    font-size: .7rem;
+}
+
 .elyric-player-identity {
     grid-area: identity;
     z-index: 1;
@@ -1193,6 +1198,13 @@
 
 .elyric-player-active-page .videoOsdBottom {
     overflow: visible !important;
+}
+
+/* Keep native controls available as the playback engine, but remove their visual layer. */
+.elyric-player-active-page .videoOsdHeader,
+.elyric-player-active-page .videoOsdBottom-maincontrols {
+    opacity: 0 !important;
+    pointer-events: none !important;
 }
 
 .elyric-player-active-page .osdContentSection[data-contentsection="lyrics"] {

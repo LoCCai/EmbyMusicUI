@@ -210,10 +210,9 @@ switch_enhanced() {
     require_targets
     require_managed_target
     verify_original_backups
-    [ -f "$ENHANCED_ROOT/lyrics.js" ] || create_enhanced_files
-    [ -f "$ENHANCED_ROOT/lyrics.css" ] || create_enhanced_files
-    grep -Fq "$MARKER" "$ENHANCED_ROOT/lyrics.js" || create_enhanced_files
-    grep -Fq "$MARKER" "$ENHANCED_ROOT/lyrics.css" || create_enhanced_files
+    # Regenerate from the payload copied by the current checkout. Reusing a
+    # marker-only cached pair can silently reinstall an older adapter release.
+    create_enhanced_files
     atomic_pair_replace "$ENHANCED_ROOT/lyrics.js" "$ENHANCED_ROOT/lyrics.css"
     say "已重新启用 Emby $VERSION 歌词增强。"
 }

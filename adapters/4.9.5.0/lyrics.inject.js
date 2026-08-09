@@ -10,6 +10,7 @@
     var PUBLIC_CONFIGURATION_PATH = "EmbyLyricEnhance/PublicConfiguration";
     var NATIVE_PLAYER_SELECTORS = {
         back: [".headerBackButton"],
+        cast: [".headerCastButton"],
         previous: [".btnPreviousTrack"],
         playPause: [".videoOsd-btnPause"],
         stop: [".btnVideoOsd-stop"],
@@ -547,6 +548,18 @@
         }
     }
 
+    function syncSettingsPanelVisibility(renderer, pageVisible) {
+        var panel = renderer.__elyricSettingsPanel;
+        if (!panel) {
+            return;
+        }
+        if (pageVisible && renderer.__elyricSettingsOpen) {
+            removeAttributeIfPresent(panel, "hidden");
+        } else {
+            setAttributeIfChanged(panel, "hidden", "hidden");
+        }
+    }
+
     function findPlayerPage(renderer) {
         var element = renderer.itemsContainer;
         while (element) {
@@ -805,19 +818,23 @@
     }
 
     function findNativeControl(renderer, selectors) {
-        var root = renderer.__elyricPlayerPage || findPlayerPage(renderer) || document.body || renderer.itemsContainer;
-        if (!root || !root.querySelectorAll) {
-            return null;
-        }
-        for (var selectorIndex = 0; selectorIndex < selectors.length; selectorIndex++) {
-            var elements = root.querySelectorAll(selectors[selectorIndex]);
-            for (var elementIndex = 0; elementIndex < elements.length; elementIndex++) {
-                var element = elements[elementIndex];
-                if ((!renderer.__elyricThemeControl
-                    || !renderer.__elyricThemeControl.contains
-                    || !renderer.__elyricThemeControl.contains(element))
-                    && isNativeControlCandidate(element)) {
-                    return element;
+        var playerPage = renderer.__elyricPlayerPage || findPlayerPage(renderer);
+        var roots = [playerPage, document.body || renderer.itemsContainer];
+        for (var rootIndex = 0; rootIndex < roots.length; rootIndex++) {
+            var root = roots[rootIndex];
+            if (!root || !root.querySelectorAll || (rootIndex && root === roots[0])) {
+                continue;
+            }
+            for (var selectorIndex = 0; selectorIndex < selectors.length; selectorIndex++) {
+                var elements = root.querySelectorAll(selectors[selectorIndex]);
+                for (var elementIndex = 0; elementIndex < elements.length; elementIndex++) {
+                    var element = elements[elementIndex];
+                    if ((!renderer.__elyricThemeControl
+                        || !renderer.__elyricThemeControl.contains
+                        || !renderer.__elyricThemeControl.contains(element))
+                        && isNativeControlCandidate(element)) {
+                        return element;
+                    }
                 }
             }
         }
@@ -837,6 +854,32 @@
         return true;
     }
 
+    function setPlayPausePresentation(renderer, playing) {
+        var button = renderer.__elyricPlayerButtons && renderer.__elyricPlayerButtons.playPause;
+        if (!button) {
+            return;
+        }
+        replaceElementText(button, playing ? "Ⅱ" : "▶");
+        setAttributeIfChanged(button, "aria-label", playing ? "暂停" : "播放");
+        setAttributeIfChanged(button, "title", playing ? "暂停" : "播放");
+        setAttributeIfChanged(button, "data-elyric-tooltip", playing ? "暂停" : "播放");
+        setAttributeIfChanged(button, "data-elyric-playing", playing ? "true" : "false");
+    }
+
+    function activatePlayerAction(renderer, action) {
+        if ("back" === action || "lyrics" === action || "queue" === action) {
+            setSettingsPanelOpen(renderer, false);
+        }
+        if ("playPause" === action) {
+            var button = renderer.__elyricPlayerButtons && renderer.__elyricPlayerButtons.playPause;
+            var playing = !!(button && "true" === button.getAttribute("data-elyric-playing"));
+            renderer.__elyricOptimisticPlaying = !playing;
+            renderer.__elyricOptimisticPlayingUntil = Date.now() + 1200;
+            setPlayPausePresentation(renderer, !playing);
+        }
+        triggerNativeClick(renderer, action);
+    }
+
     function createPlayerButton(renderer, action, label, icon) {
         var button = document.createElement("button");
         button.className = "elyric-player-button elyric-player-button-" + action;
@@ -846,14 +889,25 @@
         button.setAttribute("title", label);
         button.setAttribute("data-elyric-tooltip", label);
         button.appendChild(document.createTextNode(icon));
+        var activatedOnPointerDown = false;
         button.addEventListener("click", function (event) {
             stopControlEvent(event);
-            if ("back" === action || "lyrics" === action || "queue" === action) {
-                setSettingsPanelOpen(renderer, false);
+            if ("playPause" === action && activatedOnPointerDown) {
+                activatedOnPointerDown = false;
+                return;
             }
-            triggerNativeClick(renderer, action);
+            activatePlayerAction(renderer, action);
         });
-        button.addEventListener("pointerdown", stopControlEvent);
+        button.addEventListener("pointerdown", function (event) {
+            stopControlEvent(event);
+            if ("playPause" === action) {
+                activatedOnPointerDown = true;
+                activatePlayerAction(renderer, action);
+            }
+        });
+        button.addEventListener("pointercancel", function () {
+            activatedOnPointerDown = false;
+        });
         if (!renderer.__elyricPlayerButtons) {
             renderer.__elyricPlayerButtons = {};
         }
@@ -987,7 +1041,7 @@
         if (!buttons) {
             return;
         }
-        ["back", "previous", "playPause", "stop", "next", "lyrics", "shuffle", "repeat", "queue", "mute"].forEach(function (action) {
+        ["back", "cast", "previous", "playPause", "stop", "next", "lyrics", "shuffle", "repeat", "queue", "mute"].forEach(function (action) {
             var button = buttons[action];
             var nativeControl = findNativeControl(renderer, NATIVE_PLAYER_SELECTORS[action] || []);
             if (!button) {
@@ -999,9 +1053,17 @@
                 var playbackLabel = nativeControl.getAttribute
                     && (nativeControl.getAttribute("aria-label") || nativeControl.getAttribute("title")) || "";
                 var playing = /暂停|pause/i.test(playbackLabel);
-                replaceElementText(button, playing ? "Ⅱ" : "▶");
-                setAttributeIfChanged(button, "title", playing ? "暂停" : "播放");
-                setAttributeIfChanged(button, "data-elyric-tooltip", playing ? "暂停" : "播放");
+                var optimisticUntil = Number(renderer.__elyricOptimisticPlayingUntil) || 0;
+                if (optimisticUntil > Date.now()) {
+                    if (playing === renderer.__elyricOptimisticPlaying) {
+                        renderer.__elyricOptimisticPlayingUntil = 0;
+                    } else {
+                        playing = !!renderer.__elyricOptimisticPlaying;
+                    }
+                } else {
+                    renderer.__elyricOptimisticPlayingUntil = 0;
+                }
+                setPlayPausePresentation(renderer, playing);
             }
             var active = !!(nativeControl
                 && nativeControl.classList
@@ -1081,6 +1143,7 @@
         topbarTitle.className = "elyric-player-topbar-title";
         topbarTitle.appendChild(document.createTextNode("NOW PLAYING"));
         topbar.appendChild(topbarTitle);
+        topbar.appendChild(createPlayerButton(renderer, "cast", "在其他设备上播放", "投"));
         control.appendChild(topbar);
 
         var background = document.createElement("img");
@@ -1444,9 +1507,10 @@
         if (isThemeContextVisible(renderer)) {
             removeAttributeIfPresent(control, "hidden");
             setAttributeIfChanged(control, "aria-hidden", "false");
+            syncSettingsPanelVisibility(renderer, true);
             syncPlayerPageState(renderer, true);
         } else {
-            setSettingsPanelOpen(renderer, false);
+            syncSettingsPanelVisibility(renderer, false);
             setAttributeIfChanged(control, "hidden", "hidden");
             setAttributeIfChanged(control, "aria-hidden", "true");
             syncPlayerPageState(renderer, false);
@@ -1530,6 +1594,8 @@
         renderer.__elyricPlayerButtons = null;
         renderer.__elyricScrubbing = false;
         renderer.__elyricVolumeScrubbing = false;
+        renderer.__elyricOptimisticPlaying = null;
+        renderer.__elyricOptimisticPlayingUntil = 0;
         renderer.__elyricLastPositionTicks = null;
         renderer.__elyricLastRuntimeTicks = null;
     }

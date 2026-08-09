@@ -91,6 +91,15 @@ try {
     assert.strictEqual(fs.readFileSync(path.join(originalRoot, "lyrics.js"), "utf8"), originalJs,
         "installation must preserve the validated pristine backup");
 
+    const refreshedPayloadJs = payloadJs.replace("PublicConfiguration", "PublicConfigurationV2");
+    fs.writeFileSync(path.join(payloadRoot, "lyrics.inject.js"), refreshedPayloadJs);
+    const reenable = run("enhanced");
+    assert.strictEqual(reenable.status, 0, `re-enable failed:\n${reenable.stdout}\n${reenable.stderr}`);
+    const reenabledJs = fs.readFileSync(path.join(targetRoot, "lyrics.js"), "utf8");
+    assert(reenabledJs.includes("PublicConfigurationV2"),
+        "re-enabling must regenerate from the current checkout instead of reusing an old cached payload");
+    assert(!reenabledJs.includes('PUBLIC_CONFIGURATION_PATH = "EmbyLyricEnhance/PublicConfiguration";'));
+
     console.log("container manager pristine-image recovery and reinjection: ok");
 } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
