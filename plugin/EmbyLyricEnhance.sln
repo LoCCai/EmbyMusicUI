@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.11.35327.3
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EmbyLyricEnhance.Core", "src\EmbyLyricEnhance.Core\EmbyLyricEnhance.Core.csproj", "{AB5E1151-067C-48DE-BB82-8E53D5A8C831}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EmbyLyricEnhance.Plugin", "src\EmbyLyricEnhance.Plugin\EmbyLyricEnhance.Plugin.csproj", "{B780F56A-9279-4CC8-B1BE-E694014ED1CD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EmbyLyricEnhance.Core.Tests", "tests\EmbyLyricEnhance.Core.Tests\EmbyLyricEnhance.Core.Tests.csproj", "{D66E7EB8-A6D6-455F-9837-D7500B2199A5}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AB5E1151-067C-48DE-BB82-8E53D5A8C831}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AB5E1151-067C-48DE-BB82-8E53D5A8C831}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AB5E1151-067C-48DE-BB82-8E53D5A8C831}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AB5E1151-067C-48DE-BB82-8E53D5A8C831}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B780F56A-9279-4CC8-B1BE-E694014ED1CD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B780F56A-9279-4CC8-B1BE-E694014ED1CD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B780F56A-9279-4CC8-B1BE-E694014ED1CD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B780F56A-9279-4CC8-B1BE-E694014ED1CD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D66E7EB8-A6D6-455F-9837-D7500B2199A5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D66E7EB8-A6D6-455F-9837-D7500B2199A5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D66E7EB8-A6D6-455F-9837-D7500B2199A5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D66E7EB8-A6D6-455F-9837-D7500B2199A5}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

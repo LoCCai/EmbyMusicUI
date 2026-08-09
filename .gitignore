@@ -1,0 +1,5 @@
+**/bin/
+**/obj/
+.packages/
+.dotnet-home/
+plugin/artifacts/

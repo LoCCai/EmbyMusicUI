@@ -1,0 +1,55 @@
+name: Plugin checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "plugin/**"
+      - "adapters/4.9.5.0/**"
+      - "tests/**"
+      - "docker-plugin-install.sh"
+      - ".github/workflows/plugin.yml"
+  push:
+    branches:
+      - "codex/plugin-settings"
+    paths:
+      - "plugin/**"
+      - "adapters/4.9.5.0/**"
+      - "tests/**"
+      - "docker-plugin-install.sh"
+      - ".github/workflows/plugin.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Test frontend adapter
+        run: |
+          node --check adapters/4.9.5.0/lyrics.inject.js
+          node tests/adapter.test.js
+          node tests/plugin-integration.test.js
+      - name: Check shell scripts
+        run: |
+          sh -n plugin/scripts/build.sh
+          sh -n docker-plugin-install.sh
+      - name: Test configuration core
+        run: dotnet run --project plugin/tests/EmbyLyricEnhance.Core.Tests/EmbyLyricEnhance.Core.Tests.csproj --configuration Release
+      - name: Restore and build Emby plugin
+        run: sh plugin/scripts/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emby-lyric-enhance-plugin
+          path: |
+            plugin/artifacts/package/EmbyLyricEnhance.dll
+            plugin/artifacts/package/EmbyLyricEnhance.Core.dll
+          if-no-files-found: error

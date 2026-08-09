@@ -27,6 +27,23 @@ class FakeClassList {
     }
 }
 
+class FakeStyle {
+    constructor() {
+        this.values = new Map();
+    }
+    setProperty(name, value) {
+        this.values.set(name, String(value));
+    }
+    removeProperty(name) {
+        const previous = this.values.get(name) || "";
+        this.values.delete(name);
+        return previous;
+    }
+    getPropertyValue(name) {
+        return this.values.get(name) || "";
+    }
+}
+
 class FakeNode {
     constructor(tagName, text) {
         this.tagName = tagName || null;
@@ -35,6 +52,7 @@ class FakeNode {
         this.attributes = {};
         this._className = "";
         this.classList = new FakeClassList(this);
+        this.style = new FakeStyle();
         this.parentNode = null;
         this.listeners = {};
     }
@@ -155,6 +173,35 @@ const localStorage = {
     }
 };
 
+let serverConfigurationRequests = 0;
+const requestedConfigurationPaths = [];
+const ApiClient = {
+    getUrl(pathValue) {
+        requestedConfigurationPaths.push(pathValue);
+        return `/emby/${pathValue}`;
+    },
+    getJSON(url) {
+        serverConfigurationRequests += 1;
+        assert.strictEqual(url, "/emby/EmbyLyricEnhance/PublicConfiguration");
+        return Promise.resolve({
+            defaultTheme: "apple",
+            allowUserThemeOverride: true,
+            fontSizePercent: serverConfigurationRequests === 1 ? 135 : 145,
+            lineHeight: 1.5,
+            fontWeight: 700,
+            useThemeColor: false,
+            highlightColor: "#12Ab34",
+            pendingOpacity: 0.25,
+            glowStrength: 0.8,
+            currentLineScale: 1.12,
+            otherLinesOpacity: 0.3,
+            otherLinesBlurPixels: 1.2,
+            showSecondLine: false,
+            showThirdAndLaterLines: false
+        });
+    }
+};
+
 class MutationObserver {
     observe() {}
     disconnect() {}
@@ -198,8 +245,15 @@ new Function(
     "requestAnimationFrame",
     "cancelAnimationFrame",
     "localStorage",
+    "ApiClient",
     adapter
-)(LyricsRenderer, document, MutationObserver, performance, requestAnimationFrame, cancelAnimationFrame, localStorage);
+)(LyricsRenderer, document, MutationObserver, performance, requestAnimationFrame, cancelAnimationFrame, localStorage, ApiClient);
+
+async function flushPromises() {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+}
 
 function createLyricElement(index) {
     const item = new FakeNode("div");
@@ -230,12 +284,29 @@ function createLyricElement(index) {
     ];
 
     const items = await renderer.getItemsInternal();
+    await flushPromises();
     assert.strictEqual(items.length, 1, "same-time events should be grouped");
     assert.strictEqual(items[0].__elyric.sublines.length, 2);
-    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), "classic");
+    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), "apple",
+        "the server theme should apply when the browser has no saved override");
+    assert.strictEqual(serverConfigurationRequests, 1, "overlapping renderers should share one configuration request");
+    assert.deepStrictEqual(requestedConfigurationPaths, ["EmbyLyricEnhance/PublicConfiguration"]);
+    assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-font-size"), "135%");
+    assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-line-height"), "1.5");
+    assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-font-weight"), "700");
+    assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-highlight-color"), "#12ab34");
+    assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-pending-opacity"), "0.25");
+    assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-glow-percent"), "80%");
+    assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-current-scale"), "1.12");
+    assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-other-lines-opacity"), "0.3");
+    assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-other-lines-blur"), "1.2px");
+    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-show-second"), "false");
+    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-show-third-plus"), "false");
     assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 1);
     const themeSelect = document.body.querySelector(".elyric-theme-select");
     assert(themeSelect, "theme picker should be attached to the playback page overlay");
+    assert.strictEqual(themeSelect.value, "apple");
+    assert.strictEqual(themeSelect.disabled, false);
     assert.strictEqual(renderer.__elyricThemeControl.parentNode, document.body,
         "the visual overlay should use document.body to avoid playback host clipping");
     assert.strictEqual(themeSelect.children.length, 5, "all built-in themes should be selectable");
@@ -341,6 +412,9 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricClock, null);
     assert.strictEqual(themeControl.parentNode, null, "destroy should remove theme controls");
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), null);
+    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-show-second"), null);
+    assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-font-size"), "",
+        "destroy should remove server display variables from a reusable container");
 
     const secondRenderer = new LyricsRenderer();
     const secondPlaybackPage = new FakeNode("div");
@@ -349,6 +423,10 @@ function createLyricElement(index) {
     secondPlaybackPage.appendChild(secondRenderer.itemsContainer);
     secondRenderer.sourceEvents = renderer.sourceEvents;
     await secondRenderer.getItemsInternal();
+    await flushPromises();
+    assert.strictEqual(serverConfigurationRequests, 2,
+        "reopening lyrics should refresh server defaults saved since the previous view");
+    assert.strictEqual(secondRenderer.itemsContainer.style.getPropertyValue("--elyric-font-size"), "145%");
     assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-theme"), "focus",
         "the selected theme should be restored from browser storage");
     secondRenderer.destroy();
@@ -407,7 +485,161 @@ function createLyricElement(index) {
         "an intermediate open ending must not extend beyond the next lyric line");
     boundedRenderer.destroy();
 
-    console.log("adapter parsing, open endings, safety, themes, navigation, seeking, pause and smooth timing: ok");
+    function LockedLyricsRenderer() {}
+    LockedLyricsRenderer.prototype.getItemsInternal = function () {
+        return Promise.resolve(this.sourceEvents);
+    };
+    LockedLyricsRenderer.prototype.onTimeUpdate = function () {};
+    LockedLyricsRenderer.prototype.destroy = function () {};
+
+    let lockedConfigurationRequests = 0;
+    const lockedApiClient = {
+        getUrl(pathValue) {
+            return pathValue;
+        },
+        getJSON() {
+            lockedConfigurationRequests += 1;
+            return Promise.resolve({
+                DefaultTheme: "minimal",
+                AllowUserThemeOverride: false,
+                FontSizePercent: 999,
+                LineHeight: Number.NaN,
+                FontWeight: 999,
+                UseThemeColor: false,
+                HighlightColor: "url(javascript:bad)",
+                PendingOpacity: -1,
+                GlowStrength: 3,
+                CurrentLineScale: 4,
+                OtherLinesOpacity: 0,
+                OtherLinesBlurPixels: 99,
+                ShowSecondLine: true,
+                ShowThirdAndLaterLines: true
+            });
+        }
+    };
+
+    new Function(
+        "LyricsRenderer",
+        "document",
+        "MutationObserver",
+        "performance",
+        "requestAnimationFrame",
+        "cancelAnimationFrame",
+        "localStorage",
+        "ApiClient",
+        adapter
+    )(
+        LockedLyricsRenderer,
+        document,
+        MutationObserver,
+        performance,
+        requestAnimationFrame,
+        cancelAnimationFrame,
+        localStorage,
+        lockedApiClient
+    );
+
+    const lockedRenderer = new LockedLyricsRenderer();
+    const lockedPlaybackPage = new FakeNode("div");
+    document.body.appendChild(lockedPlaybackPage);
+    lockedRenderer.itemsContainer = new FakeNode("div");
+    lockedPlaybackPage.appendChild(lockedRenderer.itemsContainer);
+    lockedRenderer.sourceEvents = [{
+        Id: "locked",
+        Text: "locked",
+        StartPositionTicks: 0,
+        EndPositionTicks: 10000000
+    }];
+    await lockedRenderer.getItemsInternal();
+    await flushPromises();
+    assert.strictEqual(lockedConfigurationRequests, 1);
+    assert.strictEqual(lockedRenderer.itemsContainer.getAttribute("data-elyric-theme"), "minimal",
+        "a locked server default should override the browser's stored theme");
+    assert.strictEqual(lockedRenderer.__elyricThemeSelect.disabled, true,
+        "the theme picker should be disabled when user overrides are forbidden");
+    assert.strictEqual(lockedRenderer.itemsContainer.style.getPropertyValue("--elyric-font-size"), "180%",
+        "frontend validation should cap server values even after C# validation");
+    assert.strictEqual(lockedRenderer.itemsContainer.style.getPropertyValue("--elyric-line-height"), "1.25");
+    assert.strictEqual(lockedRenderer.itemsContainer.style.getPropertyValue("--elyric-font-weight"), "900");
+    assert.strictEqual(lockedRenderer.itemsContainer.style.getPropertyValue("--elyric-highlight-color"), "#ffffff");
+    assert.strictEqual(lockedRenderer.itemsContainer.style.getPropertyValue("--elyric-pending-opacity"), "0.1");
+    assert.strictEqual(lockedRenderer.itemsContainer.style.getPropertyValue("--elyric-glow-percent"), "100%");
+    assert.strictEqual(lockedRenderer.itemsContainer.style.getPropertyValue("--elyric-current-scale"), "1.25");
+    assert.strictEqual(lockedRenderer.itemsContainer.style.getPropertyValue("--elyric-other-lines-opacity"), "0.1");
+    assert.strictEqual(lockedRenderer.itemsContainer.style.getPropertyValue("--elyric-other-lines-blur"), "4px");
+    lockedRenderer.__elyricThemeSelect.value = "gradient";
+    lockedRenderer.__elyricThemeSelect.dispatchEvent({ type: "change", stopPropagation() {} });
+    assert.strictEqual(lockedRenderer.itemsContainer.getAttribute("data-elyric-theme"), "minimal",
+        "a disabled picker must not bypass the server lock through a synthetic change");
+    assert.strictEqual(storedValues.get("emby-lyric-enhance.theme"), "focus",
+        "the server lock should preserve the saved browser choice for possible later use");
+    lockedRenderer.destroy();
+
+    function FallbackLyricsRenderer() {}
+    FallbackLyricsRenderer.prototype.getItemsInternal = function () {
+        return Promise.resolve(this.sourceEvents);
+    };
+    FallbackLyricsRenderer.prototype.onTimeUpdate = function () {};
+    FallbackLyricsRenderer.prototype.destroy = function () {};
+
+    const fallbackValues = new Map();
+    const fallbackStorage = {
+        getItem(key) {
+            return fallbackValues.has(key) ? fallbackValues.get(key) : null;
+        },
+        setItem(key, value) {
+            fallbackValues.set(key, String(value));
+        }
+    };
+    const failingApiClient = {
+        getUrl(pathValue) {
+            return pathValue;
+        },
+        getJSON() {
+            return Promise.reject(new Error("plugin endpoint unavailable"));
+        }
+    };
+
+    new Function(
+        "LyricsRenderer",
+        "document",
+        "MutationObserver",
+        "performance",
+        "requestAnimationFrame",
+        "cancelAnimationFrame",
+        "localStorage",
+        "ApiClient",
+        adapter
+    )(
+        FallbackLyricsRenderer,
+        document,
+        MutationObserver,
+        performance,
+        requestAnimationFrame,
+        cancelAnimationFrame,
+        fallbackStorage,
+        failingApiClient
+    );
+
+    const fallbackRenderer = new FallbackLyricsRenderer();
+    const fallbackPlaybackPage = new FakeNode("div");
+    document.body.appendChild(fallbackPlaybackPage);
+    fallbackRenderer.itemsContainer = new FakeNode("div");
+    fallbackPlaybackPage.appendChild(fallbackRenderer.itemsContainer);
+    fallbackRenderer.sourceEvents = [{
+        Id: "fallback",
+        Text: "fallback",
+        StartPositionTicks: 0,
+        EndPositionTicks: 10000000
+    }];
+    const fallbackItems = await fallbackRenderer.getItemsInternal();
+    await flushPromises();
+    assert.strictEqual(fallbackItems.length, 1, "a missing C# plugin must not block lyric loading");
+    assert.strictEqual(fallbackRenderer.itemsContainer.getAttribute("data-elyric-theme"), "classic");
+    assert.strictEqual(fallbackRenderer.__elyricThemeSelect.disabled, false);
+    fallbackRenderer.destroy();
+
+    console.log("adapter parsing, plugin defaults, fallback, locks, open endings, safety, themes, navigation and timing: ok");
 })().catch((error) => {
     console.error(error);
     process.exitCode = 1;

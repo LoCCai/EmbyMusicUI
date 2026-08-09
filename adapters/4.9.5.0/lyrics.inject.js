@@ -5,6 +5,7 @@
     var TICKS_PER_SECOND = 10000000;
     var MAX_INTERPOLATION_MS = 800;
     var THEME_STORAGE_KEY = "emby-lyric-enhance.theme";
+    var PUBLIC_CONFIGURATION_PATH = "EmbyLyricEnhance/PublicConfiguration";
     var THEMES = [
         { id: "classic", label: "经典累积" },
         { id: "focus", label: "单字聚焦" },
@@ -12,6 +13,23 @@
         { id: "apple", label: "Apple 风格" },
         { id: "minimal", label: "简洁整行" }
     ];
+    var DEFAULT_DISPLAY_CONFIGURATION = {
+        defaultTheme: "classic",
+        allowUserThemeOverride: true,
+        fontSizePercent: 100,
+        lineHeight: 1.25,
+        fontWeight: 600,
+        useThemeColor: true,
+        highlightColor: "#ffffff",
+        pendingOpacity: .46,
+        glowStrength: .45,
+        currentLineScale: 1.08,
+        otherLinesOpacity: .34,
+        otherLinesBlurPixels: .4,
+        showSecondLine: true,
+        showThirdAndLaterLines: true
+    };
+    var serverConfigurationPromise = null;
     var originalGetItemsInternal = LyricsRenderer.prototype.getItemsInternal;
     var originalOnTimeUpdate = LyricsRenderer.prototype.onTimeUpdate;
     var originalDestroy = LyricsRenderer.prototype.destroy;
@@ -209,6 +227,141 @@
         return false;
     }
 
+    function configValue(source, camelName, pascalName) {
+        if (!source) {
+            return undefined;
+        }
+        if (Object.prototype.hasOwnProperty.call(source, camelName)) {
+            return source[camelName];
+        }
+        return source[pascalName];
+    }
+
+    function finiteNumber(value, minimum, maximum, fallback) {
+        value = Number(value);
+        return isFinite(value) ? Math.min(maximum, Math.max(minimum, value)) : fallback;
+    }
+
+    function booleanValue(value, fallback) {
+        return "boolean" === typeof value ? value : fallback;
+    }
+
+    function normalizeColor(value) {
+        value = null == value ? "" : String(value).trim();
+        if (!/^#[0-9a-f]{6}$/i.test(value)) {
+            return "#ffffff";
+        }
+        return value.toLowerCase();
+    }
+
+    function normalizeDisplayConfiguration(source) {
+        var defaultTheme = configValue(source, "defaultTheme", "DefaultTheme");
+        var fontWeight = finiteNumber(
+            configValue(source, "fontWeight", "FontWeight"),
+            300,
+            900,
+            DEFAULT_DISPLAY_CONFIGURATION.fontWeight
+        );
+        fontWeight = Math.round(fontWeight / 100) * 100;
+
+        return {
+            defaultTheme: isKnownTheme(defaultTheme) ? defaultTheme : DEFAULT_DISPLAY_CONFIGURATION.defaultTheme,
+            allowUserThemeOverride: booleanValue(
+                configValue(source, "allowUserThemeOverride", "AllowUserThemeOverride"),
+                DEFAULT_DISPLAY_CONFIGURATION.allowUserThemeOverride
+            ),
+            fontSizePercent: finiteNumber(
+                configValue(source, "fontSizePercent", "FontSizePercent"),
+                70,
+                180,
+                DEFAULT_DISPLAY_CONFIGURATION.fontSizePercent
+            ),
+            lineHeight: finiteNumber(
+                configValue(source, "lineHeight", "LineHeight"),
+                1,
+                2,
+                DEFAULT_DISPLAY_CONFIGURATION.lineHeight
+            ),
+            fontWeight: fontWeight,
+            useThemeColor: booleanValue(
+                configValue(source, "useThemeColor", "UseThemeColor"),
+                DEFAULT_DISPLAY_CONFIGURATION.useThemeColor
+            ),
+            highlightColor: normalizeColor(configValue(source, "highlightColor", "HighlightColor")),
+            pendingOpacity: finiteNumber(
+                configValue(source, "pendingOpacity", "PendingOpacity"),
+                .1,
+                .9,
+                DEFAULT_DISPLAY_CONFIGURATION.pendingOpacity
+            ),
+            glowStrength: finiteNumber(
+                configValue(source, "glowStrength", "GlowStrength"),
+                0,
+                1,
+                DEFAULT_DISPLAY_CONFIGURATION.glowStrength
+            ),
+            currentLineScale: finiteNumber(
+                configValue(source, "currentLineScale", "CurrentLineScale"),
+                1,
+                1.25,
+                DEFAULT_DISPLAY_CONFIGURATION.currentLineScale
+            ),
+            otherLinesOpacity: finiteNumber(
+                configValue(source, "otherLinesOpacity", "OtherLinesOpacity"),
+                .1,
+                1,
+                DEFAULT_DISPLAY_CONFIGURATION.otherLinesOpacity
+            ),
+            otherLinesBlurPixels: finiteNumber(
+                configValue(source, "otherLinesBlurPixels", "OtherLinesBlurPixels"),
+                0,
+                4,
+                DEFAULT_DISPLAY_CONFIGURATION.otherLinesBlurPixels
+            ),
+            showSecondLine: booleanValue(
+                configValue(source, "showSecondLine", "ShowSecondLine"),
+                DEFAULT_DISPLAY_CONFIGURATION.showSecondLine
+            ),
+            showThirdAndLaterLines: booleanValue(
+                configValue(source, "showThirdAndLaterLines", "ShowThirdAndLaterLines"),
+                DEFAULT_DISPLAY_CONFIGURATION.showThirdAndLaterLines
+            )
+        };
+    }
+
+    function activeApiClient() {
+        if ("undefined" !== typeof ApiClient && ApiClient && ApiClient.getJSON) {
+            return ApiClient;
+        }
+        if ("undefined" !== typeof window && window.ApiClient && window.ApiClient.getJSON) {
+            return window.ApiClient;
+        }
+        return null;
+    }
+
+    function requestServerConfiguration() {
+        if (serverConfigurationPromise) {
+            return serverConfigurationPromise;
+        }
+        var apiClient = activeApiClient();
+        if (!apiClient) {
+            return null;
+        }
+
+        try {
+            var url = apiClient.getUrl
+                ? apiClient.getUrl(PUBLIC_CONFIGURATION_PATH)
+                : PUBLIC_CONFIGURATION_PATH;
+            serverConfigurationPromise = Promise.resolve(apiClient.getJSON(url)).then(
+                normalizeDisplayConfiguration,
+                function () { return normalizeDisplayConfiguration(null); }
+            );
+        } catch (error) {
+            serverConfigurationPromise = Promise.resolve(normalizeDisplayConfiguration(null));
+        }
+        return serverConfigurationPromise;
+    }
+
     function loadStoredTheme() {
         try {
             if ("undefined" !== typeof localStorage) {
@@ -220,7 +373,16 @@
         } catch (error) {
             // Storage can be disabled by browser privacy settings.
         }
-        return "classic";
+        return null;
+    }
+
+    function ensureThemeState(renderer) {
+        if (renderer.__elyricThemeInitialized) {
+            return;
+        }
+        renderer.__elyricStoredTheme = loadStoredTheme();
+        renderer.__elyricTheme = renderer.__elyricStoredTheme || "classic";
+        renderer.__elyricThemeInitialized = true;
     }
 
     function storeTheme(themeId) {
@@ -234,6 +396,15 @@
     }
 
     function applyTheme(renderer, themeId, persist) {
+        ensureThemeState(renderer);
+        if (persist
+            && renderer.__elyricDisplayConfiguration
+            && !renderer.__elyricDisplayConfiguration.allowUserThemeOverride) {
+            if (renderer.__elyricThemeSelect) {
+                renderer.__elyricThemeSelect.value = renderer.__elyricTheme;
+            }
+            return;
+        }
         themeId = isKnownTheme(themeId) ? themeId : "classic";
         renderer.__elyricTheme = themeId;
 
@@ -251,8 +422,117 @@
             renderer.__elyricThemeSelect.value = themeId;
         }
         if (persist) {
+            renderer.__elyricStoredTheme = themeId;
+            renderer.__elyricUserSelectedTheme = true;
             storeTheme(themeId);
         }
+    }
+
+    function setDisplayStyle(container, propertyName, value) {
+        if (container && container.style && container.style.setProperty) {
+            container.style.setProperty(propertyName, String(value));
+        }
+    }
+
+    function applyDisplayConfiguration(renderer, configuration) {
+        ensureThemeState(renderer);
+        configuration = normalizeDisplayConfiguration(configuration);
+        renderer.__elyricDisplayConfiguration = configuration;
+
+        var container = renderer.itemsContainer;
+        if (container) {
+            setDisplayStyle(container, "--elyric-font-size", configuration.fontSizePercent + "%");
+            setDisplayStyle(container, "--elyric-line-height", configuration.lineHeight);
+            setDisplayStyle(container, "--elyric-font-weight", configuration.fontWeight);
+            setDisplayStyle(container, "--elyric-pending-opacity", configuration.pendingOpacity);
+            setDisplayStyle(container, "--elyric-glow-size", configuration.glowStrength + "em");
+            setDisplayStyle(container, "--elyric-glow-percent", Math.round(configuration.glowStrength * 100) + "%");
+            setDisplayStyle(container, "--elyric-current-scale", configuration.currentLineScale);
+            setDisplayStyle(container, "--elyric-other-lines-opacity", configuration.otherLinesOpacity);
+            setDisplayStyle(container, "--elyric-other-lines-blur", configuration.otherLinesBlurPixels + "px");
+            if (configuration.useThemeColor && container.style && container.style.removeProperty) {
+                container.style.removeProperty("--elyric-highlight-color");
+            } else {
+                setDisplayStyle(container, "--elyric-highlight-color", configuration.highlightColor);
+            }
+            container.setAttribute("data-elyric-show-second", configuration.showSecondLine ? "true" : "false");
+            container.setAttribute(
+                "data-elyric-show-third-plus",
+                configuration.showThirdAndLaterLines ? "true" : "false"
+            );
+        }
+
+        var effectiveTheme = configuration.defaultTheme;
+        if (configuration.allowUserThemeOverride && renderer.__elyricStoredTheme) {
+            effectiveTheme = renderer.__elyricStoredTheme;
+        }
+        applyTheme(renderer, effectiveTheme, false);
+
+        if (renderer.__elyricThemeSelect) {
+            renderer.__elyricThemeSelect.disabled = !configuration.allowUserThemeOverride;
+            renderer.__elyricThemeSelect.setAttribute(
+                "aria-disabled",
+                configuration.allowUserThemeOverride ? "false" : "true"
+            );
+        }
+        if (renderer.__elyricThemeControl) {
+            renderer.__elyricThemeControl.setAttribute(
+                "data-elyric-theme-locked",
+                configuration.allowUserThemeOverride ? "false" : "true"
+            );
+        }
+    }
+
+    function ensureDisplayConfiguration(renderer) {
+        if (!renderer.__elyricDisplayConfiguration) {
+            applyDisplayConfiguration(renderer, null);
+        }
+        if (renderer.__elyricConfigurationRequested) {
+            return;
+        }
+        var request = requestServerConfiguration();
+        if (!request) {
+            return;
+        }
+        renderer.__elyricConfigurationRequested = true;
+        request.then(function (configuration) {
+            if (!renderer.__elyricDestroyed) {
+                applyDisplayConfiguration(renderer, configuration);
+                ensureThemeControl(renderer);
+            }
+        });
+    }
+
+    function removeDisplayConfiguration(renderer) {
+        var container = renderer.itemsContainer;
+        if (container) {
+            container.removeAttribute("data-elyric-show-second");
+            container.removeAttribute("data-elyric-show-third-plus");
+            if (container.style && container.style.removeProperty) {
+                [
+                    "--elyric-font-size",
+                    "--elyric-line-height",
+                    "--elyric-font-weight",
+                    "--elyric-pending-opacity",
+                    "--elyric-glow-size",
+                    "--elyric-glow-percent",
+                    "--elyric-current-scale",
+                    "--elyric-other-lines-opacity",
+                    "--elyric-other-lines-blur",
+                    "--elyric-highlight-color"
+                ].forEach(function (propertyName) {
+                    container.style.removeProperty(propertyName);
+                });
+            }
+        }
+        renderer.__elyricDisplayConfiguration = null;
+        renderer.__elyricConfigurationRequested = false;
+        renderer.__elyricStoredTheme = null;
+        renderer.__elyricUserSelectedTheme = false;
+        renderer.__elyricThemeInitialized = false;
+        // Share one request between renderers that overlap during page transitions,
+        // but fetch again after leaving lyrics so newly saved server settings apply.
+        serverConfigurationPromise = null;
     }
 
     function stopControlEvent(event) {
@@ -374,9 +654,7 @@
         if (!container || !container.appendChild || "undefined" === typeof document) {
             return;
         }
-        if (!renderer.__elyricTheme) {
-            renderer.__elyricTheme = loadStoredTheme();
-        }
+        ensureThemeState(renderer);
         applyTheme(renderer, renderer.__elyricTheme, false);
 
         var visible = isThemeContextVisible(renderer);
@@ -662,9 +940,11 @@
     LyricsRenderer.prototype.getItemsInternal = function () {
         var renderer = this;
         return originalGetItemsInternal.apply(this, arguments).then(function (events) {
+            renderer.__elyricDestroyed = false;
             renderer.__elyricGeneration = (renderer.__elyricGeneration || 0) + 1;
             renderer.__elyricItems = prepareEnhancedLyrics(events);
             ensureObserver(renderer);
+            ensureDisplayConfiguration(renderer);
             ensureThemeControl(renderer);
             return renderer.__elyricItems;
         });
@@ -673,6 +953,7 @@
     LyricsRenderer.prototype.onTimeUpdate = function (positionTicks, runtimeTicks) {
         originalOnTimeUpdate.apply(this, arguments);
         ensureObserver(this);
+        ensureDisplayConfiguration(this);
         ensureThemeControl(this);
         renderVisibleLyrics(this);
         updateWordStates(this, positionTicks);
@@ -680,7 +961,9 @@
     };
 
     LyricsRenderer.prototype.destroy = function () {
+        this.__elyricDestroyed = true;
         cancelSmoothFrame(this);
+        removeDisplayConfiguration(this);
         removeThemeControl(this);
         if (this.__elyricObserver) {
             this.__elyricObserver.disconnect();

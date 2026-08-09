@@ -1,0 +1,136 @@
+# EmbyLyricEnhance 插件阶段开发备忘录
+
+更新日期：2026-08-09  
+开发分支：`codex/plugin-settings`  
+稳定基线：`b00f0fa`（主题选择器裁剪修复）
+
+## 目标
+
+把当前已经稳定运行的 Emby Web 歌词增强适配器扩展为“Emby C# 插件设置层 + 轻量前端适配器”的混合架构：
+
+- 管理员在 Emby 插件设置页配置服务器默认效果。
+- 播放页继续允许当前浏览器即时切换主题。
+- 用户本地选择优先于服务器默认主题。
+- 未安装、未启动或暂时无法访问 C# 插件时，前端保持现有默认行为，不影响歌词播放。
+- 不修改 Emby 通用列表组件，不把歌词样式强制注入原生 Android、iOS 或电视客户端。
+
+## 第一阶段配置范围
+
+- 默认主题：经典累积、单字聚焦、渐变扫光、Apple 风格、简洁整行。
+- 字号百分比、行距、字重。
+- 高亮色；可选跟随 Emby 主题色。
+- 未唱字透明度、辉光强度。
+- 当前行缩放、其他行透明度和模糊程度。
+- 第二行、第三行及更多子行显示开关。
+- 是否允许浏览器本地主题覆盖服务器默认值。
+
+本阶段不做：
+
+- 自动生成翻译、拼音或罗马音。
+- 修改原生移动端/电视端歌词页面。
+- 在线主题市场、用户账号云同步、复杂权限继承。
+- 自动更新或自动替换未知版本的 Emby 前端文件。
+
+## 计划架构
+
+```text
+Emby 管理后台
+  -> C# PluginConfiguration
+  -> 插件配置页保存服务器默认值
+  -> 只读配置 API 返回经过约束的公共显示配置
+
+Emby Web 播放页
+  -> 现有 lyrics.inject.js
+  -> 尝试通过当前 ApiClient 读取插件公共配置
+  -> 应用 CSS 自定义属性和服务器默认主题
+  -> localStorage 用户主题覆盖（管理员允许时）
+  -> 现有解析、60 FPS 插值、原生滚动保持不变
+```
+
+## 安全和兼容原则
+
+- 公共配置 API 不返回路径、令牌、用户信息或管理能力。
+- 所有数值在 C# 服务端和 JavaScript 客户端双重限制范围。
+- 颜色仅接受安全 CSS 颜色格式；无效值回退到 Emby 主题色。
+- 前端读取失败、超时、404 或插件缺失时静默使用内置默认值。
+- C# 插件 DLL 放入 `/config/plugins` 后需要重启 Emby；前端主题切换仍不需要重启。
+- 前端注入继续使用 4.9.5.0 原始文件 SHA-256 和唯一锚点校验。
+
+## 进度清单
+
+### A. 基线与环境
+
+- [x] 从稳定版本建立独立分支 `codex/plugin-settings`
+- [x] 确认工作区干净
+- [x] 安装并验证 .NET SDK 8.0.423
+- [x] 确认 Emby 4.9.5.0 可用的 NuGet/API 依赖版本：`MediaBrowser.Common 4.9.1.90`
+
+### B. C# 插件
+
+- [x] 建立解决方案和插件项目
+- [x] 实现 `PluginConfiguration` 默认值
+- [x] 实现配置约束和公共 DTO
+- [x] 实现 `BasePlugin<TConfiguration>` 入口
+- [x] 实现 Emby 管理设置页
+- [x] 实现只读公共配置 API
+- [x] 添加配置模型单元测试
+- [x] Release 构建通过（0 警告、0 错误）
+
+### C. 前端适配器
+
+- [x] 异步读取插件配置
+- [x] 插件缺失/失败安全回退
+- [x] 服务器默认主题与浏览器本地覆盖优先级
+- [x] CSS 变量驱动字号、行距、字重、颜色、透明度、辉光、缩放和模糊
+- [x] 多子行显示开关
+- [x] 页面生命周期和旧渲染器隔离保持通过
+- [x] 开放结尾逐字歌词回归保持通过
+
+### D. 安装与交付
+
+- [x] 插件构建脚本
+- [x] Docker 插件安装/更新脚本
+- [x] 明确 DLL 首次加载需要重启，普通前端切换不需要重启
+- [x] 中英文根文档与插件中文安装文档
+- [x] JavaScript、C# 核心和 API 契约测试
+- [x] `git diff --check`
+- [x] 未验证的真实容器检查项单独列出
+
+## 环境检查记录
+
+2026-08-09：
+
+- Windows x64。
+- 用户级 .NET SDK 8.0.423，MSBuild 17.11.48。
+- Node.js v24.19.0，现有适配器测试可运行。
+- 本机没有 Docker CLI，真实 Emby 容器安装验证必须在 NAS/Docker 宿主机完成。
+- 用户环境已从 nuget.org 成功恢复 `MediaBrowser.Common 4.9.1.90`。该聚合包自带 `MediaBrowser.Model.dll`；`MediaBrowser.Controller` 和 `MediaBrowser.Model` 不是独立 NuGet 包。
+- 当前沙箱仍不能读取用户级 NuGet 配置，提升权限请求又因审批服务 503 未能执行；因此本次真实 `build.ps1` 由用户终端执行。
+- 用户随后在真实用户环境执行 `plugin\scripts\build.ps1` 成功：Release 构建 0 警告、0 错误，产物位于 `plugin/artifacts/package/`。
+
+## 2026-08-09 本轮交付记录
+
+- `plugin\scripts\verify.ps1` 通过：C# 配置核心、Emby API 契约桩、`MediaBrowser.Common 4.9.1.90` 真实程序集 API 编译、前端适配器和前后端同步测试均为绿色。
+- `node --check adapters\4.9.5.0\lyrics.inject.js`、`git diff --check` 通过。
+- Git for Windows 的 `sh -n` 已确认 `plugin/scripts/build.sh` 与 `docker-plugin-install.sh` 语法有效。
+- GitHub Actions 会进行真实 NuGet 恢复、Release 构建，并上传两枚插件 DLL；这一步要等分支成功推送后观察结果。
+- 当前 Git 暂存/提交尚未执行：工作区对 `.git` 的写入需要提升权限，但审批服务连续返回 503。所有源文件改动仍完整保存在工作区。
+- 已核对 `EmbyLyricEnhance.dll` 版本为 0.2.0.0，并包含 `EmbyLyricEnhance.Plugin.Configuration.configPage.html` 嵌入资源；核心 DLL 与插件 DLL 均已生成。
+
+## 风险与待确认
+
+- 构建已固定为 `MediaBrowser.Common 4.9.1.90`；升级 SDK 时必须重新执行真实程序集 API 编译和 Emby 容器验证。
+- Emby Web 当前 `ApiClient` 的公共配置 API 调用形式需要在真实 4.9.5.0 页面验证。
+- 公共显示接口仅有匿名 GET，并只返回清洗后的非敏感视觉字段；管理员修改仍由 Emby 内置插件配置 API 鉴权。
+- C# DLL 无法改变原生客户端 UI；这是产品边界，不作为缺陷处理。
+- 本机无 Docker，发布前仍需在实际 Emby 4.9.5.0 容器完成 DLL 加载、设置页保存和 Web 配置读取测试。
+
+## 决策日志
+
+- 2026-08-09：保留已验证的单文件 JS/CSS 注入器作为兼容回退；C# 插件先提供设置与配置 API，不在第一步重写歌词核心。
+- 2026-08-09：服务器默认配置只影响显示，不接触歌词文件内容和播放控制。
+- 2026-08-09：任何插件配置读取错误都不得阻断 `LyricsRenderer`。
+- 2026-08-09：只在同一歌词页过渡期间复用一次配置请求；离开并重新进入歌词页后重新读取，使管理员新保存的默认值能够生效。
+- 2026-08-09：Docker 插件更新采用时间戳成组备份；两枚 DLL 部分替换失败时恢复旧组合。
+- 2026-08-09：真实 NuGet 恢复确认只需官方聚合包 `MediaBrowser.Common 4.9.1.90`，同时据真实程序集修正 `IHasWebPages` 和 `BasePluginConfiguration` 契约。
+- 2026-08-09：不引用未公开的服务器控制器鉴权特性；公共端点严格保持匿名只读和非敏感字段边界，避免伪鉴权。

@@ -10,12 +10,11 @@
     margin-top: .16em;
     font-size: .66em;
     font-weight: 400;
-    line-height: 1.25;
+    line-height: var(--elyric-line-height, 1.25);
     opacity: .72;
 }
 
-.elyric-subline-3,
-.elyric-subline-4 {
+.elyric-subline:nth-child(n+3) {
     font-size: .6em;
     opacity: .6;
 }
@@ -71,6 +70,25 @@
     background: #18181c;
 }
 
+.elyric-theme-select:disabled {
+    cursor: not-allowed;
+    opacity: .62;
+}
+
+[data-elyric-theme] .lyricsItem .listItemBodyText {
+    font-size: var(--elyric-font-size, 100%);
+    line-height: var(--elyric-line-height, 1.25);
+}
+
+[data-elyric-theme] .elyric-subline-1 {
+    font-weight: var(--elyric-font-weight, 600);
+}
+
+[data-elyric-show-second="false"] .elyric-subline-2,
+[data-elyric-show-third-plus="false"] .elyric-subline:nth-child(n+3) {
+    display: none;
+}
+
 .elyric-word {
     transition: color .08s linear, opacity .08s linear, text-shadow .08s linear, transform .12s ease;
 }
@@ -81,18 +99,18 @@
 }
 
 [data-elyric-theme="classic"] .elyric-word-pending {
-    opacity: .46;
+    opacity: var(--elyric-pending-opacity, .46);
 }
 
 [data-elyric-theme="classic"] .elyric-word-active,
 [data-elyric-theme="classic"] .elyric-word-played {
-    color: var(--theme-primary-color, #fff);
+    color: var(--elyric-highlight-color, var(--theme-primary-color, #fff));
     opacity: 1;
-    text-shadow: 0 0 .45em color-mix(in srgb, var(--theme-primary-color, #fff) 45%, transparent);
+    text-shadow: 0 0 var(--elyric-glow-size, .45em) color-mix(in srgb, var(--elyric-highlight-color, var(--theme-primary-color, #fff)) var(--elyric-glow-percent, 45%), transparent);
 }
 
 [data-elyric-theme="focus"] .elyric-word-pending {
-    opacity: .34;
+    opacity: var(--elyric-pending-opacity, .34);
 }
 
 [data-elyric-theme="focus"] .elyric-word-played {
@@ -102,53 +120,53 @@
 
 [data-elyric-theme="focus"] .elyric-word-active {
     display: inline-block;
-    color: var(--theme-primary-color, #fff);
+    color: var(--elyric-highlight-color, var(--theme-primary-color, #fff));
     opacity: 1;
-    text-shadow: 0 0 .55em color-mix(in srgb, var(--theme-primary-color, #fff) 60%, transparent);
-    transform: scale(1.08);
+    text-shadow: 0 0 var(--elyric-glow-size, .55em) color-mix(in srgb, var(--elyric-highlight-color, var(--theme-primary-color, #fff)) var(--elyric-glow-percent, 60%), transparent);
+    transform: scale(var(--elyric-current-scale, 1.08));
 }
 
 [data-elyric-theme="gradient"] .elyric-word-pending {
-    opacity: .32;
+    opacity: var(--elyric-pending-opacity, .32);
 }
 
 [data-elyric-theme="gradient"] .elyric-word-played {
-    color: var(--theme-primary-color, #fff);
+    color: var(--elyric-highlight-color, var(--theme-primary-color, #fff));
     opacity: 1;
-    text-shadow: 0 0 .38em color-mix(in srgb, var(--theme-primary-color, #fff) 38%, transparent);
+    text-shadow: 0 0 var(--elyric-glow-size, .38em) color-mix(in srgb, var(--elyric-highlight-color, var(--theme-primary-color, #fff)) var(--elyric-glow-percent, 38%), transparent);
 }
 
 [data-elyric-theme="gradient"] .elyric-word-active {
-    color: var(--theme-primary-color, #fff);
-    background: linear-gradient(90deg, var(--theme-primary-color, #fff), #fff 52%, rgba(255, 255, 255, .38));
+    color: var(--elyric-highlight-color, var(--theme-primary-color, #fff));
+    background: linear-gradient(90deg, var(--elyric-highlight-color, var(--theme-primary-color, #fff)), #fff 52%, rgba(255, 255, 255, .38));
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
     opacity: 1;
-    filter: drop-shadow(0 0 .28em color-mix(in srgb, var(--theme-primary-color, #fff) 52%, transparent));
+    filter: drop-shadow(0 0 var(--elyric-glow-size, .28em) color-mix(in srgb, var(--elyric-highlight-color, var(--theme-primary-color, #fff)) var(--elyric-glow-percent, 52%), transparent));
 }
 
 [data-elyric-theme="apple"] .elyric-word-pending {
-    opacity: .28;
+    opacity: var(--elyric-pending-opacity, .28);
 }
 
 [data-elyric-theme="apple"] .elyric-word-active,
 [data-elyric-theme="apple"] .elyric-word-played {
-    color: var(--theme-primary-color, #fff);
+    color: var(--elyric-highlight-color, var(--theme-primary-color, #fff));
     opacity: 1;
-    text-shadow: 0 0 .5em color-mix(in srgb, var(--theme-primary-color, #fff) 48%, transparent);
+    text-shadow: 0 0 var(--elyric-glow-size, .5em) color-mix(in srgb, var(--elyric-highlight-color, var(--theme-primary-color, #fff)) var(--elyric-glow-percent, 48%), transparent);
 }
 
 [data-elyric-theme="apple"] .elyric-line-current .listItemBodyText {
     opacity: 1;
     filter: none;
-    transform: scale(1.08);
+    transform: scale(var(--elyric-current-scale, 1.08));
 }
 
 [data-elyric-theme="apple"] .elyric-line-future .listItemBodyText,
 [data-elyric-theme="apple"] .elyric-line-past .listItemBodyText {
-    opacity: .34;
-    filter: blur(.025em);
+    opacity: var(--elyric-other-lines-opacity, .34);
+    filter: blur(var(--elyric-other-lines-blur, .025em));
     transform: scale(.94);
 }
 
@@ -159,14 +177,14 @@
 }
 
 [data-elyric-theme="minimal"] .elyric-line-current .listItemBodyText {
-    color: var(--theme-primary-color, #fff);
+    color: var(--elyric-highlight-color, var(--theme-primary-color, #fff));
     opacity: 1;
-    text-shadow: 0 0 .32em color-mix(in srgb, var(--theme-primary-color, #fff) 30%, transparent);
+    text-shadow: 0 0 var(--elyric-glow-size, .32em) color-mix(in srgb, var(--elyric-highlight-color, var(--theme-primary-color, #fff)) var(--elyric-glow-percent, 30%), transparent);
 }
 
 [data-elyric-theme="minimal"] .elyric-line-future .listItemBodyText,
 [data-elyric-theme="minimal"] .elyric-line-past .listItemBodyText {
-    opacity: .42;
+    opacity: var(--elyric-other-lines-opacity, .42);
     text-shadow: none;
 }
 

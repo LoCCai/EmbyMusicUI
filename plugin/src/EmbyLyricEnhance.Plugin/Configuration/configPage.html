@@ -1,0 +1,204 @@
+<div id="EmbyLyricEnhanceConfigPage"
+     data-role="page"
+     class="page type-interior pluginConfigurationPage"
+     data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="EmbyLyricEnhanceConfigForm">
+                <div class="sectionTitleContainer flex align-items-center">
+                    <h2 class="sectionTitle">Emby Lyric Enhance</h2>
+                </div>
+
+                <div class="selectContainer">
+                    <label class="selectLabel" for="elyricDefaultTheme">服务器默认主题</label>
+                    <select is="emby-select" id="elyricDefaultTheme" class="emby-select-withcolor emby-select">
+                        <option value="classic">经典累积</option>
+                        <option value="focus">单字聚焦</option>
+                        <option value="gradient">渐变扫光</option>
+                        <option value="apple">Apple 风格</option>
+                        <option value="minimal">简洁整行</option>
+                    </select>
+                </div>
+
+                <label class="checkboxContainer">
+                    <input is="emby-checkbox" type="checkbox" id="elyricAllowUserThemeOverride" />
+                    <span>允许浏览器保存并覆盖默认主题</span>
+                </label>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="elyricFontSizePercent">字号（70–180%）</label>
+                    <input is="emby-input" type="number" id="elyricFontSizePercent" min="70" max="180" step="1" required />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="elyricLineHeight">行距（1.00–2.00）</label>
+                    <input is="emby-input" type="number" id="elyricLineHeight" min="1" max="2" step="0.05" required />
+                </div>
+
+                <div class="selectContainer">
+                    <label class="selectLabel" for="elyricFontWeight">字重</label>
+                    <select is="emby-select" id="elyricFontWeight" class="emby-select-withcolor emby-select">
+                        <option value="300">300</option>
+                        <option value="400">400</option>
+                        <option value="500">500</option>
+                        <option value="600">600</option>
+                        <option value="700">700</option>
+                        <option value="800">800</option>
+                        <option value="900">900</option>
+                    </select>
+                </div>
+
+                <label class="checkboxContainer">
+                    <input is="emby-checkbox" type="checkbox" id="elyricUseThemeColor" />
+                    <span>高亮颜色跟随 Emby 主题</span>
+                </label>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="elyricHighlightColor">自定义高亮色（#RRGGBB）</label>
+                    <input is="emby-input" type="text" id="elyricHighlightColor" maxlength="7" pattern="#[0-9A-Fa-f]{6}" placeholder="#ffffff" required />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="elyricPendingOpacity">未唱字透明度（0.10–0.90）</label>
+                    <input is="emby-input" type="number" id="elyricPendingOpacity" min="0.1" max="0.9" step="0.01" required />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="elyricGlowStrength">辉光强度（0–1）</label>
+                    <input is="emby-input" type="number" id="elyricGlowStrength" min="0" max="1" step="0.05" required />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="elyricCurrentLineScale">当前行缩放（1.00–1.25）</label>
+                    <input is="emby-input" type="number" id="elyricCurrentLineScale" min="1" max="1.25" step="0.01" required />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="elyricOtherLinesOpacity">其他行透明度（0.10–1.00）</label>
+                    <input is="emby-input" type="number" id="elyricOtherLinesOpacity" min="0.1" max="1" step="0.01" required />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="elyricOtherLinesBlurPixels">其他行模糊（0–4 px）</label>
+                    <input is="emby-input" type="number" id="elyricOtherLinesBlurPixels" min="0" max="4" step="0.1" required />
+                </div>
+
+                <label class="checkboxContainer">
+                    <input is="emby-checkbox" type="checkbox" id="elyricShowSecondLine" />
+                    <span>显示第二行（常用于注音或翻译）</span>
+                </label>
+
+                <label class="checkboxContainer">
+                    <input is="emby-checkbox" type="checkbox" id="elyricShowThirdAndLaterLines" />
+                    <span>显示第三行及更多子行</span>
+                </label>
+
+                <div class="fieldDescription">
+                    保存后，已打开的播放页会在下次进入歌词页面时读取新默认值。首次安装或更新 DLL 后仍需重启 Emby 以加载插件。
+                </div>
+
+                <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                    <span>保存</span>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            "use strict";
+
+            var pluginId = "efbd3f14-8799-4a7d-a5ad-7ef93c5b0e5d";
+            var page = document.querySelector("#EmbyLyricEnhanceConfigPage");
+            var form = document.querySelector("#EmbyLyricEnhanceConfigForm");
+
+            if (!page || !form || page.getAttribute("data-elyric-config-bound") === "true") {
+                return;
+            }
+            page.setAttribute("data-elyric-config-bound", "true");
+
+            function element(id) {
+                return page.querySelector("#" + id);
+            }
+
+            function numberValue(id) {
+                return Number(element(id).value);
+            }
+
+            function setValue(id, value, fallback) {
+                element(id).value = null == value ? fallback : value;
+            }
+
+            function setChecked(id, value, fallback) {
+                element(id).checked = null == value ? fallback : Boolean(value);
+            }
+
+            function syncColorInput() {
+                element("elyricHighlightColor").disabled = element("elyricUseThemeColor").checked;
+            }
+
+            function handleError(error) {
+                Dashboard.hideLoadingMsg();
+                if (Dashboard.alert) {
+                    Dashboard.alert({
+                        message: error && error.message
+                            ? error.message
+                            : "Emby Lyric Enhance 配置操作失败，请检查服务器日志。"
+                    });
+                } else if (window.console && console.error) {
+                    console.error(error);
+                }
+            }
+
+            function loadConfiguration() {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (configuration) {
+                    var display = configuration.Display || {};
+                    setValue("elyricDefaultTheme", display.DefaultTheme, "classic");
+                    setChecked("elyricAllowUserThemeOverride", display.AllowUserThemeOverride, true);
+                    setValue("elyricFontSizePercent", display.FontSizePercent, 100);
+                    setValue("elyricLineHeight", display.LineHeight, 1.25);
+                    setValue("elyricFontWeight", display.FontWeight, 600);
+                    setChecked("elyricUseThemeColor", display.UseThemeColor, true);
+                    setValue("elyricHighlightColor", display.HighlightColor, "#ffffff");
+                    setValue("elyricPendingOpacity", display.PendingOpacity, 0.46);
+                    setValue("elyricGlowStrength", display.GlowStrength, 0.45);
+                    setValue("elyricCurrentLineScale", display.CurrentLineScale, 1.08);
+                    setValue("elyricOtherLinesOpacity", display.OtherLinesOpacity, 0.34);
+                    setValue("elyricOtherLinesBlurPixels", display.OtherLinesBlurPixels, 0.4);
+                    setChecked("elyricShowSecondLine", display.ShowSecondLine, true);
+                    setChecked("elyricShowThirdAndLaterLines", display.ShowThirdAndLaterLines, true);
+                    syncColorInput();
+                    Dashboard.hideLoadingMsg();
+                }).catch(handleError);
+            }
+
+            page.addEventListener("pageshow", loadConfiguration);
+            element("elyricUseThemeColor").addEventListener("change", syncColorInput);
+            form.addEventListener("submit", function (event) {
+                event.preventDefault();
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (configuration) {
+                    configuration.Display = configuration.Display || {};
+                    var display = configuration.Display;
+                    display.DefaultTheme = element("elyricDefaultTheme").value;
+                    display.AllowUserThemeOverride = element("elyricAllowUserThemeOverride").checked;
+                    display.FontSizePercent = numberValue("elyricFontSizePercent");
+                    display.LineHeight = numberValue("elyricLineHeight");
+                    display.FontWeight = numberValue("elyricFontWeight");
+                    display.UseThemeColor = element("elyricUseThemeColor").checked;
+                    display.HighlightColor = element("elyricHighlightColor").value;
+                    display.PendingOpacity = numberValue("elyricPendingOpacity");
+                    display.GlowStrength = numberValue("elyricGlowStrength");
+                    display.CurrentLineScale = numberValue("elyricCurrentLineScale");
+                    display.OtherLinesOpacity = numberValue("elyricOtherLinesOpacity");
+                    display.OtherLinesBlurPixels = numberValue("elyricOtherLinesBlurPixels");
+                    display.ShowSecondLine = element("elyricShowSecondLine").checked;
+                    display.ShowThirdAndLaterLines = element("elyricShowThirdAndLaterLines").checked;
+                    return ApiClient.updatePluginConfiguration(pluginId, configuration);
+                }).then(Dashboard.processPluginConfigurationUpdateResult).catch(handleError);
+                return false;
+            });
+        })();
+    </script>
+</div>

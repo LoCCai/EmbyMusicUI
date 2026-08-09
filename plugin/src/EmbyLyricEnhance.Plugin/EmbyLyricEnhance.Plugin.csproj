@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>EmbyLyricEnhance</AssemblyName>
+    <RootNamespace>EmbyLyricEnhance.Plugin</RootNamespace>
+    <Version>0.2.0</Version>
+    <Description>Server defaults and configuration API for EmbyLyricEnhance.</Description>
+    <IsPackable>false</IsPackable>
+    <EmbyApiVersion Condition="'$(EmbyApiVersion)' == ''">4.9.1.90</EmbyApiVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\EmbyLyricEnhance.Core\EmbyLyricEnhance.Core.csproj" />
+    <PackageReference Include="MediaBrowser.Common" Version="$(EmbyApiVersion)" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Configuration\configPage.html" />
+  </ItemGroup>
+</Project>

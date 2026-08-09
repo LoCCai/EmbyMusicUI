@@ -1,5 +1,17 @@
 # 开发日志
 
+## 可选 C# 设置层（开发分支）
+
+- 新增 .NET 8 解决方案、配置核心和 Emby `BasePlugin<TConfiguration>` 入口
+- 新增管理设置页与仅返回非敏感显示字段的只读 `/EmbyLyricEnhance/PublicConfiguration` 接口
+- 服务端和前端双重约束主题、字号、行距、字重、颜色、透明度、辉光、缩放、模糊与子行开关
+- 管理员可决定浏览器主题是否覆盖服务器默认值；锁定时保留本地选择但不应用
+- 插件或接口不可用时静默回退，歌词加载不依赖 C# 插件成功
+- 同一页面过渡复用配置请求，离开再进入歌词页会重新读取管理员新设置
+- 新增离线 C# 核心/契约测试、前后端同步测试、构建脚本、CI 和 Docker 成组更新/恢复脚本
+- 已确认官方聚合 SDK 为 `MediaBrowser.Common 4.9.1.90`，并通过真实程序集 API 编译；Emby DLL 加载和 NAS 容器行为仍列为发布前外部验收项
+- Windows/.NET 8 真实 Release 构建通过，0 警告、0 错误；设置页嵌入资源和两枚 DLL 产物已核对
+
 ## Emby 4.9.5.0 定向适配
 
 本版本不再修改通用的 `emby-itemscontainer.js` 与 `listview.js`，改为只注入 `videoosd/lyrics.js` 并追加 `videoosd/lyrics.css`。
