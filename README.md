@@ -12,8 +12,8 @@ Current adapter: **Emby Server 4.9.5.0**
 - Parses enhanced LRC `<mm:ss.xx>` word timing and recomputes state after playback, seek forward, or seek backward
 - Smooths word timing between Emby's native callbacks with `requestAnimationFrame` instead of visibly stepping at roughly 400 ms intervals
 - Provides five built-in lyric themes that can be switched instantly on the playback page and remembered by the browser
-- Mounts a dedicated lyric-player shell with metadata, artwork, seeking, previous/play/next, shuffle, repeat, and play-queue controls
-- Adds an annotation toggle and an optional immersive lyric mode that is cleaned up when the lyric page is left
+- Replaces the lyric playback page's visual layer with three remembered full-page layouts: album split, turntable, and lyrics first
+- Integrates metadata, artwork, seeking, volume/mute, stop, previous/play/next, shuffle, repeat, queue, annotation, and artwork-rotation controls
 - Offers an optional C# settings layer for administrator-controlled defaults and theme override policy
 - Preserves Emby's native line selection, seek action, and scrolling
 - Injects only into the lyric-specific module; it does not patch the shared `listview.js` or `emby-itemscontainer.js`
@@ -55,7 +55,9 @@ See [`plugin/README_CN.md`](plugin/README_CN.md) for build, Docker installation,
 
 ## Custom music-player shell and lyric themes
 
-Opening the lyric view now mounts the Lyric Enhance player at the bottom of the page. It provides metadata, artwork, seeking, previous/play-pause/next, shuffle, repeat, play queue, annotation visibility, theme selection, and an immersive mode.
+Opening the lyric view replaces the page's visual layer instead of stacking another dock over Emby's controls. It provides metadata, artwork ambience, seeking, volume/mute, stop, previous/play-pause/next, shuffle, repeat, play queue, annotation visibility, artwork rotation, and theme selection.
+
+The **Interface** selector switches between **Album split**, **Turntable**, and **Lyrics first**. Both circular layouts support a remembered **Rotate** toggle, while Album split keeps its square artwork stationary. The layout and rotation choices are stored under `emby-lyric-enhance.player-layout` and `emby-lyric-enhance.artwork-rotation`, then restored when the lyric view is reopened.
 
 The shell owns presentation and interaction while playback, seeking, queue state, and casting remain delegated to Emby's native playback session. It does not start a second audio engine. A custom button is disabled when its corresponding native action is unavailable.
 
@@ -71,7 +73,7 @@ Use the shell's **Style** selector to switch themes immediately:
 
 Switching does not require a refresh, reinjection, or Emby restart. The choice is stored in the current browser's `localStorage` under `emby-lyric-enhance.theme` and is restored on the next lyric view. Each browser and device keeps its own choice.
 
-The shell is mounted at the document level so Emby's clipped playback containers cannot cut it off, while visibility remains owned by the active lyric playback page. It hides when playback is left, hidden, covered by another page, or detached from the document, and removes immersive page styling at the same time. Reopening playback restores it and removes stale duplicates.
+The shell is mounted at the document level while visibility remains owned by the active lyric playback page. Leaving playback, opening a native queue view, covering the page, or detaching the lyric container removes all page-level layout state and restores Emby's native UI. Reopening lyrics restores the saved layout and removes stale duplicates.
 
 Lyric rendering remains an Emby Web frontend adapter. It covers Emby Web and clients that reuse that frontend, but cannot force native Android, iOS, or TV lyric views to use these themes. The optional C# plugin supplies server settings only and does not change this client boundary.
 
@@ -128,6 +130,6 @@ lyrics.css  82c4df323c0a6dd100863d0e261a5e09317530c8f39cd55c203ebac8899224b7
 
 Installation stops if a file was modified by another patch, the version is unknown, a backup is incomplete, or the injection anchor is not unique.
 
-Run `plugin\scripts\verify.ps1` on Windows to check the C# configuration core and API contract together with frontend integration, grouping, safe text rendering, custom-player delegation and seeking, annotation/immersive toggles, all five themes, theme persistence, lyric line state, cumulative highlighting, seeking, pause detection, animation-frame interpolation, and the 800 ms extrapolation limit. Real `MediaBrowser.*` compilation and Emby container loading still require an online environment.
+Run `plugin\scripts\verify.ps1` on Windows to check the C# configuration core and API contract together with frontend integration, grouping, safe text rendering, custom transport/volume delegation and seeking, annotation/artwork-rotation controls, three-layout switching, all five themes, layout/rotation/theme persistence, page restoration, lyric line state, cumulative highlighting, pause detection, animation-frame interpolation, and the 800 ms extrapolation limit. Real `MediaBrowser.*` compilation and Emby container loading still require an online environment.
 
 The legacy `replacement/` files and `main.template.sh` belong to the previous Emby 4.8.11.0 global-hook adapter. Do not inject both adapters into one container.

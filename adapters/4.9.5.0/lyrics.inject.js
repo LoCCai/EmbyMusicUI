@@ -5,16 +5,26 @@
     var TICKS_PER_SECOND = 10000000;
     var MAX_INTERPOLATION_MS = 800;
     var THEME_STORAGE_KEY = "emby-lyric-enhance.theme";
+    var LAYOUT_STORAGE_KEY = "emby-lyric-enhance.player-layout";
+    var ARTWORK_ROTATION_STORAGE_KEY = "emby-lyric-enhance.artwork-rotation";
     var PUBLIC_CONFIGURATION_PATH = "EmbyLyricEnhance/PublicConfiguration";
     var NATIVE_PLAYER_SELECTORS = {
         previous: [".btnPreviousTrack"],
         playPause: [".videoOsd-btnPause"],
+        stop: [".btnVideoOsd-stop"],
         next: [".btnNextTrack", ".btnNextTrackTopRight"],
         shuffle: [".btnOsdShuffle-bottom", ".btnOsdShuffle-topright", ".btnOsdShuffle"],
         repeat: [".btnOsdRepeatMode-bottom", ".btnOsdRepeatMode-topright", ".btnOsdRepeatMode"],
         queue: [".btnPlayQueue"],
+        mute: [".buttonMute"],
+        volume: [".videoOsdVolumeSlider"],
         seek: [".videoOsdPositionSlider"]
     };
+    var PLAYER_LAYOUTS = [
+        { id: "album", label: "专辑双栏" },
+        { id: "vinyl", label: "唱片机" },
+        { id: "lyrics", label: "歌词优先" }
+    ];
     var THEMES = [
         { id: "classic", label: "经典累积" },
         { id: "focus", label: "单字聚焦" },
@@ -415,6 +425,139 @@
         }
     }
 
+    function isKnownPlayerLayout(layoutId) {
+        for (var i = 0; i < PLAYER_LAYOUTS.length; i++) {
+            if (PLAYER_LAYOUTS[i].id === layoutId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function loadStoredPlayerLayout() {
+        try {
+            if ("undefined" !== typeof localStorage) {
+                var layoutId = localStorage.getItem(LAYOUT_STORAGE_KEY);
+                if (isKnownPlayerLayout(layoutId)) {
+                    return layoutId;
+                }
+            }
+        } catch (error) {
+            // The default layout remains usable when browser storage is disabled.
+        }
+        return "album";
+    }
+
+    function storePlayerLayout(layoutId) {
+        try {
+            if ("undefined" !== typeof localStorage) {
+                localStorage.setItem(LAYOUT_STORAGE_KEY, layoutId);
+            }
+        } catch (error) {
+            // Layout switching still works for the current lyric view.
+        }
+    }
+
+    function loadStoredArtworkRotation() {
+        try {
+            if ("undefined" !== typeof localStorage) {
+                return "false" !== localStorage.getItem(ARTWORK_ROTATION_STORAGE_KEY);
+            }
+        } catch (error) {
+            // Circular artwork rotates by default when browser storage is disabled.
+        }
+        return true;
+    }
+
+    function storeArtworkRotation(enabled) {
+        try {
+            if ("undefined" !== typeof localStorage) {
+                localStorage.setItem(ARTWORK_ROTATION_STORAGE_KEY, enabled ? "true" : "false");
+            }
+        } catch (error) {
+            // The current lyric view can still toggle rotation.
+        }
+    }
+
+    function syncArtworkRotationAvailability(renderer) {
+        var button = renderer.__elyricArtworkRotationButton;
+        if (!button) {
+            return;
+        }
+        var circular = "vinyl" === renderer.__elyricPlayerLayout
+            || "lyrics" === renderer.__elyricPlayerLayout;
+        button.disabled = !circular;
+        setAttributeIfChanged(button, "aria-disabled", circular ? "false" : "true");
+        setAttributeIfChanged(
+            button,
+            "title",
+            circular
+                ? (renderer.__elyricArtworkRotation ? "停止专辑图旋转" : "开启专辑图旋转")
+                : "当前界面使用方形静止封面"
+        );
+    }
+
+    function setArtworkRotation(renderer, enabled, persist) {
+        enabled = !!enabled;
+        renderer.__elyricArtworkRotation = enabled;
+        setAttributeIfChanged(
+            renderer.__elyricThemeControl,
+            "data-elyric-artwork-rotate",
+            enabled ? "true" : "false"
+        );
+        if (renderer.__elyricArtworkRotationButton) {
+            setAttributeIfChanged(
+                renderer.__elyricArtworkRotationButton,
+                "aria-pressed",
+                enabled ? "true" : "false"
+            );
+            setAttributeIfChanged(
+                renderer.__elyricArtworkRotationButton,
+                "data-elyric-active",
+                enabled ? "true" : "false"
+            );
+        }
+        syncArtworkRotationAvailability(renderer);
+        if (persist) {
+            storeArtworkRotation(enabled);
+        }
+    }
+
+    function syncPlayerPageState(renderer, visible) {
+        var body = document.body;
+        if (!body || !body.classList) {
+            return;
+        }
+        if (visible) {
+            body.__elyricPlayerPageOwner = renderer;
+            if (!body.classList.contains("elyric-player-active-page")) {
+                body.classList.add("elyric-player-active-page");
+            }
+            setAttributeIfChanged(body, "data-elyric-player-layout", renderer.__elyricPlayerLayout || "album");
+        } else if (body.__elyricPlayerPageOwner === renderer) {
+            body.__elyricPlayerPageOwner = null;
+            if (body.classList.contains("elyric-player-active-page")) {
+                body.classList.remove("elyric-player-active-page");
+            }
+            removeAttributeIfPresent(body, "data-elyric-player-layout");
+        }
+    }
+
+    function applyPlayerLayout(renderer, layoutId, persist) {
+        layoutId = isKnownPlayerLayout(layoutId) ? layoutId : "album";
+        renderer.__elyricPlayerLayout = layoutId;
+        setAttributeIfChanged(renderer.itemsContainer, "data-elyric-player-layout", layoutId);
+        setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-player-layout", layoutId);
+        if (renderer.__elyricLayoutSelect) {
+            renderer.__elyricLayoutSelect.value = layoutId;
+        }
+        if (persist) {
+            storePlayerLayout(layoutId);
+        }
+        syncArtworkRotationAvailability(renderer);
+        syncPlayerPageState(renderer, isThemeContextVisible(renderer));
+    }
+
     function applyTheme(renderer, themeId, persist) {
         ensureThemeState(renderer);
         if (persist
@@ -452,6 +595,19 @@
         if (container && container.style && container.style.setProperty) {
             container.style.setProperty(propertyName, String(value));
         }
+    }
+
+    function applyPlayerShellConfiguration(renderer, configuration) {
+        var control = renderer.__elyricThemeControl;
+        if (!control || !configuration) {
+            return;
+        }
+        if (configuration.useThemeColor && control.style && control.style.removeProperty) {
+            control.style.removeProperty("--elyric-highlight-color");
+        } else {
+            setDisplayStyle(control, "--elyric-highlight-color", configuration.highlightColor);
+        }
+        setDisplayStyle(control, "--elyric-glow-percent", Math.round(configuration.glowStrength * 100) + "%");
     }
 
     function applyDisplayConfiguration(renderer, configuration) {
@@ -505,6 +661,7 @@
                 configuration.allowUserThemeOverride ? "false" : "true"
             );
         }
+        applyPlayerShellConfiguration(renderer, configuration);
     }
 
     function ensureDisplayConfiguration(renderer) {
@@ -532,7 +689,7 @@
         if (container) {
             container.removeAttribute("data-elyric-show-second");
             container.removeAttribute("data-elyric-show-third-plus");
-            container.removeAttribute("data-elyric-focus-mode");
+            container.removeAttribute("data-elyric-player-layout");
             if (container.style && container.style.removeProperty) {
                 [
                     "--elyric-font-size",
@@ -576,6 +733,19 @@
             element.removeChild(element.firstChild);
         }
         element.appendChild(document.createTextNode(null == value ? "" : String(value)));
+    }
+
+    function setAttributeIfChanged(element, name, value) {
+        value = String(value);
+        if (element && element.getAttribute && element.getAttribute(name) !== value) {
+            element.setAttribute(name, value);
+        }
+    }
+
+    function removeAttributeIfPresent(element, name) {
+        if (element && element.getAttribute && null !== element.getAttribute(name)) {
+            element.removeAttribute(name);
+        }
     }
 
     function formatPlayerTime(ticks) {
@@ -678,6 +848,35 @@
         renderer.__elyricScrubbing = false;
     }
 
+    function volumeFromPlayerControl(renderer, eventType) {
+        var control = renderer.__elyricVolumeSlider;
+        var target = findNativeControl(renderer, NATIVE_PLAYER_SELECTORS.volume);
+        if (!control || !target) {
+            renderer.__elyricVolumeScrubbing = false;
+            return;
+        }
+        var percentage = Math.min(100, Math.max(0, Number(control.value) || 0));
+        target.value = String(percentage);
+        dispatchNativeSeekEvent(target, eventType);
+        if ("change" === eventType) {
+            renderer.__elyricVolumeScrubbing = false;
+        }
+    }
+
+    function updateVolumeControl(renderer) {
+        var control = renderer.__elyricVolumeSlider;
+        if (!control || renderer.__elyricVolumeScrubbing) {
+            return;
+        }
+        var target = findNativeControl(renderer, NATIVE_PLAYER_SELECTORS.volume);
+        var value = target ? Math.min(100, Math.max(0, Number(target.value) || 0)) : 0;
+        control.disabled = !target;
+        control.setAttribute("aria-disabled", target ? "false" : "true");
+        control.value = String(value);
+        control.setAttribute("value", control.value);
+        setDisplayStyle(control, "--elyric-player-volume", value + "%");
+    }
+
     function playerArtistText(item) {
         if (!item) {
             return "Emby 音乐";
@@ -699,12 +898,12 @@
                 return apiClient.getScaledImageUrl(item.Id, {
                     type: "Primary",
                     tag: primaryTag,
-                    maxWidth: 256
+                    maxWidth: 1200
                 });
             }
             if (apiClient.getUrl) {
                 return apiClient.getUrl("Items/" + encodeURIComponent(item.Id) + "/Images/Primary", {
-                    maxWidth: 256,
+                    maxWidth: 1200,
                     tag: primaryTag
                 });
             }
@@ -717,7 +916,7 @@
     function updatePlayerMetadata(renderer) {
         var item = renderer.currentItem || null;
         var signature = item
-            ? [item.Id, item.Name, playerArtistText(item), item.ImageTags && item.ImageTags.Primary].join("|")
+            ? [item.Id, item.Name, playerArtistText(item), item.Album, item.ImageTags && item.ImageTags.Primary].join("|")
             : "";
         if (renderer.__elyricPlayerItemSignature === signature) {
             return;
@@ -725,18 +924,22 @@
         renderer.__elyricPlayerItemSignature = signature;
         replaceElementText(renderer.__elyricPlayerTitle, item && (item.Name || item.OriginalTitle) || "正在播放");
         replaceElementText(renderer.__elyricPlayerArtist, playerArtistText(item));
+        replaceElementText(renderer.__elyricPlayerAlbum, item && item.Album || "");
 
         var artworkUrl = playerArtworkUrl(renderer, item);
-        if (renderer.__elyricPlayerArtwork) {
-            if (artworkUrl) {
-                renderer.__elyricPlayerArtwork.setAttribute("src", artworkUrl);
-                renderer.__elyricPlayerArtwork.setAttribute("alt", "");
-                renderer.__elyricPlayerArtwork.removeAttribute("hidden");
-            } else {
-                renderer.__elyricPlayerArtwork.removeAttribute("src");
-                renderer.__elyricPlayerArtwork.setAttribute("hidden", "hidden");
+        [renderer.__elyricPlayerArtwork, renderer.__elyricPlayerBackground].forEach(function (imageElement) {
+            if (!imageElement) {
+                return;
             }
-        }
+            if (artworkUrl) {
+                imageElement.setAttribute("src", artworkUrl);
+                imageElement.setAttribute("alt", "");
+                imageElement.removeAttribute("hidden");
+            } else {
+                imageElement.removeAttribute("src");
+                imageElement.setAttribute("hidden", "hidden");
+            }
+        });
     }
 
     function updatePlayerTransportState(renderer) {
@@ -744,7 +947,7 @@
         if (!buttons) {
             return;
         }
-        ["previous", "playPause", "next", "shuffle", "repeat", "queue"].forEach(function (action) {
+        ["previous", "playPause", "stop", "next", "shuffle", "repeat", "queue", "mute"].forEach(function (action) {
             var button = buttons[action];
             var nativeControl = findNativeControl(renderer, NATIVE_PLAYER_SELECTORS[action] || []);
             if (!button) {
@@ -767,6 +970,7 @@
         }
         updatePlayerMetadata(renderer);
         updatePlayerTransportState(renderer);
+        updateVolumeControl(renderer);
         if (renderer.__elyricScrubbing) {
             return;
         }
@@ -789,38 +993,23 @@
 
     function setSecondLineOverride(renderer, show) {
         renderer.__elyricLocalShowSecond = !!show;
-        if (renderer.itemsContainer) {
-            renderer.itemsContainer.setAttribute("data-elyric-show-second", show ? "true" : "false");
-        }
+        setAttributeIfChanged(renderer.itemsContainer, "data-elyric-show-second", show ? "true" : "false");
         if (renderer.__elyricSecondLineButton) {
-            renderer.__elyricSecondLineButton.setAttribute("aria-pressed", show ? "true" : "false");
-            renderer.__elyricSecondLineButton.setAttribute("data-elyric-active", show ? "true" : "false");
-            renderer.__elyricSecondLineButton.setAttribute("title", show ? "隐藏注音/第二行" : "显示注音/第二行");
-        }
-    }
-
-    function setFocusMode(renderer, enabled) {
-        enabled = !!enabled;
-        renderer.__elyricFocusMode = enabled;
-        if (renderer.itemsContainer) {
-            renderer.itemsContainer.setAttribute("data-elyric-focus-mode", enabled ? "true" : "false");
-        }
-        if (renderer.__elyricThemeControl) {
-            renderer.__elyricThemeControl.setAttribute("data-elyric-focus-mode", enabled ? "true" : "false");
-        }
-        if (renderer.__elyricFocusButton) {
-            renderer.__elyricFocusButton.setAttribute("aria-pressed", enabled ? "true" : "false");
-            renderer.__elyricFocusButton.setAttribute("data-elyric-active", enabled ? "true" : "false");
-            renderer.__elyricFocusButton.setAttribute("title", enabled ? "退出沉浸模式" : "进入沉浸模式");
-        }
-        if (document.body && document.body.classList) {
-            if (enabled && isThemeContextVisible(renderer)) {
-                document.body.__elyricFocusOwner = renderer;
-                document.body.classList.add("elyric-player-focus-page");
-            } else if (document.body.__elyricFocusOwner === renderer) {
-                document.body.__elyricFocusOwner = null;
-                document.body.classList.remove("elyric-player-focus-page");
-            }
+            setAttributeIfChanged(
+                renderer.__elyricSecondLineButton,
+                "aria-pressed",
+                show ? "true" : "false"
+            );
+            setAttributeIfChanged(
+                renderer.__elyricSecondLineButton,
+                "data-elyric-active",
+                show ? "true" : "false"
+            );
+            setAttributeIfChanged(
+                renderer.__elyricSecondLineButton,
+                "title",
+                show ? "隐藏注音/第二行" : "显示注音/第二行"
+            );
         }
     }
 
@@ -830,6 +1019,12 @@
         control.setAttribute("data-elyric-control", "player");
         control.setAttribute("role", "region");
         control.setAttribute("aria-label", "歌词增强音乐播放器");
+
+        var background = document.createElement("img");
+        background.className = "elyric-player-background";
+        background.setAttribute("hidden", "hidden");
+        background.setAttribute("aria-hidden", "true");
+        control.appendChild(background);
 
         var identity = document.createElement("div");
         identity.className = "elyric-player-identity";
@@ -845,8 +1040,11 @@
         title.className = "elyric-player-title";
         var artist = document.createElement("div");
         artist.className = "elyric-player-artist";
+        var album = document.createElement("div");
+        album.className = "elyric-player-album";
         metadata.appendChild(title);
         metadata.appendChild(artist);
+        metadata.appendChild(album);
         identity.appendChild(metadata);
         control.appendChild(identity);
 
@@ -855,6 +1053,7 @@
         transport.appendChild(createPlayerButton(renderer, "previous", "上一首", "⏮"));
         transport.appendChild(createPlayerButton(renderer, "playPause", "播放或暂停", "⏯"));
         transport.appendChild(createPlayerButton(renderer, "next", "下一首", "⏭"));
+        transport.appendChild(createPlayerButton(renderer, "stop", "停止播放", "■"));
         control.appendChild(transport);
 
         var progress = document.createElement("div");
@@ -892,6 +1091,32 @@
         progress.appendChild(durationText);
         control.appendChild(progress);
 
+        var volume = document.createElement("div");
+        volume.className = "elyric-player-volume";
+        volume.appendChild(createPlayerButton(renderer, "mute", "静音", "🔊"));
+        var volumeSlider = document.createElement("input");
+        volumeSlider.className = "elyric-player-volume-slider";
+        volumeSlider.setAttribute("type", "range");
+        volumeSlider.setAttribute("min", "0");
+        volumeSlider.setAttribute("max", "100");
+        volumeSlider.setAttribute("step", "1");
+        volumeSlider.setAttribute("value", "100");
+        volumeSlider.setAttribute("aria-label", "音量");
+        volumeSlider.min = "0";
+        volumeSlider.max = "100";
+        volumeSlider.value = "100";
+        volumeSlider.addEventListener("input", function (event) {
+            stopControlEvent(event);
+            renderer.__elyricVolumeScrubbing = true;
+            volumeFromPlayerControl(renderer, "input");
+        });
+        volumeSlider.addEventListener("change", function (event) {
+            stopControlEvent(event);
+            volumeFromPlayerControl(renderer, "change");
+        });
+        volume.appendChild(volumeSlider);
+        control.appendChild(volume);
+
         var tools = document.createElement("div");
         tools.className = "elyric-player-tools";
         tools.appendChild(createPlayerButton(renderer, "shuffle", "随机播放", "🔀"));
@@ -910,6 +1135,18 @@
         });
         secondLineButton.addEventListener("pointerdown", stopControlEvent);
         tools.appendChild(secondLineButton);
+
+        var artworkRotationButton = document.createElement("button");
+        artworkRotationButton.className = "elyric-player-button elyric-player-button-rotation";
+        artworkRotationButton.setAttribute("type", "button");
+        artworkRotationButton.setAttribute("aria-label", "开启或停止专辑图旋转");
+        artworkRotationButton.appendChild(document.createTextNode("旋转"));
+        artworkRotationButton.addEventListener("click", function (event) {
+            stopControlEvent(event);
+            setArtworkRotation(renderer, !renderer.__elyricArtworkRotation, true);
+        });
+        artworkRotationButton.addEventListener("pointerdown", stopControlEvent);
+        tools.appendChild(artworkRotationButton);
 
         var label = document.createElement("span");
         label.className = "elyric-theme-picker-label";
@@ -932,35 +1169,46 @@
         });
         tools.appendChild(select);
 
-        var focusButton = document.createElement("button");
-        focusButton.className = "elyric-player-button elyric-player-button-focus";
-        focusButton.setAttribute("type", "button");
-        focusButton.setAttribute("aria-label", "切换沉浸模式");
-        focusButton.appendChild(document.createTextNode("◩"));
-        focusButton.addEventListener("click", function (event) {
-            stopControlEvent(event);
-            setFocusMode(renderer, !renderer.__elyricFocusMode);
+        var layoutLabel = document.createElement("span");
+        layoutLabel.className = "elyric-layout-picker-label";
+        layoutLabel.appendChild(document.createTextNode("界面"));
+        tools.appendChild(layoutLabel);
+        var layoutSelect = document.createElement("select");
+        layoutSelect.className = "elyric-layout-select";
+        layoutSelect.setAttribute("aria-label", "播放器界面");
+        layoutSelect.setAttribute("title", "切换播放器界面");
+        PLAYER_LAYOUTS.forEach(function (layout) {
+            var option = document.createElement("option");
+            option.value = layout.id;
+            option.appendChild(document.createTextNode(layout.label));
+            layoutSelect.appendChild(option);
         });
-        focusButton.addEventListener("pointerdown", stopControlEvent);
-        tools.appendChild(focusButton);
+        layoutSelect.addEventListener("change", function () {
+            applyPlayerLayout(renderer, layoutSelect.value, true);
+        });
+        tools.appendChild(layoutSelect);
         control.appendChild(tools);
 
         control.addEventListener("click", stopControlEvent);
         control.addEventListener("pointerdown", stopControlEvent);
         renderer.__elyricThemeSelect = select;
+        renderer.__elyricLayoutSelect = layoutSelect;
+        renderer.__elyricPlayerBackground = background;
         renderer.__elyricPlayerArtwork = artwork;
         renderer.__elyricPlayerTitle = title;
         renderer.__elyricPlayerArtist = artist;
+        renderer.__elyricPlayerAlbum = album;
         renderer.__elyricProgressSlider = progressSlider;
         renderer.__elyricPlayerPosition = positionText;
         renderer.__elyricPlayerDuration = durationText;
+        renderer.__elyricVolumeSlider = volumeSlider;
         renderer.__elyricSecondLineButton = secondLineButton;
-        renderer.__elyricFocusButton = focusButton;
+        renderer.__elyricArtworkRotationButton = artworkRotationButton;
         renderer.__elyricLocalShowSecond = renderer.__elyricDisplayConfiguration
             ? renderer.__elyricDisplayConfiguration.showSecondLine
             : DEFAULT_DISPLAY_CONFIGURATION.showSecondLine;
         setSecondLineOverride(renderer, renderer.__elyricLocalShowSecond);
-        setFocusMode(renderer, false);
+        applyPlayerLayout(renderer, loadStoredPlayerLayout(), false);
         updatePlayerMetadata(renderer);
         return control;
     }
@@ -1033,20 +1281,13 @@
             return;
         }
         if (isThemeContextVisible(renderer)) {
-            control.removeAttribute("hidden");
-            control.setAttribute("aria-hidden", "false");
-            if (renderer.__elyricFocusMode) {
-                setFocusMode(renderer, true);
-            }
+            removeAttributeIfPresent(control, "hidden");
+            setAttributeIfChanged(control, "aria-hidden", "false");
+            syncPlayerPageState(renderer, true);
         } else {
-            control.setAttribute("hidden", "hidden");
-            control.setAttribute("aria-hidden", "true");
-            if (document.body
-                && document.body.classList
-                && document.body.__elyricFocusOwner === renderer) {
-                document.body.__elyricFocusOwner = null;
-                document.body.classList.remove("elyric-player-focus-page");
-            }
+            setAttributeIfChanged(control, "hidden", "hidden");
+            setAttributeIfChanged(control, "aria-hidden", "true");
+            syncPlayerPageState(renderer, false);
         }
     }
 
@@ -1064,6 +1305,9 @@
                 return;
             }
             renderer.__elyricThemeControl = createThemeControl(renderer);
+            applyPlayerLayout(renderer, renderer.__elyricPlayerLayout, false);
+            setArtworkRotation(renderer, loadStoredArtworkRotation(), false);
+            applyPlayerShellConfiguration(renderer, renderer.__elyricDisplayConfiguration);
         }
         if (!visible) {
             syncThemeControlVisibility(renderer);
@@ -1090,26 +1334,32 @@
         if (renderer.__elyricThemeContainer && renderer.__elyricThemeContainer.removeAttribute) {
             renderer.__elyricThemeContainer.removeAttribute("data-elyric-theme");
         }
-        setFocusMode(renderer, false);
+        syncPlayerPageState(renderer, false);
         if (renderer.itemsContainer && renderer.itemsContainer.removeAttribute) {
-            renderer.itemsContainer.removeAttribute("data-elyric-focus-mode");
+            renderer.itemsContainer.removeAttribute("data-elyric-player-layout");
         }
         renderer.__elyricThemeControl = null;
         renderer.__elyricThemeSelect = null;
+        renderer.__elyricLayoutSelect = null;
         renderer.__elyricThemeContainer = null;
         renderer.__elyricTheme = null;
+        renderer.__elyricPlayerLayout = null;
+        renderer.__elyricPlayerBackground = null;
         renderer.__elyricPlayerArtwork = null;
         renderer.__elyricPlayerTitle = null;
         renderer.__elyricPlayerArtist = null;
+        renderer.__elyricPlayerAlbum = null;
         renderer.__elyricPlayerItemSignature = null;
         renderer.__elyricProgressSlider = null;
         renderer.__elyricPlayerPosition = null;
         renderer.__elyricPlayerDuration = null;
+        renderer.__elyricVolumeSlider = null;
         renderer.__elyricSecondLineButton = null;
-        renderer.__elyricFocusButton = null;
+        renderer.__elyricArtworkRotationButton = null;
+        renderer.__elyricArtworkRotation = null;
         renderer.__elyricPlayerButtons = null;
-        renderer.__elyricFocusMode = false;
         renderer.__elyricScrubbing = false;
+        renderer.__elyricVolumeScrubbing = false;
         renderer.__elyricLastPositionTicks = null;
         renderer.__elyricLastRuntimeTicks = null;
     }
