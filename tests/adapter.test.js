@@ -369,7 +369,17 @@ function createLyricElement(index) {
         const button = new FakeNode("button");
         button.classList.add(className);
         if (action === "shuffle") button.classList.add("toggleButton-active");
-        button.addEventListener("click", () => { nativeClicks[action] += 1; });
+        if (action === "lyrics") button.classList.add("toggleButton-active");
+        button.addEventListener("click", () => {
+            nativeClicks[action] += 1;
+            if (action === "queue") {
+                button.classList.add("toggleButton-active");
+                if (nativeControls.lyrics) nativeControls.lyrics.classList.remove("toggleButton-active");
+            } else if (action === "lyrics") {
+                button.classList.add("toggleButton-active");
+                if (nativeControls.queue) nativeControls.queue.classList.remove("toggleButton-active");
+            }
+        });
         nativeControls[action] = button;
         document.body.appendChild(button);
     });
@@ -484,8 +494,27 @@ function createLyricElement(index) {
     assert.strictEqual(document.body.querySelector(".elyric-layout-select"), null);
     assert.strictEqual(renderer.__elyricPlayerButtons.lyrics, undefined,
         "lyrics are always visible, so V3 must not expose a redundant lyrics button");
-    assert.strictEqual(renderer.__elyricVisualizer.children.length, 12,
-        "the player should mount one lightweight playback visualizer");
+    assert.strictEqual(renderer.__elyricVisualizer.children.length, 32,
+        "the player should mount a wide lightweight playback visualizer");
+    assert.strictEqual(renderer.__elyricVisualizerStyleButtons.length, 5);
+    assert.strictEqual(renderer.__elyricVisualizerRangeButtons.length, 3);
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-style"), "fall");
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-range"), "wide");
+    assert.strictEqual(renderer.__elyricVisualizerAmplitudeInput.value, "100");
+    renderer.__elyricVisualizerStyleButtons
+        .find((button) => button.getAttribute("data-elyric-choice") === "rainbow")
+        .click();
+    renderer.__elyricVisualizerRangeButtons
+        .find((button) => button.getAttribute("data-elyric-choice") === "full")
+        .click();
+    renderer.__elyricVisualizerAmplitudeInput.value = "155";
+    renderer.__elyricVisualizerAmplitudeInput.dispatchEvent({ type: "input", stopPropagation() {} });
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-style"), "rainbow");
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-range"), "full");
+    assert.strictEqual(renderer.__elyricVisualizerAmplitudeValue.textContent, "155%");
+    assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-style"), "rainbow");
+    assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-range"), "full");
+    assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-amplitude"), "155");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-playback-active"), "false");
     const artworkRotationButton = renderer.__elyricArtworkRotationButton;
     assert(artworkRotationButton, "the full player should expose an artwork rotation toggle");
@@ -615,11 +644,18 @@ function createLyricElement(index) {
     renderer.__elyricPlayerButtons.queue.click();
     renderer.itemsContainer.classList.remove("hide");
     renderer.onTimeUpdate(0, 20000000);
-    assert.strictEqual(nativeClicks.lyrics, 0,
-        "closing V3 queue should not require a visible or synthetic native lyrics click");
+    assert.strictEqual(nativeClicks.lyrics, 2,
+        "closing V3 queue by outside click or its button should restore Emby's lyric data source");
     assert.strictEqual(renderer.__elyricPlayerButtons.queue.getAttribute("aria-pressed"), "false");
     assert.strictEqual(document.body.getAttribute("data-elyric-queue-open"), "false",
         "clicking the queue button again should hide the queue while always-on lyrics remain visible");
+    nativeControls.lyrics.classList.remove("toggleButton-active");
+    nativeControls.queue.classList.add("toggleButton-active");
+    renderer.__elyricNativeLyricsPendingUntil = 0;
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(nativeClicks.lyrics, 3,
+        "a stale native queue state after refresh should be repaired so the lyric renderer receives items");
+    assert(nativeControls.lyrics.classList.contains("toggleButton-active"));
     nativeControls.playPause.setAttribute("aria-label", "播放");
     renderer.__elyricOptimisticPlayingUntil = 0;
     renderer.onTimeUpdate(0, 20000000);
@@ -746,6 +782,14 @@ function createLyricElement(index) {
         "the playback page should provide a lightweight animated rhythm row");
     assert(adapterCss.includes("data-elyric-playback-active=\"true\""),
         "playback animations must only run while Emby reports active playback");
+    ["fall", "curve", "line", "balls", "rainbow"].forEach((styleId) => {
+        assert(adapterCss.includes(`data-elyric-visualizer-style="${styleId}"`) || styleId === "fall",
+            `${styleId} visualizer style should be available`);
+    });
+    ["compact", "full"].forEach((rangeId) => {
+        assert(adapterCss.includes(`data-elyric-visualizer-range="${rangeId}"`),
+            `${rangeId} visualizer range should be available`);
+    });
     assert(adapterCss.includes('.osdContentSection[data-contentsection="lyrics"].hide'),
         "opening Emby's queue must not hide the always-on lyric region");
     assert(adapterCss.includes('data-elyric-queue-open="false"'),
@@ -821,6 +865,9 @@ function createLyricElement(index) {
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-artwork-rotate"), "false",
         "the artwork rotation choice should be restored from browser storage");
     assert.strictEqual(secondRenderer.__elyricArtworkRotationButton.disabled, false);
+    assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-style"), "rainbow");
+    assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-range"), "full");
+    assert.strictEqual(secondRenderer.__elyricVisualizerAmplitudeInput.value, "155");
     secondRenderer.destroy();
 
     const openEndedRenderer = new LyricsRenderer();
