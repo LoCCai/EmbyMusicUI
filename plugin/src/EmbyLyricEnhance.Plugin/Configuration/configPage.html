@@ -1,14 +1,62 @@
 <div id="EmbyLyricEnhanceConfigPage"
      data-role="page"
      class="page type-interior pluginConfigurationPage"
-     style="min-height:100%;background:var(--theme-background, var(--background-color, #101010));"
      data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <style>
+        #EmbyLyricEnhanceConfigPage {
+            min-height: 100%;
+            background: transparent;
+        }
+
+        #EmbyLyricEnhanceConfigPage.elyric-managed-hidden {
+            display: none !important;
+        }
+
+        #EmbyLyricEnhanceConfigPage .elyric-save-status {
+            position: sticky;
+            top: .75em;
+            z-index: 2;
+            margin: .75em 0 1.25em;
+            padding: .85em 1em;
+            border-left: .35em solid var(--theme-primary-color, #00a4dc);
+            border-radius: .35em;
+            background: rgba(0, 0, 0, .28);
+            color: inherit;
+            box-shadow: 0 .2em .8em rgba(0, 0, 0, .2);
+        }
+
+        #EmbyLyricEnhanceConfigPage .elyric-save-status[data-state="error"] {
+            border-left-color: #ff8a80;
+        }
+
+        #EmbyLyricEnhanceConfigPage .elyric-save-status[hidden] {
+            display: none;
+        }
+
+        #EmbyLyricEnhanceConfigPage .elyric-reload-button {
+            margin-bottom: 1.25em;
+        }
+    </style>
     <div data-role="content">
         <div class="content-primary">
             <form id="EmbyLyricEnhanceConfigForm">
                 <div class="sectionTitleContainer flex align-items-center">
-                    <h2 class="sectionTitle">Emby Lyric Enhance</h2>
+                    <h2 class="sectionTitle">歌词增强</h2>
                 </div>
+
+                <div class="fieldDescription">Emby Lyric Enhance 服务器显示设置</div>
+                <div id="elyricSaveStatus"
+                     class="elyric-save-status"
+                     role="status"
+                     aria-live="polite"
+                     data-state="idle"
+                     hidden></div>
+                <button is="emby-button"
+                        id="elyricReloadButton"
+                        type="button"
+                        class="raised emby-button elyric-reload-button">
+                    <span>重新读取服务器设置</span>
+                </button>
 
                 <div class="selectContainer">
                     <label class="selectLabel" for="elyricDefaultTheme">服务器默认主题</label>
@@ -22,18 +70,18 @@
                 </div>
 
                 <label class="checkboxContainer">
-                    <input is="emby-checkbox" type="checkbox" id="elyricAllowUserThemeOverride" />
+                    <input is="emby-checkbox" type="checkbox" id="elyricAllowUserThemeOverride" checked />
                     <span>允许浏览器保存并覆盖默认主题</span>
                 </label>
 
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="elyricFontSizePercent">字号（70–180%）</label>
-                    <input is="emby-input" type="number" id="elyricFontSizePercent" min="70" max="180" step="1" required />
+                    <input is="emby-input" type="number" id="elyricFontSizePercent" min="70" max="180" step="1" value="100" required />
                 </div>
 
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="elyricLineHeight">行距（1.00–2.00）</label>
-                    <input is="emby-input" type="number" id="elyricLineHeight" min="1" max="2" step="0.05" required />
+                    <input is="emby-input" type="number" id="elyricLineHeight" min="1" max="2" step="0.05" value="1.25" required />
                 </div>
 
                 <div class="selectContainer">
@@ -42,7 +90,7 @@
                         <option value="300">300</option>
                         <option value="400">400</option>
                         <option value="500">500</option>
-                        <option value="600">600</option>
+                        <option value="600" selected>600</option>
                         <option value="700">700</option>
                         <option value="800">800</option>
                         <option value="900">900</option>
@@ -50,47 +98,47 @@
                 </div>
 
                 <label class="checkboxContainer">
-                    <input is="emby-checkbox" type="checkbox" id="elyricUseThemeColor" />
+                    <input is="emby-checkbox" type="checkbox" id="elyricUseThemeColor" checked />
                     <span>高亮颜色跟随 Emby 主题</span>
                 </label>
 
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="elyricHighlightColor">自定义高亮色（#RRGGBB）</label>
-                    <input is="emby-input" type="text" id="elyricHighlightColor" maxlength="7" pattern="#[0-9A-Fa-f]{6}" placeholder="#ffffff" required />
+                    <input is="emby-input" type="text" id="elyricHighlightColor" maxlength="7" pattern="#[0-9A-Fa-f]{6}" placeholder="#ffffff" value="#ffffff" required />
                 </div>
 
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="elyricPendingOpacity">未唱字透明度（0.10–0.90）</label>
-                    <input is="emby-input" type="number" id="elyricPendingOpacity" min="0.1" max="0.9" step="0.01" required />
+                    <input is="emby-input" type="number" id="elyricPendingOpacity" min="0.1" max="0.9" step="0.01" value="0.46" required />
                 </div>
 
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="elyricGlowStrength">辉光强度（0–1）</label>
-                    <input is="emby-input" type="number" id="elyricGlowStrength" min="0" max="1" step="0.05" required />
+                    <input is="emby-input" type="number" id="elyricGlowStrength" min="0" max="1" step="0.05" value="0.45" required />
                 </div>
 
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="elyricCurrentLineScale">当前行缩放（1.00–1.25）</label>
-                    <input is="emby-input" type="number" id="elyricCurrentLineScale" min="1" max="1.25" step="0.01" required />
+                    <input is="emby-input" type="number" id="elyricCurrentLineScale" min="1" max="1.25" step="0.01" value="1.08" required />
                 </div>
 
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="elyricOtherLinesOpacity">其他行透明度（0.10–1.00）</label>
-                    <input is="emby-input" type="number" id="elyricOtherLinesOpacity" min="0.1" max="1" step="0.01" required />
+                    <input is="emby-input" type="number" id="elyricOtherLinesOpacity" min="0.1" max="1" step="0.01" value="0.34" required />
                 </div>
 
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="elyricOtherLinesBlurPixels">其他行模糊（0–4 px）</label>
-                    <input is="emby-input" type="number" id="elyricOtherLinesBlurPixels" min="0" max="4" step="0.1" required />
+                    <input is="emby-input" type="number" id="elyricOtherLinesBlurPixels" min="0" max="4" step="0.1" value="0.4" required />
                 </div>
 
                 <label class="checkboxContainer">
-                    <input is="emby-checkbox" type="checkbox" id="elyricShowSecondLine" />
+                    <input is="emby-checkbox" type="checkbox" id="elyricShowSecondLine" checked />
                     <span>显示第二行（常用于注音或翻译）</span>
                 </label>
 
                 <label class="checkboxContainer">
-                    <input is="emby-checkbox" type="checkbox" id="elyricShowThirdAndLaterLines" />
+                    <input is="emby-checkbox" type="checkbox" id="elyricShowThirdAndLaterLines" checked />
                     <span>显示第三行及更多子行</span>
                 </label>
 
@@ -98,10 +146,8 @@
                     保存后，已打开的播放页会在下次进入歌词页面时读取新默认值。首次安装或更新 DLL 后仍需重启 Emby 以加载插件。
                 </div>
 
-                <div id="elyricSaveStatus" class="fieldDescription" role="status" aria-live="polite"></div>
-
                 <button is="emby-button" type="submit" class="raised button-submit block emby-button">
-                    <span>保存</span>
+                    <span id="elyricSubmitLabel">保存</span>
                 </button>
             </form>
         </div>
@@ -113,10 +159,33 @@
 
             var pluginId = "efbd3f14-8799-4a7d-a5ad-7ef93c5b0e5d";
             var pageSelector = "#EmbyLyricEnhanceConfigPage";
-            var managerKey = "__embyLyricEnhanceConfigurationManager";
+            var managerKey = "__embyLyricEnhanceConfigurationManagerV024";
 
             function createManager() {
                 var scanTimer = null;
+
+                function pageFromTarget(target) {
+                    if (!target || 1 !== target.nodeType) {
+                        return null;
+                    }
+                    if (target.matches && target.matches(pageSelector)) {
+                        return target;
+                    }
+                    return target.closest ? target.closest(pageSelector) : null;
+                }
+
+                function setManagedVisibility(page, isActive) {
+                    if (!page || !page.classList) {
+                        return;
+                    }
+                    if (isActive) {
+                        page.classList.remove("elyric-managed-hidden");
+                        page.removeAttribute("aria-hidden");
+                    } else {
+                        page.classList.add("elyric-managed-hidden");
+                        page.setAttribute("aria-hidden", "true");
+                    }
+                }
 
                 function bindPage(page) {
                     if (!page || page.getAttribute("data-elyric-config-bound") === "true") {
@@ -130,8 +199,11 @@
 
                     page.setAttribute("data-elyric-config-bound", "true");
                     var submitButton = form.querySelector('button[type="submit"]');
+                    var submitLabel = page.querySelector("#elyricSubmitLabel");
+                    var reloadButton = page.querySelector("#elyricReloadButton");
                     var loadPromise = null;
                     var saving = false;
+                    var ready = false;
 
                     function element(id) {
                         return page.querySelector("#" + id);
@@ -153,47 +225,89 @@
                         element("elyricHighlightColor").disabled = element("elyricUseThemeColor").checked;
                     }
 
-                    function showStatus(message, isError) {
-                        var status = element("elyricSaveStatus");
-                        status.textContent = message || "";
-                        status.style.color = isError ? "#ff8a80" : "";
+                    function setFormReady(value) {
+                        ready = Boolean(value);
+                        submitButton.disabled = saving || !ready;
                     }
 
-                    function handleError(error) {
-                        Dashboard.hideLoadingMsg();
-                        showStatus(
-                            error && error.message
-                                ? error.message
-                                : "Emby Lyric Enhance 配置操作失败，请检查服务器日志。",
-                            true
-                        );
+                    function showStatus(message, state) {
+                        var status = element("elyricSaveStatus");
+                        status.textContent = message || "";
+                        status.hidden = !message;
+                        status.setAttribute("data-state", state || "idle");
+                    }
+
+                    function errorMessage(prefix, error) {
+                        var detail = error && error.message
+                            ? error.message
+                            : "请检查 Emby 服务器日志和浏览器网络请求。";
+                        showStatus(prefix + "：" + detail, "error");
                         if (window.console && console.error) {
                             console.error(error);
                         }
                     }
 
-                    function loadConfiguration() {
+                    function applyConfiguration(configuration) {
+                        var display = configuration.Display || {};
+                        setValue("elyricDefaultTheme", display.DefaultTheme, "classic");
+                        setChecked("elyricAllowUserThemeOverride", display.AllowUserThemeOverride, true);
+                        setValue("elyricFontSizePercent", display.FontSizePercent, 100);
+                        setValue("elyricLineHeight", display.LineHeight, 1.25);
+                        setValue("elyricFontWeight", display.FontWeight, 600);
+                        setChecked("elyricUseThemeColor", display.UseThemeColor, true);
+                        setValue("elyricHighlightColor", display.HighlightColor, "#ffffff");
+                        setValue("elyricPendingOpacity", display.PendingOpacity, 0.46);
+                        setValue("elyricGlowStrength", display.GlowStrength, 0.45);
+                        setValue("elyricCurrentLineScale", display.CurrentLineScale, 1.08);
+                        setValue("elyricOtherLinesOpacity", display.OtherLinesOpacity, 0.34);
+                        setValue("elyricOtherLinesBlurPixels", display.OtherLinesBlurPixels, 0.4);
+                        setChecked("elyricShowSecondLine", display.ShowSecondLine, true);
+                        setChecked("elyricShowThirdAndLaterLines", display.ShowThirdAndLaterLines, true);
+                        syncColorInput();
+                    }
+
+                    function currentSummary() {
+                        var themeNames = {
+                            classic: "经典累积",
+                            focus: "单字聚焦",
+                            gradient: "渐变扫光",
+                            apple: "Apple 风格",
+                            minimal: "简洁整行"
+                        };
+                        var theme = element("elyricDefaultTheme").value;
+                        return "主题「" + (themeNames[theme] || theme) + "」，字号 " +
+                            element("elyricFontSizePercent").value + "% / 行距 " +
+                            element("elyricLineHeight").value + "。";
+                    }
+
+                    function loadConfiguration(options) {
+                        options = options || {};
                         if (loadPromise) {
+                            if (options.force) {
+                                return loadPromise.catch(function () {
+                                    return null;
+                                }).then(function () {
+                                    return loadConfiguration({
+                                        pendingMessage: options.pendingMessage,
+                                        readyMessage: options.readyMessage
+                                    });
+                                });
+                            }
                             return loadPromise;
                         }
+
+                        setFormReady(false);
+                        showStatus(options.pendingMessage || "正在读取服务器设置…", "loading");
                         Dashboard.showLoadingMsg();
                         loadPromise = ApiClient.getPluginConfiguration(pluginId).then(function (configuration) {
-                            var display = configuration.Display || {};
-                            setValue("elyricDefaultTheme", display.DefaultTheme, "classic");
-                            setChecked("elyricAllowUserThemeOverride", display.AllowUserThemeOverride, true);
-                            setValue("elyricFontSizePercent", display.FontSizePercent, 100);
-                            setValue("elyricLineHeight", display.LineHeight, 1.25);
-                            setValue("elyricFontWeight", display.FontWeight, 600);
-                            setChecked("elyricUseThemeColor", display.UseThemeColor, true);
-                            setValue("elyricHighlightColor", display.HighlightColor, "#ffffff");
-                            setValue("elyricPendingOpacity", display.PendingOpacity, 0.46);
-                            setValue("elyricGlowStrength", display.GlowStrength, 0.45);
-                            setValue("elyricCurrentLineScale", display.CurrentLineScale, 1.08);
-                            setValue("elyricOtherLinesOpacity", display.OtherLinesOpacity, 0.34);
-                            setValue("elyricOtherLinesBlurPixels", display.OtherLinesBlurPixels, 0.4);
-                            setChecked("elyricShowSecondLine", display.ShowSecondLine, true);
-                            setChecked("elyricShowThirdAndLaterLines", display.ShowThirdAndLaterLines, true);
-                            syncColorInput();
+                            applyConfiguration(configuration);
+                            setFormReady(true);
+                            if (false !== options.readyMessage) {
+                                showStatus(
+                                    options.readyMessage || "已从服务器读取设置，可以修改后保存。",
+                                    "ready"
+                                );
+                            }
                             return configuration;
                         }).finally(function () {
                             Dashboard.hideLoadingMsg();
@@ -203,19 +317,42 @@
                     }
 
                     function refreshConfiguration() {
-                        loadConfiguration().catch(handleError);
+                        return loadConfiguration().catch(function (error) {
+                            setFormReady(false);
+                            errorMessage("读取服务器设置失败，当前页面不会提交空值", error);
+                            throw error;
+                        });
+                    }
+
+                    function onBoundPageShow() {
+                        var activePage = activatePage(page);
+                        if (activePage === page) {
+                            refreshConfiguration().catch(function () {});
+                        }
                     }
 
                     page.__elyricRefreshConfiguration = refreshConfiguration;
+                    page.addEventListener("pageshow", onBoundPageShow);
+                    page.addEventListener("viewshow", onBoundPageShow);
                     element("elyricUseThemeColor").addEventListener("change", syncColorInput);
+                    reloadButton.addEventListener("click", function () {
+                        refreshConfiguration().catch(function () {});
+                    });
                     form.addEventListener("submit", function (event) {
                         event.preventDefault();
                         if (saving) {
                             return false;
                         }
+                        if (!ready) {
+                            showStatus("尚未成功读取服务器设置，请先点击“重新读取服务器设置”。", "error");
+                            return false;
+                        }
+
+                        var wasReady = ready;
                         saving = true;
-                        submitButton.disabled = true;
-                        showStatus("", false);
+                        setFormReady(false);
+                        submitLabel.textContent = "正在保存…";
+                        showStatus("正在保存，并等待服务器回读确认…", "loading");
                         Dashboard.showLoadingMsg();
                         ApiClient.getPluginConfiguration(pluginId).then(function (configuration) {
                             configuration.Display = configuration.Display || {};
@@ -236,31 +373,44 @@
                             display.ShowThirdAndLaterLines = element("elyricShowThirdAndLaterLines").checked;
                             return ApiClient.updatePluginConfiguration(pluginId, configuration);
                         }).then(function () {
-                            return loadConfiguration();
+                            return loadConfiguration({
+                                force: true,
+                                pendingMessage: "保存请求已完成，正在从服务器回读确认…",
+                                readyMessage: false
+                            });
                         }).then(function () {
-                            showStatus("设置已保存并重新读取。", false);
-                        }).catch(handleError).finally(function () {
+                            showStatus("✓ 保存成功，服务器已回读确认。当前：" + currentSummary(), "success");
+                        }).catch(function (error) {
+                            setFormReady(wasReady);
+                            errorMessage("保存失败，服务器没有确认修改", error);
+                        }).finally(function () {
                             saving = false;
-                            submitButton.disabled = false;
+                            submitLabel.textContent = "保存";
+                            submitButton.disabled = !ready;
                             Dashboard.hideLoadingMsg();
                         });
                         return false;
                     });
 
-                    refreshConfiguration();
+                    setFormReady(false);
+                    syncColorInput();
+                    refreshConfiguration().catch(function () {});
                 }
 
-                function scan() {
+                function activatePage(preferredPage) {
                     var pages = document.querySelectorAll(pageSelector);
                     if (!pages.length) {
                         return null;
                     }
 
-                    var activePage = pages[pages.length - 1];
+                    var preferredIndex = preferredPage
+                        ? Array.prototype.indexOf.call(pages, preferredPage)
+                        : -1;
+                    var activePage = preferredIndex >= 0
+                        ? preferredPage
+                        : pages[pages.length - 1];
                     Array.prototype.forEach.call(pages, function (candidate) {
-                        if (candidate !== activePage && candidate.parentNode) {
-                            candidate.parentNode.removeChild(candidate);
-                        }
+                        setManagedVisibility(candidate, candidate === activePage);
                     });
                     bindPage(activePage);
                     return activePage;
@@ -272,14 +422,18 @@
                     }
                     scanTimer = window.setTimeout(function () {
                         scanTimer = null;
-                        scan();
+                        activatePage(null);
                     }, 0);
                 }
 
-                function onPageShow() {
-                    var activePage = scan();
+                function onPageShow(event) {
+                    var requestedPage = pageFromTarget(event.target);
+                    if (!requestedPage) {
+                        return;
+                    }
+                    var activePage = activatePage(requestedPage);
                     if (activePage && activePage.__elyricRefreshConfiguration) {
-                        activePage.__elyricRefreshConfiguration();
+                        activePage.__elyricRefreshConfiguration().catch(function () {});
                     }
                 }
 
@@ -303,6 +457,12 @@
                 }
 
                 return {
+                    register: function (page) {
+                        if (page) {
+                            bindPage(page);
+                        }
+                        scanSoon();
+                    },
                     scanSoon: scanSoon
                 };
             }
@@ -310,7 +470,11 @@
             if (!window[managerKey]) {
                 window[managerKey] = createManager();
             }
-            window[managerKey].scanSoon();
+            var currentScript = document.currentScript;
+            var scriptPage = currentScript && currentScript.closest
+                ? currentScript.closest(pageSelector)
+                : null;
+            window[managerKey].register(scriptPage);
         })();
     </script>
 </div>

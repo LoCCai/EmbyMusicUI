@@ -20,9 +20,16 @@ function createControl(initial) {
         disabled: false,
         textContent: "",
         style: {},
+        attributes: {},
         listeners: {},
         addEventListener(type, listener) {
             this.listeners[type] = listener;
+        },
+        getAttribute(name) {
+            return this.attributes[name] || null;
+        },
+        setAttribute(name, value) {
+            this.attributes[name] = value;
         },
         ...(initial || {})
     };
@@ -50,14 +57,18 @@ async function main() {
         "elyricOtherLinesBlurPixels",
         "elyricShowSecondLine",
         "elyricShowThirdAndLaterLines",
-        "elyricSaveStatus"
+        "elyricSaveStatus",
+        "elyricReloadButton",
+        "elyricSubmitLabel"
     ];
     const pages = [];
     function createPage() {
         const controls = Object.fromEntries(ids.map((id) => [id, createControl()]));
         const submitButton = createControl();
         const formListeners = {};
+        const pageListeners = {};
         const attributes = {};
+        const classes = new Set();
         const form = {
             addEventListener(type, listener) {
                 formListeners[type] = listener;
@@ -69,6 +80,20 @@ async function main() {
         const page = {
             nodeType: 1,
             isConnected: true,
+            classList: {
+                add(name) {
+                    classes.add(name);
+                },
+                contains(name) {
+                    return classes.has(name);
+                },
+                remove(name) {
+                    classes.delete(name);
+                }
+            },
+            addEventListener(type, listener) {
+                pageListeners[type] = listener;
+            },
             matches(selector) {
                 return selector === "#EmbyLyricEnhanceConfigPage";
             },
@@ -81,6 +106,9 @@ async function main() {
             setAttribute(name, value) {
                 attributes[name] = value;
             },
+            removeAttribute(name) {
+                delete attributes[name];
+            },
             querySelector(selector) {
                 if (selector === "#EmbyLyricEnhanceConfigForm") {
                     return form;
@@ -88,15 +116,12 @@ async function main() {
                 return controls[selector.slice(1)] || null;
             },
             parentNode: {
-                removeChild(candidate) {
-                    const index = pages.indexOf(candidate);
-                    assert(index >= 0, "only an attached page should be removed");
-                    pages.splice(index, 1);
-                    candidate.isConnected = false;
+                removeChild() {
+                    assert.fail("the plugin must not remove pages owned by Emby's router");
                 }
             }
         };
-        return { attributes, controls, formListeners, page, submitButton };
+        return { attributes, classes, controls, formListeners, page, pageListeners, submitButton };
     }
 
     let configuration = {
@@ -119,10 +144,12 @@ async function main() {
     };
     let getCalls = 0;
     let updateCalls = 0;
+    let failNextGet = false;
     const documentListeners = {};
     const documentListenerCounts = {};
     let mutationCallback = null;
     let observerCount = 0;
+    let scriptPage = null;
     class MutationObserver {
         constructor(callback) {
             mutationCallback = callback;
@@ -131,10 +158,15 @@ async function main() {
 
         observe() {}
     }
+    const pageConsole = { error() {} };
     const context = {
         ApiClient: {
             getPluginConfiguration() {
                 getCalls += 1;
+                if (failNextGet) {
+                    failNextGet = false;
+                    return Promise.reject(new Error("simulated read failure"));
+                }
                 return Promise.resolve(JSON.parse(JSON.stringify(configuration)));
             },
             updatePluginConfiguration(pluginId, nextConfiguration) {
@@ -149,6 +181,11 @@ async function main() {
             showLoadingMsg() {}
         },
         document: {
+            currentScript: {
+                closest() {
+                    return scriptPage;
+                }
+            },
             documentElement: {},
             addEventListener(type, listener) {
                 documentListeners[type] = listener;
@@ -158,12 +195,13 @@ async function main() {
                 return pages.slice();
             }
         },
-        console,
+        console: pageConsole,
         Promise,
-        window: { console, MutationObserver, setTimeout }
+        window: { console: pageConsole, MutationObserver, setTimeout }
     };
 
     const stale = createPage();
+    scriptPage = stale.page;
     vm.runInNewContext(scriptMatch[1], context, { filename: "configPage.inline.js" });
     pages.push(stale.page);
     mutationCallback([{ addedNodes: [stale.page] }]);
@@ -174,13 +212,15 @@ async function main() {
     assert.strictEqual(stale.controls.elyricFontSizePercent.value, 100);
 
     const current = createPage();
+    scriptPage = current.page;
     vm.runInNewContext(scriptMatch[1], context, { filename: "configPage.inline.js" });
     pages.push(current.page);
     mutationCallback([{ addedNodes: [current.page] }]);
     await flushPromises();
 
-    assert.strictEqual(pages.length, 1, "only one configuration page should remain after delayed insertion");
-    assert.strictEqual(pages[0], current.page, "the newest configuration page should replace the stale page");
+    assert.strictEqual(pages.length, 2, "router-owned configuration pages should remain in Emby's DOM");
+    assert(stale.classes.has("elyric-managed-hidden"), "the stale plugin page should be hidden non-destructively");
+    assert(!current.classes.has("elyric-managed-hidden"), "the newest plugin page should remain visible");
     assert.strictEqual(current.attributes["data-elyric-config-bound"], "true");
     assert.strictEqual(getCalls, 2, "the replacement page should load the persisted configuration once");
     assert.strictEqual(current.controls.elyricFontSizePercent.value, 100);
@@ -190,9 +230,17 @@ async function main() {
     assert.strictEqual(documentListenerCounts.viewshow, 1, "re-evaluating the script should not duplicate listeners");
     assert.strictEqual(observerCount, 1, "re-evaluating the script should reuse one insertion observer");
 
+    stale.pageListeners.viewshow();
+    await flushPromises();
+    assert(!stale.classes.has("elyric-managed-hidden"), "Emby may safely reactivate a retained page instance");
+    assert(current.classes.has("elyric-managed-hidden"), "the inactive duplicate should be hidden without removal");
+    assert.strictEqual(getCalls, 3, "reactivating a retained page should reload its server values");
+
     documentListeners.viewshow({ target: current.page });
     await flushPromises();
-    assert.strictEqual(getCalls, 3, "viewshow should refresh the visible page from the server");
+    assert(stale.classes.has("elyric-managed-hidden"), "reactivating the newest page should hide the retained duplicate");
+    assert(!current.classes.has("elyric-managed-hidden"));
+    assert.strictEqual(getCalls, 4, "viewshow should refresh the visible page from the server");
 
     current.controls.elyricDefaultTheme.value = "apple";
     current.controls.elyricAllowUserThemeOverride.checked = false;
@@ -219,11 +267,33 @@ async function main() {
     assert.strictEqual(configuration.Display.DefaultTheme, "apple");
     assert.strictEqual(configuration.Display.FontSizePercent, 125);
     assert.strictEqual(configuration.Display.HighlightColor, "#123456");
-    assert.strictEqual(getCalls, 5, "save should read the current configuration and then verify the persisted result");
-    assert.strictEqual(current.controls.elyricSaveStatus.textContent, "设置已保存并重新读取。");
+    assert.strictEqual(getCalls, 6, "save should read the current configuration and then verify the persisted result");
+    assert(current.controls.elyricSaveStatus.textContent.includes("保存成功，服务器已回读确认"));
+    assert.strictEqual(current.controls.elyricSaveStatus.attributes["data-state"], "success");
+    assert.strictEqual(current.controls.elyricSaveStatus.hidden, false);
+    assert.strictEqual(current.controls.elyricSubmitLabel.textContent, "保存");
     assert.strictEqual(current.submitButton.disabled, false);
 
-    console.log("plugin configuration page deduplication, lifecycle and save round trip: ok");
+    failNextGet = true;
+    current.controls.elyricReloadButton.listeners.click();
+    await flushPromises();
+    assert.strictEqual(getCalls, 7, "manual reload should perform a new server read");
+    assert.strictEqual(current.controls.elyricSaveStatus.attributes["data-state"], "error");
+    assert(current.controls.elyricSaveStatus.textContent.includes("读取服务器设置失败"));
+    assert.strictEqual(current.submitButton.disabled, true, "saving should be blocked after a failed server read");
+
+    current.formListeners.submit(submitEvent);
+    await flushPromises();
+    assert.strictEqual(updateCalls, 1, "an unread configuration must never overwrite server settings");
+    assert(current.controls.elyricSaveStatus.textContent.includes("尚未成功读取服务器设置"));
+
+    current.controls.elyricReloadButton.listeners.click();
+    await flushPromises();
+    assert.strictEqual(getCalls, 8, "manual retry should read the server again");
+    assert.strictEqual(current.controls.elyricSaveStatus.attributes["data-state"], "ready");
+    assert.strictEqual(current.submitButton.disabled, false);
+
+    console.log("plugin configuration page routing, lifecycle, save round trip and load failure safety: ok");
 }
 
 main().catch((error) => {

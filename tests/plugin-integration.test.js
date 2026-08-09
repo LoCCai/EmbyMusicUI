@@ -35,7 +35,9 @@ assert(pageSource.includes("__embyLyricEnhanceConfigurationManager"),
 assert(pageSource.includes("document.querySelectorAll(pageSelector)"),
     "dynamic evaluation should scan all configuration page instances");
 assert(pageSource.includes("pages[pages.length - 1]"), "dynamic evaluation should retain the newest page instance");
-assert(pageSource.includes("candidate.parentNode.removeChild(candidate)"), "stale duplicate configuration pages should be removed");
+assert(pageSource.includes("elyric-managed-hidden"), "stale plugin pages should be hidden without mutating Emby's page stack");
+assert(!pageSource.includes("candidate.parentNode.removeChild(candidate)"),
+    "the plugin must not remove router-owned page nodes from Emby's DOM");
 assert(pageSource.includes('document.addEventListener("pageshow"') && pageSource.includes('document.addEventListener("viewshow"'),
     "both legacy and current Emby page lifecycle events should be observed across replaced pages");
 assert(pageSource.includes("new window.MutationObserver"),
@@ -43,8 +45,10 @@ assert(pageSource.includes("new window.MutationObserver"),
 assert(pageSource.includes("scanSoon"), "page insertion scans should be deferred until the new page is attached");
 assert(pageSource.includes("if (loadPromise)"), "repeated page events should share one configuration request");
 assert(pageSource.includes("if (saving)"), "repeated form submissions should be ignored while a save is active");
-assert(pageSource.includes("设置已保存并重新读取"), "successful saves should confirm a server round trip inline");
-assert(pageSource.includes("var(--theme-background"), "the configuration page should cover the previous transparent route");
+assert(pageSource.includes("保存成功，服务器已回读确认"), "successful saves should visibly confirm a server round trip");
+assert(pageSource.includes("重新读取服务器设置"), "administrators should be able to retry a failed configuration load");
+assert(pageSource.includes("background: transparent"), "the configuration page should inherit the active Emby theme");
+assert(pageSource.includes("var(--theme-primary-color"), "status accents should follow the active Emby theme color");
 assert(!pageSource.includes("processPluginConfigurationUpdateResult"),
     "saving should not invoke the navigation-oriented helper that can duplicate dynamic pages");
 
@@ -127,7 +131,7 @@ const pageScript = pageSource.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
 assert(pageScript, "the admin page should contain its lifecycle script");
 assert.doesNotThrow(() => new Function(pageScript[1]), "the admin page script should parse as JavaScript");
 assert(pageSource.includes("data-elyric-config-bound"), "the admin page should not bind duplicate lifecycle handlers");
-assert(pageSource.includes(".catch(handleError)"), "configuration load and save failures should be surfaced safely");
+assert(pageSource.includes("errorMessage("), "configuration load and save failures should be surfaced safely");
 assert(pageSource.includes("pattern=\"#[0-9A-Fa-f]{6}\""), "the admin page should constrain custom colors before save");
 assert(adapterCss.includes(".elyric-subline:nth-child(n+3)"), "third and later sublines should share consistent styling");
 

@@ -2,7 +2,7 @@
   <PropertyGroup>
     <AssemblyName>EmbyLyricEnhance</AssemblyName>
     <RootNamespace>EmbyLyricEnhance.Plugin</RootNamespace>
-    <Version>0.2.3</Version>
+    <Version>0.2.4</Version>
     <Description>Server defaults and configuration API for EmbyLyricEnhance.</Description>
     <IsPackable>false</IsPackable>
     <EmbyApiVersion Condition="'$(EmbyApiVersion)' == ''">4.9.1.90</EmbyApiVersion>
