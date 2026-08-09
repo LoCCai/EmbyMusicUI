@@ -94,6 +94,9 @@ class FakeNode {
         (this.listeners[event.type] || []).forEach((listener) => listener.call(this, event));
         return true;
     }
+    click() {
+        this.dispatchEvent({ type: "click", target: this, currentTarget: this, stopPropagation() {} });
+    }
     get firstChild() {
         return this.children[0] || null;
     }
@@ -121,6 +124,7 @@ class FakeNode {
         return this.tagName ? this.children.map((child) => child.textContent).join("") : this.nodeText;
     }
     matches(selector) {
+        if (/^\.[a-z0-9_-]+$/i.test(selector)) return this.classList.contains(selector.slice(1));
         if (selector === ".listItemBodyText") return this.classList.contains("listItemBodyText");
         if (selector === ".lyricsItem[data-index]") {
             return this.classList.contains("lyricsItem") && null != this.getAttribute("data-index");
@@ -287,6 +291,32 @@ function createLyricElement(index) {
 }
 
 (async () => {
+    const nativeClicks = { previous: 0, playPause: 0, next: 0, shuffle: 0, repeat: 0, queue: 0 };
+    const nativeDefinitions = [
+        ["previous", "btnPreviousTrack"],
+        ["playPause", "videoOsd-btnPause"],
+        ["next", "btnNextTrack"],
+        ["shuffle", "btnOsdShuffle-bottom"],
+        ["repeat", "btnOsdRepeatMode-bottom"],
+        ["queue", "btnPlayQueue"]
+    ];
+    nativeDefinitions.forEach(([action, className]) => {
+        const button = new FakeNode("button");
+        button.classList.add(className);
+        if (action === "shuffle") button.classList.add("toggleButton-active");
+        button.addEventListener("click", () => { nativeClicks[action] += 1; });
+        document.body.appendChild(button);
+    });
+    const nativeSeek = new FakeNode("input");
+    nativeSeek.classList.add("videoOsdPositionSlider");
+    nativeSeek.max = "100";
+    nativeSeek.value = "0";
+    let nativeSeekInputs = 0;
+    let nativeSeekChanges = 0;
+    nativeSeek.addEventListener("input", () => { nativeSeekInputs += 1; });
+    nativeSeek.addEventListener("change", () => { nativeSeekChanges += 1; });
+    document.body.appendChild(nativeSeek);
+
     const renderer = new LyricsRenderer();
     const visible = createLyricElement(0);
     const playbackPage = new FakeNode("div");
@@ -327,6 +357,12 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-show-second"), "false");
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-show-third-plus"), "false");
     assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 1);
+    assert(renderer.__elyricThemeControl.classList.contains("elyric-player-shell"),
+        "the lyric view should mount the custom music player shell");
+    assert.strictEqual(renderer.__elyricPlayerTitle.textContent, "正在播放");
+    assert.strictEqual(renderer.__elyricPlayerArtist.textContent, "Emby 音乐");
+    assert.strictEqual(renderer.__elyricPlayerButtons.shuffle.getAttribute("data-elyric-active"), "true",
+        "native shuffle state should be reflected by the custom control");
     const themeSelect = document.body.querySelector(".elyric-theme-select");
     assert(themeSelect, "theme picker should be attached to the playback page overlay");
     assert.strictEqual(themeSelect.value, "apple");
@@ -351,14 +387,47 @@ function createLyricElement(index) {
         "an invisible old renderer must not replace the active picker");
     hiddenRenderer.destroy();
 
+    renderer.currentItem = {
+        Id: "metadata-test",
+        Name: "测试歌曲",
+        Artists: ["歌手甲", "歌手乙"],
+        ImageTags: { Primary: "primary-tag" }
+    };
     renderer.onTimeUpdate(0, 20000000);
     let words = renderer.itemsContainer.querySelectorAll("[data-elyric-start][data-elyric-end]");
     assert(words[0].classList.contains("elyric-word-active"));
     assert(words[1].classList.contains("elyric-word-pending"));
     assert(visible.body.textContent.includes("<img src=x onerror=bad>translation"));
-    assert(!createdTags.includes("img"), "lyric HTML must remain text");
+    assert.strictEqual(createdTags.filter((tag) => tag === "img").length, 1,
+        "only the dedicated artwork element may be an image; lyric HTML must remain text");
+    assert.strictEqual(renderer.__elyricPlayerTitle.textContent, "测试歌曲");
+    assert.strictEqual(renderer.__elyricPlayerArtist.textContent, "歌手甲 · 歌手乙");
+    assert.strictEqual(
+        renderer.__elyricPlayerArtwork.getAttribute("src"),
+        "/emby/Items/metadata-test/Images/Primary",
+        "artwork should use the authenticated Emby API URL without parsing lyric HTML"
+    );
     assert(!createdTags.includes("canvas") && !createdTags.includes("svg"),
         "the lyric adapter must never create waveform or curve elements");
+    renderer.__elyricPlayerButtons.next.click();
+    renderer.__elyricPlayerButtons.playPause.click();
+    assert.strictEqual(nativeClicks.next, 1, "custom next should delegate to Emby's native transport");
+    assert.strictEqual(nativeClicks.playPause, 1, "custom play/pause should delegate to Emby's native transport");
+    renderer.__elyricProgressSlider.value = "500";
+    renderer.__elyricProgressSlider.dispatchEvent({ type: "input", stopPropagation() {} });
+    assert.strictEqual(renderer.__elyricPlayerPosition.textContent, "0:01");
+    renderer.__elyricProgressSlider.dispatchEvent({ type: "change", stopPropagation() {} });
+    assert.strictEqual(nativeSeek.value, "50");
+    assert.strictEqual(nativeSeekInputs, 1);
+    assert.strictEqual(nativeSeekChanges, 1);
+    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-show-second"), "false");
+    renderer.__elyricSecondLineButton.click();
+    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-show-second"), "true",
+        "the player shell should expose a session-level annotation toggle");
+    renderer.__elyricFocusButton.click();
+    assert(document.body.classList.contains("elyric-player-focus-page"));
+    renderer.__elyricFocusButton.click();
+    assert(!document.body.classList.contains("elyric-player-focus-page"));
     assert.strictEqual(frames.size, 0, "one native sample must not start interpolation");
     assert(visible.item.classList.contains("elyric-line-current"));
     assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 1, "time updates must not duplicate the picker");
@@ -409,6 +478,8 @@ function createLyricElement(index) {
     ["classic", "focus", "gradient", "apple", "minimal"].forEach((themeId) => {
         assert(adapterCss.includes(`[data-elyric-theme="${themeId}"]`), `${themeId} theme CSS should exist`);
     });
+    assert(adapterCss.includes(".elyric-player-shell"));
+    assert(adapterCss.includes(".elyric-player-focus-page"));
 
     clockNow = 800;
     renderer.onTimeUpdate(4000000, 20000000);
@@ -437,6 +508,8 @@ function createLyricElement(index) {
     assert.strictEqual(themeControl.parentNode, null, "destroy should remove theme controls");
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), null);
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-show-second"), null);
+    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-focus-mode"), null);
+    assert(!document.body.classList.contains("elyric-player-focus-page"));
     assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-font-size"), "",
         "destroy should remove server display variables from a reusable container");
 

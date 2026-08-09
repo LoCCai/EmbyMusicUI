@@ -6,6 +6,15 @@
     var MAX_INTERPOLATION_MS = 800;
     var THEME_STORAGE_KEY = "emby-lyric-enhance.theme";
     var PUBLIC_CONFIGURATION_PATH = "EmbyLyricEnhance/PublicConfiguration";
+    var NATIVE_PLAYER_SELECTORS = {
+        previous: [".btnPreviousTrack"],
+        playPause: [".videoOsd-btnPause"],
+        next: [".btnNextTrack", ".btnNextTrackTopRight"],
+        shuffle: [".btnOsdShuffle-bottom", ".btnOsdShuffle-topright", ".btnOsdShuffle"],
+        repeat: [".btnOsdRepeatMode-bottom", ".btnOsdRepeatMode-topright", ".btnOsdRepeatMode"],
+        queue: [".btnPlayQueue"],
+        seek: [".videoOsdPositionSlider"]
+    };
     var THEMES = [
         { id: "classic", label: "经典累积" },
         { id: "focus", label: "单字聚焦" },
@@ -466,7 +475,11 @@
             } else {
                 setDisplayStyle(container, "--elyric-highlight-color", configuration.highlightColor);
             }
-            container.setAttribute("data-elyric-show-second", configuration.showSecondLine ? "true" : "false");
+            if (!renderer.__elyricSecondLineOverridden) {
+                setSecondLineOverride(renderer, configuration.showSecondLine);
+            } else {
+                setSecondLineOverride(renderer, renderer.__elyricLocalShowSecond);
+            }
             container.setAttribute(
                 "data-elyric-show-third-plus",
                 configuration.showThirdAndLaterLines ? "true" : "false"
@@ -519,6 +532,7 @@
         if (container) {
             container.removeAttribute("data-elyric-show-second");
             container.removeAttribute("data-elyric-show-third-plus");
+            container.removeAttribute("data-elyric-focus-mode");
             if (container.style && container.style.removeProperty) {
                 [
                     "--elyric-font-size",
@@ -541,6 +555,8 @@
         renderer.__elyricStoredTheme = null;
         renderer.__elyricUserSelectedTheme = false;
         renderer.__elyricThemeInitialized = false;
+        renderer.__elyricLocalShowSecond = null;
+        renderer.__elyricSecondLineOverridden = false;
         // Share one request between renderers that overlap during page transitions,
         // but fetch again after leaving lyrics so newly saved server settings apply.
         serverConfigurationPromise = null;
@@ -552,15 +568,353 @@
         }
     }
 
+    function replaceElementText(element, value) {
+        if (!element) {
+            return;
+        }
+        while (element.firstChild) {
+            element.removeChild(element.firstChild);
+        }
+        element.appendChild(document.createTextNode(null == value ? "" : String(value)));
+    }
+
+    function formatPlayerTime(ticks) {
+        ticks = Number(ticks);
+        if (!isFinite(ticks) || ticks < 0) {
+            ticks = 0;
+        }
+        var totalSeconds = Math.floor(ticks / TICKS_PER_SECOND);
+        var hours = Math.floor(totalSeconds / 3600);
+        var minutes = Math.floor(totalSeconds % 3600 / 60);
+        var seconds = totalSeconds % 60;
+        return (hours ? hours + ":" + String(minutes).padStart(2, "0") : String(minutes))
+            + ":" + String(seconds).padStart(2, "0");
+    }
+
+    function isNativeControlCandidate(element) {
+        return !!(element
+            && element !== document.body
+            && !(element.classList && element.classList.contains("hide"))
+            && !element.disabled);
+    }
+
+    function findNativeControl(renderer, selectors) {
+        var root = document.body || renderer.itemsContainer;
+        if (!root || !root.querySelectorAll) {
+            return null;
+        }
+        for (var selectorIndex = 0; selectorIndex < selectors.length; selectorIndex++) {
+            var elements = root.querySelectorAll(selectors[selectorIndex]);
+            for (var elementIndex = 0; elementIndex < elements.length; elementIndex++) {
+                var element = elements[elementIndex];
+                if ((!renderer.__elyricThemeControl
+                    || !renderer.__elyricThemeControl.contains
+                    || !renderer.__elyricThemeControl.contains(element))
+                    && isNativeControlCandidate(element)) {
+                    return element;
+                }
+            }
+        }
+        return null;
+    }
+
+    function triggerNativeClick(renderer, action) {
+        var target = findNativeControl(renderer, NATIVE_PLAYER_SELECTORS[action] || []);
+        if (!target) {
+            return false;
+        }
+        if (target.click) {
+            target.click();
+        } else if (target.dispatchEvent) {
+            target.dispatchEvent({ type: "click", target: target, currentTarget: target });
+        }
+        return true;
+    }
+
+    function createPlayerButton(renderer, action, label, icon) {
+        var button = document.createElement("button");
+        button.className = "elyric-player-button elyric-player-button-" + action;
+        button.setAttribute("type", "button");
+        button.setAttribute("data-elyric-player-action", action);
+        button.setAttribute("aria-label", label);
+        button.setAttribute("title", label);
+        button.appendChild(document.createTextNode(icon));
+        button.addEventListener("click", function (event) {
+            stopControlEvent(event);
+            triggerNativeClick(renderer, action);
+        });
+        button.addEventListener("pointerdown", stopControlEvent);
+        if (!renderer.__elyricPlayerButtons) {
+            renderer.__elyricPlayerButtons = {};
+        }
+        renderer.__elyricPlayerButtons[action] = button;
+        return button;
+    }
+
+    function dispatchNativeSeekEvent(target, type) {
+        if (!target || !target.dispatchEvent) {
+            return;
+        }
+        if ("undefined" !== typeof Event) {
+            target.dispatchEvent(new Event(type, { bubbles: true }));
+        } else {
+            target.dispatchEvent({ type: type, target: target, currentTarget: target });
+        }
+    }
+
+    function seekFromPlayerControl(renderer) {
+        var control = renderer.__elyricProgressSlider;
+        var target = findNativeControl(renderer, NATIVE_PLAYER_SELECTORS.seek);
+        if (!control || !target) {
+            renderer.__elyricScrubbing = false;
+            return;
+        }
+        var controlMaximum = Number(control.max) || 1000;
+        var targetMaximum = Number(target.max) || 100;
+        var percentage = Math.min(1, Math.max(0, Number(control.value) / controlMaximum));
+        target.value = String(percentage * targetMaximum);
+        dispatchNativeSeekEvent(target, "input");
+        dispatchNativeSeekEvent(target, "change");
+        renderer.__elyricScrubbing = false;
+    }
+
+    function playerArtistText(item) {
+        if (!item) {
+            return "Emby 音乐";
+        }
+        if (Array.isArray(item.Artists) && item.Artists.length) {
+            return item.Artists.join(" · ");
+        }
+        return item.AlbumArtist || item.Album || "Emby 音乐";
+    }
+
+    function playerArtworkUrl(renderer, item) {
+        var primaryTag = item && item.ImageTags && item.ImageTags.Primary;
+        var apiClient = primaryTag ? activeApiClient(renderer) : null;
+        if (!apiClient || !item.Id) {
+            return "";
+        }
+        try {
+            if (apiClient.getScaledImageUrl) {
+                return apiClient.getScaledImageUrl(item.Id, {
+                    type: "Primary",
+                    tag: primaryTag,
+                    maxWidth: 256
+                });
+            }
+            if (apiClient.getUrl) {
+                return apiClient.getUrl("Items/" + encodeURIComponent(item.Id) + "/Images/Primary", {
+                    maxWidth: 256,
+                    tag: primaryTag
+                });
+            }
+        } catch (error) {
+            // Metadata and transport controls remain available without artwork.
+        }
+        return "";
+    }
+
+    function updatePlayerMetadata(renderer) {
+        var item = renderer.currentItem || null;
+        var signature = item
+            ? [item.Id, item.Name, playerArtistText(item), item.ImageTags && item.ImageTags.Primary].join("|")
+            : "";
+        if (renderer.__elyricPlayerItemSignature === signature) {
+            return;
+        }
+        renderer.__elyricPlayerItemSignature = signature;
+        replaceElementText(renderer.__elyricPlayerTitle, item && (item.Name || item.OriginalTitle) || "正在播放");
+        replaceElementText(renderer.__elyricPlayerArtist, playerArtistText(item));
+
+        var artworkUrl = playerArtworkUrl(renderer, item);
+        if (renderer.__elyricPlayerArtwork) {
+            if (artworkUrl) {
+                renderer.__elyricPlayerArtwork.setAttribute("src", artworkUrl);
+                renderer.__elyricPlayerArtwork.setAttribute("alt", "");
+                renderer.__elyricPlayerArtwork.removeAttribute("hidden");
+            } else {
+                renderer.__elyricPlayerArtwork.removeAttribute("src");
+                renderer.__elyricPlayerArtwork.setAttribute("hidden", "hidden");
+            }
+        }
+    }
+
+    function updatePlayerTransportState(renderer) {
+        var buttons = renderer.__elyricPlayerButtons;
+        if (!buttons) {
+            return;
+        }
+        ["previous", "playPause", "next", "shuffle", "repeat", "queue"].forEach(function (action) {
+            var button = buttons[action];
+            var nativeControl = findNativeControl(renderer, NATIVE_PLAYER_SELECTORS[action] || []);
+            if (!button) {
+                return;
+            }
+            button.disabled = !nativeControl;
+            button.setAttribute("aria-disabled", nativeControl ? "false" : "true");
+            var active = !!(nativeControl
+                && nativeControl.classList
+                && nativeControl.classList.contains("toggleButton-active"));
+            button.setAttribute("data-elyric-active", active ? "true" : "false");
+        });
+    }
+
+    function updatePlayerControl(renderer, positionTicks, runtimeTicks) {
+        renderer.__elyricLastPositionTicks = isFinite(Number(positionTicks)) ? Number(positionTicks) : 0;
+        renderer.__elyricLastRuntimeTicks = isFinite(Number(runtimeTicks)) ? Number(runtimeTicks) : 0;
+        if (!renderer.__elyricThemeControl) {
+            return;
+        }
+        updatePlayerMetadata(renderer);
+        updatePlayerTransportState(renderer);
+        if (renderer.__elyricScrubbing) {
+            return;
+        }
+
+        var safeRuntime = Math.max(0, renderer.__elyricLastRuntimeTicks);
+        var safePosition = Math.max(0, renderer.__elyricLastPositionTicks);
+        var progress = safeRuntime > 0 ? Math.min(1, safePosition / safeRuntime) : 0;
+        if (renderer.__elyricProgressSlider) {
+            renderer.__elyricProgressSlider.value = String(Math.round(progress * 1000));
+            renderer.__elyricProgressSlider.setAttribute("value", renderer.__elyricProgressSlider.value);
+            renderer.__elyricProgressSlider.setAttribute(
+                "aria-valuetext",
+                formatPlayerTime(safePosition) + " / " + formatPlayerTime(safeRuntime)
+            );
+            setDisplayStyle(renderer.__elyricProgressSlider, "--elyric-player-progress", progress * 100 + "%");
+        }
+        replaceElementText(renderer.__elyricPlayerPosition, formatPlayerTime(safePosition));
+        replaceElementText(renderer.__elyricPlayerDuration, formatPlayerTime(safeRuntime));
+    }
+
+    function setSecondLineOverride(renderer, show) {
+        renderer.__elyricLocalShowSecond = !!show;
+        if (renderer.itemsContainer) {
+            renderer.itemsContainer.setAttribute("data-elyric-show-second", show ? "true" : "false");
+        }
+        if (renderer.__elyricSecondLineButton) {
+            renderer.__elyricSecondLineButton.setAttribute("aria-pressed", show ? "true" : "false");
+            renderer.__elyricSecondLineButton.setAttribute("data-elyric-active", show ? "true" : "false");
+            renderer.__elyricSecondLineButton.setAttribute("title", show ? "隐藏注音/第二行" : "显示注音/第二行");
+        }
+    }
+
+    function setFocusMode(renderer, enabled) {
+        enabled = !!enabled;
+        renderer.__elyricFocusMode = enabled;
+        if (renderer.itemsContainer) {
+            renderer.itemsContainer.setAttribute("data-elyric-focus-mode", enabled ? "true" : "false");
+        }
+        if (renderer.__elyricThemeControl) {
+            renderer.__elyricThemeControl.setAttribute("data-elyric-focus-mode", enabled ? "true" : "false");
+        }
+        if (renderer.__elyricFocusButton) {
+            renderer.__elyricFocusButton.setAttribute("aria-pressed", enabled ? "true" : "false");
+            renderer.__elyricFocusButton.setAttribute("data-elyric-active", enabled ? "true" : "false");
+            renderer.__elyricFocusButton.setAttribute("title", enabled ? "退出沉浸模式" : "进入沉浸模式");
+        }
+        if (document.body && document.body.classList) {
+            if (enabled && isThemeContextVisible(renderer)) {
+                document.body.__elyricFocusOwner = renderer;
+                document.body.classList.add("elyric-player-focus-page");
+            } else if (document.body.__elyricFocusOwner === renderer) {
+                document.body.__elyricFocusOwner = null;
+                document.body.classList.remove("elyric-player-focus-page");
+            }
+        }
+    }
+
     function createThemeControl(renderer) {
         var control = document.createElement("div");
-        control.className = "elyric-theme-picker";
-        control.setAttribute("data-elyric-control", "theme");
+        control.className = "elyric-player-shell elyric-theme-picker";
+        control.setAttribute("data-elyric-control", "player");
+        control.setAttribute("role", "region");
+        control.setAttribute("aria-label", "歌词增强音乐播放器");
+
+        var identity = document.createElement("div");
+        identity.className = "elyric-player-identity";
+
+        var artwork = document.createElement("img");
+        artwork.className = "elyric-player-artwork";
+        artwork.setAttribute("hidden", "hidden");
+        identity.appendChild(artwork);
+
+        var metadata = document.createElement("div");
+        metadata.className = "elyric-player-metadata";
+        var title = document.createElement("div");
+        title.className = "elyric-player-title";
+        var artist = document.createElement("div");
+        artist.className = "elyric-player-artist";
+        metadata.appendChild(title);
+        metadata.appendChild(artist);
+        identity.appendChild(metadata);
+        control.appendChild(identity);
+
+        var transport = document.createElement("div");
+        transport.className = "elyric-player-transport";
+        transport.appendChild(createPlayerButton(renderer, "previous", "上一首", "⏮"));
+        transport.appendChild(createPlayerButton(renderer, "playPause", "播放或暂停", "⏯"));
+        transport.appendChild(createPlayerButton(renderer, "next", "下一首", "⏭"));
+        control.appendChild(transport);
+
+        var progress = document.createElement("div");
+        progress.className = "elyric-player-progress";
+        var positionText = document.createElement("span");
+        positionText.className = "elyric-player-position";
+        positionText.appendChild(document.createTextNode("0:00"));
+        var progressSlider = document.createElement("input");
+        progressSlider.className = "elyric-player-progress-slider";
+        progressSlider.setAttribute("type", "range");
+        progressSlider.setAttribute("min", "0");
+        progressSlider.setAttribute("max", "1000");
+        progressSlider.setAttribute("step", "1");
+        progressSlider.setAttribute("value", "0");
+        progressSlider.setAttribute("aria-label", "播放进度");
+        progressSlider.min = "0";
+        progressSlider.max = "1000";
+        progressSlider.value = "0";
+        progressSlider.addEventListener("input", function (event) {
+            stopControlEvent(event);
+            renderer.__elyricScrubbing = true;
+            var runtimeTicks = renderer.__elyricLastRuntimeTicks || 0;
+            var previewTicks = Number(progressSlider.value) / 1000 * runtimeTicks;
+            replaceElementText(positionText, formatPlayerTime(previewTicks));
+        });
+        progressSlider.addEventListener("change", function (event) {
+            stopControlEvent(event);
+            seekFromPlayerControl(renderer);
+        });
+        var durationText = document.createElement("span");
+        durationText.className = "elyric-player-duration";
+        durationText.appendChild(document.createTextNode("0:00"));
+        progress.appendChild(positionText);
+        progress.appendChild(progressSlider);
+        progress.appendChild(durationText);
+        control.appendChild(progress);
+
+        var tools = document.createElement("div");
+        tools.className = "elyric-player-tools";
+        tools.appendChild(createPlayerButton(renderer, "shuffle", "随机播放", "🔀"));
+        tools.appendChild(createPlayerButton(renderer, "repeat", "循环模式", "🔁"));
+        tools.appendChild(createPlayerButton(renderer, "queue", "播放队列", "☷"));
+
+        var secondLineButton = document.createElement("button");
+        secondLineButton.className = "elyric-player-button elyric-player-button-secondline";
+        secondLineButton.setAttribute("type", "button");
+        secondLineButton.setAttribute("aria-label", "显示或隐藏注音");
+        secondLineButton.appendChild(document.createTextNode("注音"));
+        secondLineButton.addEventListener("click", function (event) {
+            stopControlEvent(event);
+            renderer.__elyricSecondLineOverridden = true;
+            setSecondLineOverride(renderer, !renderer.__elyricLocalShowSecond);
+        });
+        secondLineButton.addEventListener("pointerdown", stopControlEvent);
+        tools.appendChild(secondLineButton);
 
         var label = document.createElement("span");
         label.className = "elyric-theme-picker-label";
-        label.appendChild(document.createTextNode("歌词样式"));
-        control.appendChild(label);
+        label.appendChild(document.createTextNode("样式"));
+        tools.appendChild(label);
 
         var select = document.createElement("select");
         select.className = "elyric-theme-select";
@@ -576,11 +930,38 @@
         select.addEventListener("change", function () {
             applyTheme(renderer, select.value, true);
         });
-        control.appendChild(select);
+        tools.appendChild(select);
+
+        var focusButton = document.createElement("button");
+        focusButton.className = "elyric-player-button elyric-player-button-focus";
+        focusButton.setAttribute("type", "button");
+        focusButton.setAttribute("aria-label", "切换沉浸模式");
+        focusButton.appendChild(document.createTextNode("◩"));
+        focusButton.addEventListener("click", function (event) {
+            stopControlEvent(event);
+            setFocusMode(renderer, !renderer.__elyricFocusMode);
+        });
+        focusButton.addEventListener("pointerdown", stopControlEvent);
+        tools.appendChild(focusButton);
+        control.appendChild(tools);
 
         control.addEventListener("click", stopControlEvent);
         control.addEventListener("pointerdown", stopControlEvent);
         renderer.__elyricThemeSelect = select;
+        renderer.__elyricPlayerArtwork = artwork;
+        renderer.__elyricPlayerTitle = title;
+        renderer.__elyricPlayerArtist = artist;
+        renderer.__elyricProgressSlider = progressSlider;
+        renderer.__elyricPlayerPosition = positionText;
+        renderer.__elyricPlayerDuration = durationText;
+        renderer.__elyricSecondLineButton = secondLineButton;
+        renderer.__elyricFocusButton = focusButton;
+        renderer.__elyricLocalShowSecond = renderer.__elyricDisplayConfiguration
+            ? renderer.__elyricDisplayConfiguration.showSecondLine
+            : DEFAULT_DISPLAY_CONFIGURATION.showSecondLine;
+        setSecondLineOverride(renderer, renderer.__elyricLocalShowSecond);
+        setFocusMode(renderer, false);
+        updatePlayerMetadata(renderer);
         return control;
     }
 
@@ -654,9 +1035,18 @@
         if (isThemeContextVisible(renderer)) {
             control.removeAttribute("hidden");
             control.setAttribute("aria-hidden", "false");
+            if (renderer.__elyricFocusMode) {
+                setFocusMode(renderer, true);
+            }
         } else {
             control.setAttribute("hidden", "hidden");
             control.setAttribute("aria-hidden", "true");
+            if (document.body
+                && document.body.classList
+                && document.body.__elyricFocusOwner === renderer) {
+                document.body.__elyricFocusOwner = null;
+                document.body.classList.remove("elyric-player-focus-page");
+            }
         }
     }
 
@@ -684,6 +1074,11 @@
         if (renderer.__elyricThemeControl.parentNode !== host) {
             host.appendChild(renderer.__elyricThemeControl);
         }
+        updatePlayerControl(
+            renderer,
+            renderer.__elyricLastPositionTicks || 0,
+            renderer.__elyricLastRuntimeTicks || 0
+        );
         syncThemeControlVisibility(renderer);
     }
 
@@ -695,10 +1090,28 @@
         if (renderer.__elyricThemeContainer && renderer.__elyricThemeContainer.removeAttribute) {
             renderer.__elyricThemeContainer.removeAttribute("data-elyric-theme");
         }
+        setFocusMode(renderer, false);
+        if (renderer.itemsContainer && renderer.itemsContainer.removeAttribute) {
+            renderer.itemsContainer.removeAttribute("data-elyric-focus-mode");
+        }
         renderer.__elyricThemeControl = null;
         renderer.__elyricThemeSelect = null;
         renderer.__elyricThemeContainer = null;
         renderer.__elyricTheme = null;
+        renderer.__elyricPlayerArtwork = null;
+        renderer.__elyricPlayerTitle = null;
+        renderer.__elyricPlayerArtist = null;
+        renderer.__elyricPlayerItemSignature = null;
+        renderer.__elyricProgressSlider = null;
+        renderer.__elyricPlayerPosition = null;
+        renderer.__elyricPlayerDuration = null;
+        renderer.__elyricSecondLineButton = null;
+        renderer.__elyricFocusButton = null;
+        renderer.__elyricPlayerButtons = null;
+        renderer.__elyricFocusMode = false;
+        renderer.__elyricScrubbing = false;
+        renderer.__elyricLastPositionTicks = null;
+        renderer.__elyricLastRuntimeTicks = null;
     }
 
     function renderLyricElement(renderer, element) {
@@ -966,6 +1379,7 @@
         ensureObserver(this);
         ensureDisplayConfiguration(this);
         ensureThemeControl(this);
+        updatePlayerControl(this, positionTicks, runtimeTicks);
         renderVisibleLyrics(this);
         updateWordStates(this, positionTicks);
         syncSmoothClock(this, positionTicks, runtimeTicks);

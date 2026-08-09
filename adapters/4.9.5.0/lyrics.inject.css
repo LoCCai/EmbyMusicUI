@@ -19,41 +19,248 @@
     opacity: .6;
 }
 
-.elyric-theme-picker {
+.elyric-player-shell.elyric-theme-picker {
     position: fixed;
-    z-index: 1200;
-    top: calc(env(safe-area-inset-top, 0px) + 4.25rem);
-    right: calc(env(safe-area-inset-right, 0px) + 1rem);
-    display: flex;
+    z-index: 1290;
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + .85rem);
+    width: min(58rem, calc(100vw - 2rem));
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+        "identity transport"
+        "progress progress"
+        "tools tools";
     align-items: center;
-    gap: .45rem;
-    padding: .38rem .5rem;
-    border: 1px solid rgba(255, 255, 255, .18);
-    border-radius: .7rem;
+    gap: .58rem 1rem;
+    padding: .78rem .9rem .68rem;
+    border: 1px solid color-mix(in srgb, var(--theme-primary-color, #fff) 25%, rgba(255, 255, 255, .12));
+    border-radius: 1.15rem;
     color: #fff;
-    background: rgba(16, 16, 20, .72);
-    box-shadow: 0 .35rem 1.2rem rgba(0, 0, 0, .28);
-    -webkit-backdrop-filter: blur(.75rem);
-    backdrop-filter: blur(.75rem);
+    background:
+        linear-gradient(125deg, color-mix(in srgb, var(--theme-primary-color, #7c5cff) 16%, transparent), transparent 46%),
+        rgba(12, 13, 18, .82);
+    box-shadow: 0 .8rem 2.8rem rgba(0, 0, 0, .42), inset 0 1px rgba(255, 255, 255, .08);
+    -webkit-backdrop-filter: blur(1.35rem) saturate(145%);
+    backdrop-filter: blur(1.35rem) saturate(145%);
     font-size: .78rem;
-    line-height: 1;
+    line-height: 1.15;
     pointer-events: auto;
+    transform: translateX(-50%);
+    transition: opacity .2s ease, transform .24s ease, border-color .2s ease;
 }
 
 .elyric-theme-picker[hidden] {
     display: none !important;
 }
 
-.elyric-theme-picker-label::before {
-    content: "🎨";
-    margin-right: .3rem;
+.elyric-player-identity {
+    grid-area: identity;
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: .68rem;
+}
+
+.elyric-player-artwork {
+    width: 2.75rem;
+    height: 2.75rem;
+    flex: 0 0 auto;
+    border-radius: .7rem;
+    object-fit: cover;
+    box-shadow: 0 .28rem .9rem rgba(0, 0, 0, .38);
+}
+
+.elyric-player-artwork[hidden] {
+    display: none;
+}
+
+.elyric-player-metadata {
+    min-width: 0;
+}
+
+.elyric-player-title,
+.elyric-player-artist {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.elyric-player-title {
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.elyric-player-artist {
+    margin-top: .22rem;
+    color: rgba(255, 255, 255, .62);
+    font-size: .76rem;
+}
+
+.elyric-player-transport {
+    grid-area: transport;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .28rem;
+}
+
+.elyric-player-button {
+    display: inline-flex;
+    min-width: 2.15rem;
+    height: 2.15rem;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    padding: 0 .62rem;
+    border: 1px solid transparent;
+    border-radius: .72rem;
+    color: rgba(255, 255, 255, .86);
+    background: transparent;
+    font: inherit;
+    font-size: .98rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: color .15s ease, background .15s ease, border-color .15s ease, transform .15s ease;
+}
+
+.elyric-player-button:hover:not(:disabled),
+.elyric-player-button:focus-visible,
+.elyric-player-button[data-elyric-active="true"] {
+    border-color: color-mix(in srgb, var(--theme-primary-color, #fff) 38%, transparent);
+    color: #fff;
+    background: color-mix(in srgb, var(--theme-primary-color, #fff) 18%, rgba(255, 255, 255, .08));
+}
+
+.elyric-player-button:active:not(:disabled) {
+    transform: scale(.94);
+}
+
+.elyric-player-button:focus-visible {
+    outline: 2px solid var(--theme-primary-color, #fff);
+    outline-offset: 2px;
+}
+
+.elyric-player-button:disabled {
+    cursor: not-allowed;
+    opacity: .3;
+}
+
+.elyric-player-button-playPause {
+    width: 2.8rem;
+    height: 2.8rem;
+    border-color: rgba(255, 255, 255, .2);
+    border-radius: 50%;
+    color: #121318;
+    background: #fff;
+    box-shadow: 0 .2rem .75rem rgba(0, 0, 0, .28);
+    font-size: 1.05rem;
+}
+
+.elyric-player-button-playPause:hover:not(:disabled),
+.elyric-player-button-playPause:focus-visible {
+    color: #111218;
+    background: color-mix(in srgb, var(--theme-primary-color, #fff) 24%, #fff);
+}
+
+.elyric-player-progress {
+    grid-area: progress;
+    display: grid;
+    grid-template-columns: 3.3rem minmax(5rem, 1fr) 3.3rem;
+    align-items: center;
+    gap: .65rem;
+    color: rgba(255, 255, 255, .62);
+    font-variant-numeric: tabular-nums;
+    font-size: .69rem;
+}
+
+.elyric-player-position {
+    text-align: right;
+}
+
+.elyric-player-duration {
+    text-align: left;
+}
+
+.elyric-player-progress-slider {
+    width: 100%;
+    height: 1rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.elyric-player-progress-slider::-webkit-slider-runnable-track {
+    height: .22rem;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+        var(--elyric-highlight-color, var(--theme-primary-color, #fff)) 0 var(--elyric-player-progress, 0%),
+        rgba(255, 255, 255, .2) var(--elyric-player-progress, 0%) 100%);
+}
+
+.elyric-player-progress-slider::-webkit-slider-thumb {
+    width: .82rem;
+    height: .82rem;
+    margin-top: -.3rem;
+    border: 0;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 0 .2rem color-mix(in srgb, var(--theme-primary-color, #fff) 18%, transparent);
+    -webkit-appearance: none;
+}
+
+.elyric-player-progress-slider::-moz-range-track {
+    height: .22rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .2);
+}
+
+.elyric-player-progress-slider::-moz-range-progress {
+    height: .22rem;
+    border-radius: 999px;
+    background: var(--elyric-highlight-color, var(--theme-primary-color, #fff));
+}
+
+.elyric-player-progress-slider::-moz-range-thumb {
+    width: .82rem;
+    height: .82rem;
+    border: 0;
+    border-radius: 50%;
+    background: #fff;
+}
+
+.elyric-player-tools {
+    grid-area: tools;
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    gap: .18rem;
+}
+
+.elyric-player-button-secondline {
+    width: auto;
+    font-size: .72rem;
+    font-weight: 700;
+}
+
+.elyric-theme-picker-label {
+    margin-left: .3rem;
+    color: rgba(255, 255, 255, .54);
 }
 
 .elyric-theme-select {
     max-width: 8.5rem;
     padding: .28rem 1.8rem .28rem .5rem;
     border: 1px solid rgba(255, 255, 255, .22);
-    border-radius: .45rem;
+    border-radius: .55rem;
     color: #fff;
     background-color: rgba(255, 255, 255, .1);
     font: inherit;
@@ -78,6 +285,10 @@
 [data-elyric-theme] .lyricsItem .listItemBodyText {
     font-size: var(--elyric-font-size, 100%);
     line-height: var(--elyric-line-height, 1.25);
+}
+
+[data-elyric-theme].osdLyricsItemsContainer {
+    padding-bottom: 9rem !important;
 }
 
 [data-elyric-theme] .elyric-subline-1 {
@@ -188,9 +399,42 @@
     text-shadow: none;
 }
 
+[data-elyric-focus-mode="true"] .lyricsItem .listItemBodyText {
+    max-width: min(48rem, 88vw);
+    margin-right: auto;
+    margin-left: auto;
+}
+
+.elyric-player-focus-page .videoOsdPositionContainer,
+.elyric-player-focus-page .videoOsdBottom-buttons,
+.elyric-player-focus-page .videoOsdBottom-buttons-topright,
+.elyric-player-focus-page .videoOsdText,
+.elyric-player-focus-page .osdPosterContainer,
+.elyric-player-focus-page .videoosd-tabsslider,
+.elyric-player-focus-page .videoosd-tabcontainers {
+    display: none !important;
+}
+
+.elyric-player-focus-page .videoOsdBottom {
+    background: transparent !important;
+}
+
+.elyric-player-focus-page .osdContentSection:not([data-contentsection="lyrics"]) {
+    display: none !important;
+}
+
+.elyric-player-focus-page .osdContentSection[data-contentsection="lyrics"] {
+    width: min(66rem, 100vw);
+    max-width: none;
+    margin-right: auto;
+    margin-left: auto;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .elyric-word,
-    [data-elyric-theme] .lyricsItem .listItemBodyText {
+    [data-elyric-theme] .lyricsItem .listItemBodyText,
+    .elyric-theme-picker,
+    .elyric-player-button {
         transition: none;
     }
 }
@@ -205,9 +449,58 @@
     }
 
     .elyric-theme-picker {
-        top: calc(env(safe-area-inset-top, 0px) + 3.5rem);
-        right: calc(env(safe-area-inset-right, 0px) + .55rem);
-        padding: .32rem;
+        bottom: calc(env(safe-area-inset-bottom, 0px) + .4rem);
+        width: calc(100vw - .8rem);
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas:
+            "identity"
+            "transport"
+            "progress"
+            "tools";
+        gap: .38rem;
+        padding: .62rem .65rem .55rem;
+        border-radius: .95rem;
+    }
+
+    .elyric-player-artwork {
+        width: 2.35rem;
+        height: 2.35rem;
+    }
+
+    .elyric-player-title {
+        font-size: .88rem;
+    }
+
+    .elyric-player-artist {
+        font-size: .69rem;
+    }
+
+    .elyric-player-transport {
+        position: absolute;
+        top: .48rem;
+        right: .58rem;
+    }
+
+    .elyric-player-button {
+        min-width: 1.95rem;
+        height: 1.95rem;
+        padding: 0 .48rem;
+    }
+
+    .elyric-player-button-playPause {
+        width: 2.35rem;
+        height: 2.35rem;
+    }
+
+    .elyric-player-progress {
+        grid-template-columns: 2.65rem minmax(4rem, 1fr) 2.65rem;
+        gap: .45rem;
+    }
+
+    .elyric-player-tools {
+        justify-content: flex-start;
+        overflow-x: auto;
+        scrollbar-width: none;
     }
 
     .elyric-theme-picker-label {
@@ -217,6 +510,10 @@
         overflow: hidden;
         clip: rect(0 0 0 0);
         white-space: nowrap;
+    }
+
+    [data-elyric-theme].osdLyricsItemsContainer {
+        padding-bottom: 10.5rem !important;
     }
 }
 
