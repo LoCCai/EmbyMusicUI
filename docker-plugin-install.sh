@@ -190,8 +190,8 @@ $config_destination
 esac
 
 if [ "$action" = "install" ] || [ "$action" = "install-restart" ]; then
-    [ -s "$plugin_dll" ] || fail "缺少或为空：$plugin_dll，请先运行 plugin/scripts/build.ps1 或 build.sh。"
-    [ -s "$core_dll" ] || fail "缺少或为空：$core_dll，请先构建插件。"
+    [ -s "$plugin_dll" ] || fail "缺少或为空：$plugin_dll，请确认已拉取带预编译 DLL 的插件分支，或运行 build.ps1/build.sh。"
+    [ -s "$core_dll" ] || fail "缺少或为空：$core_dll，请确认已拉取完整预编译产物，或重新构建插件。"
 
     docker exec -u 0 "$container" /bin/sh -c '
 set -eu

@@ -2,4 +2,8 @@
 **/obj/
 .packages/
 .dotnet-home/
-plugin/artifacts/
+plugin/artifacts/*
+!plugin/artifacts/package/
+plugin/artifacts/package/*
+!plugin/artifacts/package/EmbyLyricEnhance.dll
+!plugin/artifacts/package/EmbyLyricEnhance.Core.dll

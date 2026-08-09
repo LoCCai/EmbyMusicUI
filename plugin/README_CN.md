@@ -24,6 +24,8 @@
 
 ## 构建
 
+`codex/plugin-settings` 分支已在 `plugin/artifacts/package/` 中附带经过验证的 Release DLL。只是在 Docker 宿主机安装现成版本时不需要安装 .NET SDK；修改 C# 源码或准备新版本时才需要重新构建并同步更新这两枚 DLL。
+
 需要 .NET 8 SDK 和可访问 NuGet 的网络：
 
 ```powershell
@@ -60,11 +62,11 @@ plugin\scripts\verify.ps1
 plugin\scripts\verify.ps1 -IncludeEmbyBuild
 ```
 
-离线检查使用契约桩编译 C# 插件入口，并测试配置默认值、范围约束、前后端字段同步、插件缺失回退、主题锁定、页面生命周期和歌词计时。如果 `.packages` 中已有 4.9.1.90，它还会直接对官方真实程序集再次编译插件 API；最终 DLL 打包仍由 `build.ps1` 或 CI 完成。
+离线检查使用契约桩编译 C# 插件入口，并测试预编译 DLL 是否齐全、配置默认值、范围约束、前后端字段同步、插件缺失回退、主题锁定、页面生命周期和歌词计时。如果 `.packages` 中已有 4.9.1.90，它还会直接对官方真实程序集再次编译插件 API；源码发生变化后，正式 DLL 仍必须由 `build.ps1`、`build.sh` 或 CI 重新生成并更新。
 
 ## Docker 安装
 
-先构建，再在 Emby Docker 宿主机直接执行：
+仓库中的两枚预编译 DLL 可直接安装。在 Emby Docker 宿主机执行：
 
 ```bash
 sh docker-plugin-install.sh

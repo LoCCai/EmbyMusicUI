@@ -90,6 +90,7 @@ Emby Web 播放页
 
 - [x] 插件构建脚本
 - [x] Docker 插件安装/更新脚本
+- [x] 将已验证的两枚 Release DLL 纳入插件分支，允许 Docker 宿主机直接安装
 - [x] 明确 DLL 首次加载需要重启，普通前端切换不需要重启
 - [x] 中英文根文档与插件中文安装文档
 - [x] JavaScript、C# 核心和 API 契约测试

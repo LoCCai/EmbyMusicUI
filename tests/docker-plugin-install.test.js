@@ -7,6 +7,12 @@ const { spawnSync } = require("child_process");
 
 const root = path.join(__dirname, "..");
 const installer = path.join(root, "docker-plugin-install.sh");
+const releasePackage = path.join(root, "plugin", "artifacts", "package");
+
+for (const releaseName of ["EmbyLyricEnhance.dll", "EmbyLyricEnhance.Core.dll"]) {
+    const releasePath = path.join(releasePackage, releaseName);
+    assert(fs.statSync(releasePath).size > 0, `prebuilt release DLL is missing or empty: ${releaseName}`);
+}
 
 function posixPath(value) {
     const normalized = value.replace(/\\/g, "/");
