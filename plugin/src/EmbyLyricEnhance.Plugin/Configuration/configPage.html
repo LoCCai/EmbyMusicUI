@@ -113,156 +113,204 @@
 
             var pluginId = "efbd3f14-8799-4a7d-a5ad-7ef93c5b0e5d";
             var pageSelector = "#EmbyLyricEnhanceConfigPage";
-            var pageInstances = document.querySelectorAll(pageSelector);
-            var currentScript = document.currentScript;
-            var page = currentScript && currentScript.closest
-                ? currentScript.closest(pageSelector)
-                : null;
+            var managerKey = "__embyLyricEnhanceConfigurationManager";
 
-            if (!page && pageInstances.length) {
-                page = pageInstances[pageInstances.length - 1];
-            }
-            if (!page) {
-                return;
-            }
+            function createManager() {
+                var scanTimer = null;
 
-            Array.prototype.forEach.call(pageInstances, function (candidate) {
-                if (candidate !== page && candidate.parentNode) {
-                    candidate.parentNode.removeChild(candidate);
+                function bindPage(page) {
+                    if (!page || page.getAttribute("data-elyric-config-bound") === "true") {
+                        return;
+                    }
+
+                    var form = page.querySelector("#EmbyLyricEnhanceConfigForm");
+                    if (!form) {
+                        return;
+                    }
+
+                    page.setAttribute("data-elyric-config-bound", "true");
+                    var submitButton = form.querySelector('button[type="submit"]');
+                    var loadPromise = null;
+                    var saving = false;
+
+                    function element(id) {
+                        return page.querySelector("#" + id);
+                    }
+
+                    function numberValue(id) {
+                        return Number(element(id).value);
+                    }
+
+                    function setValue(id, value, fallback) {
+                        element(id).value = null == value ? fallback : value;
+                    }
+
+                    function setChecked(id, value, fallback) {
+                        element(id).checked = null == value ? fallback : Boolean(value);
+                    }
+
+                    function syncColorInput() {
+                        element("elyricHighlightColor").disabled = element("elyricUseThemeColor").checked;
+                    }
+
+                    function showStatus(message, isError) {
+                        var status = element("elyricSaveStatus");
+                        status.textContent = message || "";
+                        status.style.color = isError ? "#ff8a80" : "";
+                    }
+
+                    function handleError(error) {
+                        Dashboard.hideLoadingMsg();
+                        showStatus(
+                            error && error.message
+                                ? error.message
+                                : "Emby Lyric Enhance 配置操作失败，请检查服务器日志。",
+                            true
+                        );
+                        if (window.console && console.error) {
+                            console.error(error);
+                        }
+                    }
+
+                    function loadConfiguration() {
+                        if (loadPromise) {
+                            return loadPromise;
+                        }
+                        Dashboard.showLoadingMsg();
+                        loadPromise = ApiClient.getPluginConfiguration(pluginId).then(function (configuration) {
+                            var display = configuration.Display || {};
+                            setValue("elyricDefaultTheme", display.DefaultTheme, "classic");
+                            setChecked("elyricAllowUserThemeOverride", display.AllowUserThemeOverride, true);
+                            setValue("elyricFontSizePercent", display.FontSizePercent, 100);
+                            setValue("elyricLineHeight", display.LineHeight, 1.25);
+                            setValue("elyricFontWeight", display.FontWeight, 600);
+                            setChecked("elyricUseThemeColor", display.UseThemeColor, true);
+                            setValue("elyricHighlightColor", display.HighlightColor, "#ffffff");
+                            setValue("elyricPendingOpacity", display.PendingOpacity, 0.46);
+                            setValue("elyricGlowStrength", display.GlowStrength, 0.45);
+                            setValue("elyricCurrentLineScale", display.CurrentLineScale, 1.08);
+                            setValue("elyricOtherLinesOpacity", display.OtherLinesOpacity, 0.34);
+                            setValue("elyricOtherLinesBlurPixels", display.OtherLinesBlurPixels, 0.4);
+                            setChecked("elyricShowSecondLine", display.ShowSecondLine, true);
+                            setChecked("elyricShowThirdAndLaterLines", display.ShowThirdAndLaterLines, true);
+                            syncColorInput();
+                            return configuration;
+                        }).finally(function () {
+                            Dashboard.hideLoadingMsg();
+                            loadPromise = null;
+                        });
+                        return loadPromise;
+                    }
+
+                    function refreshConfiguration() {
+                        loadConfiguration().catch(handleError);
+                    }
+
+                    page.__elyricRefreshConfiguration = refreshConfiguration;
+                    element("elyricUseThemeColor").addEventListener("change", syncColorInput);
+                    form.addEventListener("submit", function (event) {
+                        event.preventDefault();
+                        if (saving) {
+                            return false;
+                        }
+                        saving = true;
+                        submitButton.disabled = true;
+                        showStatus("", false);
+                        Dashboard.showLoadingMsg();
+                        ApiClient.getPluginConfiguration(pluginId).then(function (configuration) {
+                            configuration.Display = configuration.Display || {};
+                            var display = configuration.Display;
+                            display.DefaultTheme = element("elyricDefaultTheme").value;
+                            display.AllowUserThemeOverride = element("elyricAllowUserThemeOverride").checked;
+                            display.FontSizePercent = numberValue("elyricFontSizePercent");
+                            display.LineHeight = numberValue("elyricLineHeight");
+                            display.FontWeight = numberValue("elyricFontWeight");
+                            display.UseThemeColor = element("elyricUseThemeColor").checked;
+                            display.HighlightColor = element("elyricHighlightColor").value;
+                            display.PendingOpacity = numberValue("elyricPendingOpacity");
+                            display.GlowStrength = numberValue("elyricGlowStrength");
+                            display.CurrentLineScale = numberValue("elyricCurrentLineScale");
+                            display.OtherLinesOpacity = numberValue("elyricOtherLinesOpacity");
+                            display.OtherLinesBlurPixels = numberValue("elyricOtherLinesBlurPixels");
+                            display.ShowSecondLine = element("elyricShowSecondLine").checked;
+                            display.ShowThirdAndLaterLines = element("elyricShowThirdAndLaterLines").checked;
+                            return ApiClient.updatePluginConfiguration(pluginId, configuration);
+                        }).then(function () {
+                            return loadConfiguration();
+                        }).then(function () {
+                            showStatus("设置已保存并重新读取。", false);
+                        }).catch(handleError).finally(function () {
+                            saving = false;
+                            submitButton.disabled = false;
+                            Dashboard.hideLoadingMsg();
+                        });
+                        return false;
+                    });
+
+                    refreshConfiguration();
                 }
-            });
 
-            var form = page.querySelector("#EmbyLyricEnhanceConfigForm");
+                function scan() {
+                    var pages = document.querySelectorAll(pageSelector);
+                    if (!pages.length) {
+                        return null;
+                    }
 
-            if (!page || !form || page.getAttribute("data-elyric-config-bound") === "true") {
-                return;
-            }
-            page.setAttribute("data-elyric-config-bound", "true");
-            var submitButton = form.querySelector('button[type="submit"]');
-            var loadPromise = null;
-            var saving = false;
-
-            function element(id) {
-                return page.querySelector("#" + id);
-            }
-
-            function numberValue(id) {
-                return Number(element(id).value);
-            }
-
-            function setValue(id, value, fallback) {
-                element(id).value = null == value ? fallback : value;
-            }
-
-            function setChecked(id, value, fallback) {
-                element(id).checked = null == value ? fallback : Boolean(value);
-            }
-
-            function syncColorInput() {
-                element("elyricHighlightColor").disabled = element("elyricUseThemeColor").checked;
-            }
-
-            function showStatus(message, isError) {
-                var status = element("elyricSaveStatus");
-                status.textContent = message || "";
-                status.style.color = isError ? "#ff8a80" : "";
-            }
-
-            function handleError(error) {
-                Dashboard.hideLoadingMsg();
-                showStatus(
-                    error && error.message
-                        ? error.message
-                        : "Emby Lyric Enhance 配置操作失败，请检查服务器日志。",
-                    true
-                );
-                if (window.console && console.error) {
-                    console.error(error);
+                    var activePage = pages[pages.length - 1];
+                    Array.prototype.forEach.call(pages, function (candidate) {
+                        if (candidate !== activePage && candidate.parentNode) {
+                            candidate.parentNode.removeChild(candidate);
+                        }
+                    });
+                    bindPage(activePage);
+                    return activePage;
                 }
+
+                function scanSoon() {
+                    if (null !== scanTimer) {
+                        return;
+                    }
+                    scanTimer = window.setTimeout(function () {
+                        scanTimer = null;
+                        scan();
+                    }, 0);
+                }
+
+                function onPageShow() {
+                    var activePage = scan();
+                    if (activePage && activePage.__elyricRefreshConfiguration) {
+                        activePage.__elyricRefreshConfiguration();
+                    }
+                }
+
+                document.addEventListener("pageshow", onPageShow, true);
+                document.addEventListener("viewshow", onPageShow, true);
+
+                if (window.MutationObserver && document.documentElement) {
+                    new window.MutationObserver(function (records) {
+                        var foundPage = records.some(function (record) {
+                            return Array.prototype.some.call(record.addedNodes || [], function (node) {
+                                return 1 === node.nodeType && (
+                                    node.matches && node.matches(pageSelector) ||
+                                    node.querySelector && node.querySelector(pageSelector)
+                                );
+                            });
+                        });
+                        if (foundPage) {
+                            scanSoon();
+                        }
+                    }).observe(document.documentElement, { childList: true, subtree: true });
+                }
+
+                return {
+                    scanSoon: scanSoon
+                };
             }
 
-            function loadConfiguration() {
-                if (loadPromise) {
-                    return loadPromise;
-                }
-                Dashboard.showLoadingMsg();
-                loadPromise = ApiClient.getPluginConfiguration(pluginId).then(function (configuration) {
-                    var display = configuration.Display || {};
-                    setValue("elyricDefaultTheme", display.DefaultTheme, "classic");
-                    setChecked("elyricAllowUserThemeOverride", display.AllowUserThemeOverride, true);
-                    setValue("elyricFontSizePercent", display.FontSizePercent, 100);
-                    setValue("elyricLineHeight", display.LineHeight, 1.25);
-                    setValue("elyricFontWeight", display.FontWeight, 600);
-                    setChecked("elyricUseThemeColor", display.UseThemeColor, true);
-                    setValue("elyricHighlightColor", display.HighlightColor, "#ffffff");
-                    setValue("elyricPendingOpacity", display.PendingOpacity, 0.46);
-                    setValue("elyricGlowStrength", display.GlowStrength, 0.45);
-                    setValue("elyricCurrentLineScale", display.CurrentLineScale, 1.08);
-                    setValue("elyricOtherLinesOpacity", display.OtherLinesOpacity, 0.34);
-                    setValue("elyricOtherLinesBlurPixels", display.OtherLinesBlurPixels, 0.4);
-                    setChecked("elyricShowSecondLine", display.ShowSecondLine, true);
-                    setChecked("elyricShowThirdAndLaterLines", display.ShowThirdAndLaterLines, true);
-                    syncColorInput();
-                    return configuration;
-                }).finally(function () {
-                    Dashboard.hideLoadingMsg();
-                    loadPromise = null;
-                });
-                return loadPromise;
+            if (!window[managerKey]) {
+                window[managerKey] = createManager();
             }
-
-            function refreshConfiguration() {
-                loadConfiguration().catch(handleError);
-            }
-
-            page.addEventListener("pageshow", refreshConfiguration);
-            page.addEventListener("viewshow", refreshConfiguration);
-            element("elyricUseThemeColor").addEventListener("change", syncColorInput);
-            form.addEventListener("submit", function (event) {
-                event.preventDefault();
-                if (saving) {
-                    return false;
-                }
-                saving = true;
-                submitButton.disabled = true;
-                showStatus("", false);
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(pluginId).then(function (configuration) {
-                    configuration.Display = configuration.Display || {};
-                    var display = configuration.Display;
-                    display.DefaultTheme = element("elyricDefaultTheme").value;
-                    display.AllowUserThemeOverride = element("elyricAllowUserThemeOverride").checked;
-                    display.FontSizePercent = numberValue("elyricFontSizePercent");
-                    display.LineHeight = numberValue("elyricLineHeight");
-                    display.FontWeight = numberValue("elyricFontWeight");
-                    display.UseThemeColor = element("elyricUseThemeColor").checked;
-                    display.HighlightColor = element("elyricHighlightColor").value;
-                    display.PendingOpacity = numberValue("elyricPendingOpacity");
-                    display.GlowStrength = numberValue("elyricGlowStrength");
-                    display.CurrentLineScale = numberValue("elyricCurrentLineScale");
-                    display.OtherLinesOpacity = numberValue("elyricOtherLinesOpacity");
-                    display.OtherLinesBlurPixels = numberValue("elyricOtherLinesBlurPixels");
-                    display.ShowSecondLine = element("elyricShowSecondLine").checked;
-                    display.ShowThirdAndLaterLines = element("elyricShowThirdAndLaterLines").checked;
-                    return ApiClient.updatePluginConfiguration(pluginId, configuration);
-                }).then(function () {
-                    return loadConfiguration();
-                }).then(function () {
-                    showStatus("设置已保存并重新读取。", false);
-                }).catch(handleError).finally(function () {
-                    saving = false;
-                    submitButton.disabled = false;
-                    Dashboard.hideLoadingMsg();
-                });
-                return false;
-            });
-
-            Promise.resolve().then(function () {
-                if (page.isConnected) {
-                    return loadConfiguration();
-                }
-                return null;
-            }).catch(handleError);
+            window[managerKey].scanSoon();
         })();
     </script>
 </div>

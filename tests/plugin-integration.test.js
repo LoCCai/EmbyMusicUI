@@ -30,11 +30,17 @@ assert(pageSource.includes(pluginId), "the admin page should use the same plugin
 assert(pluginSource.includes("IsMainConfigPage = true"), "Emby should register the settings page as the main plugin configuration page");
 assert(pluginSource.includes("EnableInMainMenu = true"), "the settings page should have a persistent server menu entry");
 assert(pluginSource.includes('MenuSection = "server"'), "the settings page should be grouped with server administration pages");
-assert(pageSource.includes("document.currentScript"), "each injected script should bind to its own page instance");
-assert(pageSource.includes("pageInstances[pageInstances.length - 1]"), "dynamic evaluation should fall back to the newest page instance");
+assert(pageSource.includes("__embyLyricEnhanceConfigurationManager"),
+    "the lifecycle manager should survive replacement of an individual configuration page");
+assert(pageSource.includes("document.querySelectorAll(pageSelector)"),
+    "dynamic evaluation should scan all configuration page instances");
+assert(pageSource.includes("pages[pages.length - 1]"), "dynamic evaluation should retain the newest page instance");
 assert(pageSource.includes("candidate.parentNode.removeChild(candidate)"), "stale duplicate configuration pages should be removed");
-assert(pageSource.includes('addEventListener("pageshow"') && pageSource.includes('addEventListener("viewshow"'),
-    "both legacy and current Emby page lifecycle events should refresh configuration");
+assert(pageSource.includes('document.addEventListener("pageshow"') && pageSource.includes('document.addEventListener("viewshow"'),
+    "both legacy and current Emby page lifecycle events should be observed across replaced pages");
+assert(pageSource.includes("new window.MutationObserver"),
+    "page insertion should be observed when Emby evaluates the script before attaching its page");
+assert(pageSource.includes("scanSoon"), "page insertion scans should be deferred until the new page is attached");
 assert(pageSource.includes("if (loadPromise)"), "repeated page events should share one configuration request");
 assert(pageSource.includes("if (saving)"), "repeated form submissions should be ignored while a save is active");
 assert(pageSource.includes("设置已保存并重新读取"), "successful saves should confirm a server round trip inline");

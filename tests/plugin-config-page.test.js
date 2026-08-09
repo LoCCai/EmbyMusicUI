@@ -29,6 +29,7 @@ function createControl(initial) {
 }
 
 async function flushPromises() {
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setImmediate(resolve));
     await new Promise((resolve) => setImmediate(resolve));
 }
@@ -51,46 +52,52 @@ async function main() {
         "elyricShowThirdAndLaterLines",
         "elyricSaveStatus"
     ];
-    const controls = Object.fromEntries(ids.map((id) => [id, createControl()]));
-    const submitButton = createControl();
-    const formListeners = {};
-    const form = {
-        addEventListener(type, listener) {
-            formListeners[type] = listener;
-        },
-        querySelector(selector) {
-            return selector === 'button[type="submit"]' ? submitButton : null;
-        }
-    };
-    const pageListeners = {};
-    const attributes = {};
-    const currentPage = {
-        isConnected: true,
-        addEventListener(type, listener) {
-            pageListeners[type] = listener;
-        },
-        getAttribute(name) {
-            return attributes[name] || null;
-        },
-        setAttribute(name, value) {
-            attributes[name] = value;
-        },
-        querySelector(selector) {
-            if (selector === "#EmbyLyricEnhanceConfigForm") {
-                return form;
+    const pages = [];
+    function createPage() {
+        const controls = Object.fromEntries(ids.map((id) => [id, createControl()]));
+        const submitButton = createControl();
+        const formListeners = {};
+        const attributes = {};
+        const form = {
+            addEventListener(type, listener) {
+                formListeners[type] = listener;
+            },
+            querySelector(selector) {
+                return selector === 'button[type="submit"]' ? submitButton : null;
             }
-            return controls[selector.slice(1)] || null;
-        }
-    };
-    let staleRemoved = false;
-    const stalePage = {
-        parentNode: {
-            removeChild(candidate) {
-                assert.strictEqual(candidate, stalePage);
-                staleRemoved = true;
+        };
+        const page = {
+            nodeType: 1,
+            isConnected: true,
+            matches(selector) {
+                return selector === "#EmbyLyricEnhanceConfigPage";
+            },
+            closest(selector) {
+                return this.matches(selector) ? this : null;
+            },
+            getAttribute(name) {
+                return attributes[name] || null;
+            },
+            setAttribute(name, value) {
+                attributes[name] = value;
+            },
+            querySelector(selector) {
+                if (selector === "#EmbyLyricEnhanceConfigForm") {
+                    return form;
+                }
+                return controls[selector.slice(1)] || null;
+            },
+            parentNode: {
+                removeChild(candidate) {
+                    const index = pages.indexOf(candidate);
+                    assert(index >= 0, "only an attached page should be removed");
+                    pages.splice(index, 1);
+                    candidate.isConnected = false;
+                }
             }
-        }
-    };
+        };
+        return { attributes, controls, formListeners, page, submitButton };
+    }
 
     let configuration = {
         Display: {
@@ -112,6 +119,18 @@ async function main() {
     };
     let getCalls = 0;
     let updateCalls = 0;
+    const documentListeners = {};
+    const documentListenerCounts = {};
+    let mutationCallback = null;
+    let observerCount = 0;
+    class MutationObserver {
+        constructor(callback) {
+            mutationCallback = callback;
+            observerCount += 1;
+        }
+
+        observe() {}
+    }
     const context = {
         ApiClient: {
             getPluginConfiguration() {
@@ -130,47 +149,69 @@ async function main() {
             showLoadingMsg() {}
         },
         document: {
-            currentScript: {
-                closest() {
-                    return currentPage;
-                }
+            documentElement: {},
+            addEventListener(type, listener) {
+                documentListeners[type] = listener;
+                documentListenerCounts[type] = (documentListenerCounts[type] || 0) + 1;
             },
             querySelectorAll() {
-                return [stalePage, currentPage];
+                return pages.slice();
             }
         },
         console,
         Promise,
-        window: { console }
+        window: { console, MutationObserver, setTimeout }
     };
 
+    const stale = createPage();
     vm.runInNewContext(scriptMatch[1], context, { filename: "configPage.inline.js" });
+    pages.push(stale.page);
+    mutationCallback([{ addedNodes: [stale.page] }]);
     await flushPromises();
 
-    assert(staleRemoved, "a stale configuration page should be removed when the new instance binds");
-    assert.strictEqual(attributes["data-elyric-config-bound"], "true");
-    assert(pageListeners.pageshow && pageListeners.viewshow, "both Emby lifecycle handlers should be registered");
+    assert.strictEqual(stale.attributes["data-elyric-config-bound"], "true");
     assert.strictEqual(getCalls, 1, "initial configuration should be loaded exactly once");
-    assert.strictEqual(controls.elyricFontSizePercent.value, 100);
+    assert.strictEqual(stale.controls.elyricFontSizePercent.value, 100);
 
-    controls.elyricDefaultTheme.value = "apple";
-    controls.elyricAllowUserThemeOverride.checked = false;
-    controls.elyricFontSizePercent.value = "125";
-    controls.elyricLineHeight.value = "1.4";
-    controls.elyricFontWeight.value = "700";
-    controls.elyricUseThemeColor.checked = false;
-    controls.elyricHighlightColor.value = "#123456";
-    controls.elyricPendingOpacity.value = "0.5";
-    controls.elyricGlowStrength.value = "0.6";
-    controls.elyricCurrentLineScale.value = "1.1";
-    controls.elyricOtherLinesOpacity.value = "0.3";
-    controls.elyricOtherLinesBlurPixels.value = "0.8";
-    controls.elyricShowSecondLine.checked = false;
-    controls.elyricShowThirdAndLaterLines.checked = false;
+    const current = createPage();
+    vm.runInNewContext(scriptMatch[1], context, { filename: "configPage.inline.js" });
+    pages.push(current.page);
+    mutationCallback([{ addedNodes: [current.page] }]);
+    await flushPromises();
+
+    assert.strictEqual(pages.length, 1, "only one configuration page should remain after delayed insertion");
+    assert.strictEqual(pages[0], current.page, "the newest configuration page should replace the stale page");
+    assert.strictEqual(current.attributes["data-elyric-config-bound"], "true");
+    assert.strictEqual(getCalls, 2, "the replacement page should load the persisted configuration once");
+    assert.strictEqual(current.controls.elyricFontSizePercent.value, 100);
+    assert(documentListeners.pageshow && documentListeners.viewshow,
+        "both Emby lifecycle handlers should be registered on the document");
+    assert.strictEqual(documentListenerCounts.pageshow, 1, "re-evaluating the script should reuse the lifecycle manager");
+    assert.strictEqual(documentListenerCounts.viewshow, 1, "re-evaluating the script should not duplicate listeners");
+    assert.strictEqual(observerCount, 1, "re-evaluating the script should reuse one insertion observer");
+
+    documentListeners.viewshow({ target: current.page });
+    await flushPromises();
+    assert.strictEqual(getCalls, 3, "viewshow should refresh the visible page from the server");
+
+    current.controls.elyricDefaultTheme.value = "apple";
+    current.controls.elyricAllowUserThemeOverride.checked = false;
+    current.controls.elyricFontSizePercent.value = "125";
+    current.controls.elyricLineHeight.value = "1.4";
+    current.controls.elyricFontWeight.value = "700";
+    current.controls.elyricUseThemeColor.checked = false;
+    current.controls.elyricHighlightColor.value = "#123456";
+    current.controls.elyricPendingOpacity.value = "0.5";
+    current.controls.elyricGlowStrength.value = "0.6";
+    current.controls.elyricCurrentLineScale.value = "1.1";
+    current.controls.elyricOtherLinesOpacity.value = "0.3";
+    current.controls.elyricOtherLinesBlurPixels.value = "0.8";
+    current.controls.elyricShowSecondLine.checked = false;
+    current.controls.elyricShowThirdAndLaterLines.checked = false;
 
     const submitEvent = { preventDefault() {} };
-    formListeners.submit(submitEvent);
-    formListeners.submit(submitEvent);
+    current.formListeners.submit(submitEvent);
+    current.formListeners.submit(submitEvent);
     await flushPromises();
     await flushPromises();
 
@@ -178,9 +219,9 @@ async function main() {
     assert.strictEqual(configuration.Display.DefaultTheme, "apple");
     assert.strictEqual(configuration.Display.FontSizePercent, 125);
     assert.strictEqual(configuration.Display.HighlightColor, "#123456");
-    assert.strictEqual(getCalls, 3, "save should read the current configuration and then verify the persisted result");
-    assert.strictEqual(controls.elyricSaveStatus.textContent, "设置已保存并重新读取。");
-    assert.strictEqual(submitButton.disabled, false);
+    assert.strictEqual(getCalls, 5, "save should read the current configuration and then verify the persisted result");
+    assert.strictEqual(current.controls.elyricSaveStatus.textContent, "设置已保存并重新读取。");
+    assert.strictEqual(current.submitButton.disabled, false);
 
     console.log("plugin configuration page deduplication, lifecycle and save round trip: ok");
 }
