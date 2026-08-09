@@ -62,7 +62,7 @@ sh docker-install.sh <容器名或ID> undo
 
 管理员可设置默认主题、浏览器能否覆盖主题、字号、行距、字重、高亮色、透明度、辉光、缩放、模糊和多子行显示。播放页重新进入歌词视图时会重新读取服务器设置；管理员允许时，当前浏览器保存的主题仍优先。
 
-插件分支已附带两枚预编译 Release DLL；构建、Docker 安装、重启要求和真实环境验收清单见 [`plugin/README_CN.md`](plugin/README_CN.md)。首次安装或更新 DLL 后必须重启 Emby；仅切换前端主题或保存显示设置不需要重启。
+插件分支附带单文件预编译 Release 插件；构建、Docker 安装、重启要求和真实环境验收清单见 [`plugin/README_CN.md`](plugin/README_CN.md)。首次安装或更新 DLL 后必须重启 Emby；仅切换前端主题或保存显示设置不需要重启。
 
 ## 歌词主题
 

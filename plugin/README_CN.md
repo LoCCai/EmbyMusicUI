@@ -6,7 +6,7 @@
 
 完整功能由两部分组成：
 
-1. `EmbyLyricEnhance.dll` 和 `EmbyLyricEnhance.Core.dll` 保存、校验并提供服务器默认设置。
+1. `EmbyLyricEnhance.dll` 内含配置核心，保存、校验并提供服务器默认设置。
 2. `adapters/4.9.5.0/lyrics.inject.js` 与 `lyrics.inject.css` 继续负责逐字解析、平滑计时、主题渲染和播放页控件。
 
 只安装 DLL 不会自动修改 Emby Web 的歌词文件；只安装前端适配器时则继续使用内置默认值。前端访问插件失败、插件未安装或暂时不可用时，歌词不会被阻断。
@@ -24,7 +24,7 @@
 
 ## 构建
 
-`codex/plugin-settings` 分支已在 `plugin/artifacts/package/` 中附带经过验证的 Release DLL。只是在 Docker 宿主机安装现成版本时不需要安装 .NET SDK；修改 C# 源码或准备新版本时才需要重新构建并同步更新这两枚 DLL。
+`codex/plugin-settings` 分支在 `plugin/artifacts/package/` 中附带单文件 Release DLL。只是在 Docker 宿主机安装现成版本时不需要安装 .NET SDK；修改 C# 源码或准备新版本时才需要重新构建并同步更新该 DLL。
 
 需要 .NET 8 SDK 和可访问 NuGet 的网络：
 
@@ -46,7 +46,7 @@ plugin\scripts\build.ps1 -EmbyApiVersion <已验证的API包版本>
 
 服务器版本号与开发 API 包版本不一定完全相同；Emby Server 4.9.5.0 对应的已恢复开发 SDK 是 4.9.1.90。
 
-2026-08-09 已在 Windows x64、.NET SDK 8.0.423 上完成真实 Release 构建：0 警告、0 错误；插件版本为 0.2.0.0，设置页已正确嵌入 DLL。
+初版 0.2.0.0 已在 Windows x64、.NET SDK 8.0.423 上完成真实 Release 构建且设置页正确嵌入。随后 Emby 4.9.5.0 实机验证发现其插件加载上下文不能稳定解析同目录的独立 `EmbyLyricEnhance.Core.dll`，因此 0.2.1 起把 Core 源码直接编入主插件，只交付 `EmbyLyricEnhance.dll`。0.2.1.0 已使用恢复好的官方 SDK 离线 Release 构建，结果为 0 警告、0 错误；产物不再引用 Core 程序集，设置页资源仍正确嵌入。
 
 ## 本地验证
 
@@ -66,7 +66,7 @@ plugin\scripts\verify.ps1 -IncludeEmbyBuild
 
 ## Docker 安装
 
-仓库中的两枚预编译 DLL 可直接安装。在 Emby Docker 宿主机执行：
+仓库中的单文件预编译 DLL 可直接安装。在 Emby Docker 宿主机执行：
 
 ```bash
 sh docker-plugin-install.sh
@@ -111,7 +111,7 @@ sh docker-plugin-install.sh <Emby容器名> rollback-restart
 sh docker-plugin-install.sh <Emby容器名> rollback <备份名>
 ```
 
-脚本会先确认容器的 `/config` 已持久挂载，再将两枚 DLL 作为一组暂存和备份。替换过程中若出现部分失败，会尝试恢复同一组旧文件；执行回滚前也会额外保存当前文件。备份保存在 `/config/emby-lyric-enhance/plugin-backup/`，已消费的备份会标记为 `restored`，避免误重复应用。
+脚本会先确认容器的 `/config` 已持久挂载，再暂存主 DLL，并把现有主 DLL 与可能残留的旧版 Core DLL 作为一个可回滚集合备份。安装新版本后会清理独立 Core DLL；替换失败则恢复安装前状态。执行回滚前也会额外保存当前文件。备份保存在 `/config/emby-lyric-enhance/plugin-backup/`，已消费的备份会标记为 `restored`，避免误重复应用。
 
 只有在明确接受容器重建后插件文件可能丢失时，才能临时设置 `ELYRIC_ALLOW_UNPERSISTED_CONFIG=1` 跳过持久化保护。
 
@@ -124,6 +124,7 @@ sh docker-plugin-install.sh <Emby容器名> rollback <备份名>
 - 管理后台能打开、保存并重新读取设置页
 - 公共配置接口只允许 GET，并且只返回文档列出的非敏感显示字段
 - 播放页能取得设置；删除或停用插件后仍安全回退
+- 插件目录只有 `EmbyLyricEnhance.dll`，没有旧版独立 `EmbyLyricEnhance.Core.dll`
 - Docker 自动发现/手动选择、更新、成组备份、失败恢复和容器重启行为符合预期
 
 这些项目必须在真实 NAS/Emby 容器完成，不能用本地契约桩的通过结果代替。

@@ -52,14 +52,15 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$requiredFiles = @(
-    (Join-Path $packageStaging "EmbyLyricEnhance.dll"),
-    (Join-Path $packageStaging "EmbyLyricEnhance.Core.dll")
-)
+$requiredFiles = @((Join-Path $packageStaging "EmbyLyricEnhance.dll"))
 foreach ($file in $requiredFiles) {
     if (-not (Test-Path -LiteralPath $file)) {
         throw "Build completed without required artifact: $file"
     }
+}
+$forbiddenCoreAssembly = Join-Path $packageStaging "EmbyLyricEnhance.Core.dll"
+if (Test-Path -LiteralPath $forbiddenCoreAssembly) {
+    throw "Build produced the unsupported standalone Core assembly: $forbiddenCoreAssembly"
 }
 
 if (Test-Path -LiteralPath $packagePrevious) {

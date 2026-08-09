@@ -94,6 +94,9 @@ settingIds.forEach((id) => {
 });
 
 assert(projectSource.includes('Include="MediaBrowser.Common"'), "the official aggregate Emby SDK should be referenced");
+assert(projectSource.includes('Compile Include="..\\EmbyLyricEnhance.Core\\*.cs"'),
+    "core sources should be linked into the main plugin DLL for Emby load-context compatibility");
+assert(!projectSource.includes("ProjectReference"), "the deployed plugin must not require a second project DLL");
 assert(!projectSource.includes('Include="MediaBrowser.Controller"'));
 assert(!projectSource.includes('Include="MediaBrowser.Model"'));
 assert(projectSource.includes("4.9.1.90"), "the successfully restored Emby SDK should be pinned");

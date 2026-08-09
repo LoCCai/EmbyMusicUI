@@ -50,7 +50,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: emby-lyric-enhance-plugin
-          path: |
-            plugin/artifacts/package/EmbyLyricEnhance.dll
-            plugin/artifacts/package/EmbyLyricEnhance.Core.dll
+          path: plugin/artifacts/package/EmbyLyricEnhance.dll
           if-no-files-found: error

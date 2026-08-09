@@ -39,8 +39,8 @@ dotnet build "$project" \
     printf '%s\n' '错误：缺少 EmbyLyricEnhance.dll。' >&2
     exit 1
 }
-[ -f "$package_staging/EmbyLyricEnhance.Core.dll" ] || {
-    printf '%s\n' '错误：缺少 EmbyLyricEnhance.Core.dll。' >&2
+[ ! -e "$package_staging/EmbyLyricEnhance.Core.dll" ] || {
+    printf '%s\n' '错误：构建生成了不受支持的独立 EmbyLyricEnhance.Core.dll。' >&2
     exit 1
 }
 

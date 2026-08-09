@@ -91,12 +91,17 @@ if ($LASTEXITCODE -ne 0) {
     /warnaserror+ `
     /target:library `
     "/out:$pluginContractOutput" `
-    "/reference:$coreOutput" `
     @references `
+    @coreSources `
     @pluginContractSources `
     @pluginSources
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
+}
+
+$contractReferences = [Reflection.Assembly]::LoadFile($pluginContractOutput).GetReferencedAssemblies().Name
+if ($contractReferences -contains "EmbyLyricEnhance.Core") {
+    throw "Plugin contract output still depends on the standalone EmbyLyricEnhance.Core assembly."
 }
 
 Write-Output "plugin API contract stubs compile: ok"
@@ -116,9 +121,9 @@ if (Test-Path -LiteralPath $realApiDirectory) {
         /warnaserror+ `
         /target:library `
         "/out:$realApiOutput" `
-        "/reference:$coreOutput" `
         @references `
         @realApiReferences `
+        @coreSources `
         @pluginSources
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE

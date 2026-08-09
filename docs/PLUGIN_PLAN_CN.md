@@ -90,7 +90,7 @@ Emby Web 播放页
 
 - [x] 插件构建脚本
 - [x] Docker 插件安装/更新脚本
-- [x] 将已验证的两枚 Release DLL 纳入插件分支，允许 Docker 宿主机直接安装
+- [x] 将单文件 Release DLL 纳入插件分支，允许 Docker 宿主机直接安装
 - [x] 明确 DLL 首次加载需要重启，普通前端切换不需要重启
 - [x] 中英文根文档与插件中文安装文档
 - [x] JavaScript、C# 核心和 API 契约测试
@@ -100,7 +100,7 @@ Emby Web 播放页
 ### E. 部署加固
 
 - [x] 安装前确认 `/config` 持久挂载
-- [x] 状态输出包含两枚 DLL 的 SHA-256（容器支持 `sha256sum` 时）
+- [x] 状态输出包含主 DLL 的 SHA-256，并报告旧版独立 Core DLL 是否残留
 - [x] 列出安装备份及是否已经回滚
 - [x] 支持恢复最近或指定备份，回滚前另存当前 DLL
 - [x] 安装和回滚均支持可选容器重启
@@ -126,9 +126,10 @@ Emby Web 播放页
 - `plugin\scripts\verify.ps1` 通过：C# 配置核心、Emby API 契约桩、`MediaBrowser.Common 4.9.1.90` 真实程序集 API 编译、前端适配器和前后端同步测试均为绿色。
 - `node --check adapters\4.9.5.0\lyrics.inject.js`、`git diff --check` 通过。
 - Git for Windows 的 `sh -n` 已确认 `plugin/scripts/build.sh` 与 `docker-plugin-install.sh` 语法有效。
-- 提交 `80b15a4` 已推送至 `origin/codex/plugin-settings`；GitHub Actions 会进行真实 NuGet 恢复、Release 构建，并上传两枚插件 DLL。
+- 提交 `80b15a4` 已推送至 `origin/codex/plugin-settings`；GitHub Actions 会进行真实 NuGet 恢复和 Release 构建。
 - 部署加固提交 `7d7325d` 已推送至 `origin/codex/plugin-settings`；容器自动发现与交互选择在其后继续开发。
-- 已核对 `EmbyLyricEnhance.dll` 版本为 0.2.0.0，并包含 `EmbyLyricEnhance.Plugin.Configuration.configPage.html` 嵌入资源；核心 DLL 与插件 DLL 均已生成。
+- 0.2.0.0 的设置页嵌入资源已核对；真实 Emby 加载发现双 DLL 依赖绑定失败，0.2.1 改为把配置核心编入主 DLL。
+- 0.2.1.0 单 DLL 已使用本地恢复的官方 SDK 完成离线 Release 构建：0 警告、0 错误；产物版本、嵌入设置页及无独立 Core 引用均已核对。
 
 ## 风险与待确认
 
@@ -145,7 +146,8 @@ Emby Web 播放页
 - 2026-08-09：服务器默认配置只影响显示，不接触歌词文件内容和播放控制。
 - 2026-08-09：任何插件配置读取错误都不得阻断 `LyricsRenderer`。
 - 2026-08-09：只在同一歌词页过渡期间复用一次配置请求；离开并重新进入歌词页后重新读取，使管理员新保存的默认值能够生效。
-- 2026-08-09：Docker 插件更新采用时间戳成组备份；两枚 DLL 部分替换失败时恢复旧组合。
+- 2026-08-09：Docker 插件更新采用时间戳成组备份；单 DLL 安装仍同时记录旧版 Core 文件状态，失败或回滚时恢复原组合。
 - 2026-08-09：真实 NuGet 恢复确认只需官方聚合包 `MediaBrowser.Common 4.9.1.90`，同时据真实程序集修正 `IHasWebPages` 和 `BasePluginConfiguration` 契约。
 - 2026-08-09：不引用未公开的服务器控制器鉴权特性；公共端点严格保持匿名只读和非敏感字段边界，避免伪鉴权。
 - 2026-08-09：插件部署脚本仅自动推荐运行中的 Emby 候选容器；用户可以选择“没有我要的容器”并手动输入，避免错误猜测容器目标。
+- 2026-08-09：Emby 4.9.5.0/.NET 8.0.25 实机确认独立 Core 依赖无法在插件加载上下文中绑定；改为单 DLL，避免依赖解析失败阻断服务器启动。

@@ -4,7 +4,6 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 package_root=${ELYRIC_PACKAGE_ROOT:-"$script_dir/plugin/artifacts/package"}
 plugin_dll="$package_root/EmbyLyricEnhance.dll"
-core_dll="$package_root/EmbyLyricEnhance.Core.dll"
 remote_stage=${ELYRIC_REMOTE_STAGE:-/tmp/emby-lyric-enhance-plugin}
 remote_plugins=${ELYRIC_REMOTE_PLUGINS:-/config/plugins}
 remote_backup=${ELYRIC_REMOTE_BACKUP:-/config/emby-lyric-enhance/plugin-backup}
@@ -144,7 +143,7 @@ fi
 if [ "$action" = "status" ]; then
     docker exec "$container" /bin/sh -c '
 plugins=$1
-for name in EmbyLyricEnhance.dll EmbyLyricEnhance.Core.dll; do
+for name in EmbyLyricEnhance.dll; do
     if [ -f "$plugins/$name" ]; then
         if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "$plugins/$name"
@@ -155,6 +154,11 @@ for name in EmbyLyricEnhance.dll EmbyLyricEnhance.Core.dll; do
         echo "缺少：$plugins/$name"
     fi
 done
+if [ -f "$plugins/EmbyLyricEnhance.Core.dll" ]; then
+    echo "警告：检测到旧版独立 Core DLL；请重新执行 install 清理。"
+else
+    echo "旧版独立 Core DLL：未安装（正常）"
+fi
 ' sh "$remote_plugins"
     exit 0
 fi
@@ -191,7 +195,6 @@ esac
 
 if [ "$action" = "install" ] || [ "$action" = "install-restart" ]; then
     [ -s "$plugin_dll" ] || fail "缺少或为空：$plugin_dll，请确认已拉取带预编译 DLL 的插件分支，或运行 build.ps1/build.sh。"
-    [ -s "$core_dll" ] || fail "缺少或为空：$core_dll，请确认已拉取完整预编译产物，或重新构建插件。"
 
     docker exec -u 0 "$container" /bin/sh -c '
 set -eu
@@ -202,7 +205,6 @@ rm -rf "$stage"
 mkdir -p "$stage" "$plugins" "$backup_root"
 ' sh "$remote_stage" "$remote_plugins" "$remote_backup"
     docker cp "$plugin_dll" "$container:$remote_stage/EmbyLyricEnhance.dll" >/dev/null
-    docker cp "$core_dll" "$container:$remote_stage/EmbyLyricEnhance.Core.dll" >/dev/null
 
     docker exec -u 0 "$container" /bin/sh -c '
 set -eu
@@ -210,27 +212,27 @@ stage=$1
 plugins=$2
 backup_root=$3
 backup_set="$backup_root/install-$(date +%Y%m%d-%H%M%S)-$$"
-names="EmbyLyricEnhance.Core.dll EmbyLyricEnhance.dll"
+names="EmbyLyricEnhance.dll EmbyLyricEnhance.Core.dll"
 
 mkdir -p "$backup_set"
+[ -s "$stage/EmbyLyricEnhance.dll" ] || {
+    echo "错误：暂存文件缺失或为空：$stage/EmbyLyricEnhance.dll" >&2
+    exit 1
+}
 for name in $names; do
-    [ -s "$stage/$name" ] || {
-        echo "错误：暂存文件缺失或为空：$stage/$name" >&2
-        exit 1
-    }
     if [ -f "$plugins/$name" ]; then
         cp -p "$plugins/$name" "$backup_set/$name"
     else
         : > "$backup_set/$name.missing"
     fi
-    cp "$stage/$name" "$plugins/$name.new"
-    chmod 0644 "$plugins/$name.new"
 done
+cp "$stage/EmbyLyricEnhance.dll" "$plugins/EmbyLyricEnhance.dll.new"
+chmod 0644 "$plugins/EmbyLyricEnhance.dll.new"
 
 install_ok=1
-mv -f "$plugins/EmbyLyricEnhance.Core.dll.new" "$plugins/EmbyLyricEnhance.Core.dll" || install_ok=0
+mv -f "$plugins/EmbyLyricEnhance.dll.new" "$plugins/EmbyLyricEnhance.dll" || install_ok=0
 if [ "$install_ok" -eq 1 ]; then
-    mv -f "$plugins/EmbyLyricEnhance.dll.new" "$plugins/EmbyLyricEnhance.dll" || install_ok=0
+    rm -f "$plugins/EmbyLyricEnhance.Core.dll" || install_ok=0
 fi
 
 if [ "$install_ok" -ne 1 ]; then
@@ -253,8 +255,8 @@ printf "%s\n" "${backup_set##*/}" > "$backup_root/latest-install"
 printf "备份集：%s\n" "$backup_set"
 ' sh "$remote_stage" "$remote_plugins" "$remote_backup"
 
-    say "插件 DLL 已复制到 $remote_plugins。"
-    say "旧 DLL（若存在）已成组保存在 $remote_backup。"
+    say "单文件插件 DLL 已复制到 $remote_plugins；旧版独立 Core DLL 已清理。"
+    say "旧插件文件（若存在）已成组保存在 $remote_backup。"
     restart_if_requested
     exit 0
 fi

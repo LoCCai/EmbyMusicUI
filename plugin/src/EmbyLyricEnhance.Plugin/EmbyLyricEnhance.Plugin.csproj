@@ -2,13 +2,13 @@
   <PropertyGroup>
     <AssemblyName>EmbyLyricEnhance</AssemblyName>
     <RootNamespace>EmbyLyricEnhance.Plugin</RootNamespace>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <Description>Server defaults and configuration API for EmbyLyricEnhance.</Description>
     <IsPackable>false</IsPackable>
     <EmbyApiVersion Condition="'$(EmbyApiVersion)' == ''">4.9.1.90</EmbyApiVersion>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\EmbyLyricEnhance.Core\EmbyLyricEnhance.Core.csproj" />
+    <Compile Include="..\EmbyLyricEnhance.Core\*.cs" Link="Core\%(Filename)%(Extension)" />
     <PackageReference Include="MediaBrowser.Common" Version="$(EmbyApiVersion)" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>

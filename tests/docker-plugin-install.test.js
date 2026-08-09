@@ -8,11 +8,10 @@ const { spawnSync } = require("child_process");
 const root = path.join(__dirname, "..");
 const installer = path.join(root, "docker-plugin-install.sh");
 const releasePackage = path.join(root, "plugin", "artifacts", "package");
-
-for (const releaseName of ["EmbyLyricEnhance.dll", "EmbyLyricEnhance.Core.dll"]) {
-    const releasePath = path.join(releasePackage, releaseName);
-    assert(fs.statSync(releasePath).size > 0, `prebuilt release DLL is missing or empty: ${releaseName}`);
-}
+const releasePlugin = path.join(releasePackage, "EmbyLyricEnhance.dll");
+assert(fs.statSync(releasePlugin).size > 0, "prebuilt release plugin DLL is missing or empty");
+assert(!fs.existsSync(path.join(releasePackage, "EmbyLyricEnhance.Core.dll")),
+    "the release package must not contain the obsolete standalone Core DLL");
 
 function posixPath(value) {
     const normalized = value.replace(/\\/g, "/");
@@ -123,7 +122,7 @@ exec /usr/bin/mv "$@"
 
     function writePackage(version) {
         fs.writeFileSync(path.join(packageRoot, "EmbyLyricEnhance.dll"), `plugin-${version}`, "utf8");
-        fs.writeFileSync(path.join(packageRoot, "EmbyLyricEnhance.Core.dll"), `core-${version}`, "utf8");
+        fs.rmSync(path.join(packageRoot, "EmbyLyricEnhance.Core.dll"), { force: true });
     }
 
     const localPath = (value) => posixPath(path.relative(root, value));
@@ -171,10 +170,19 @@ exec /usr/bin/mv "$@"
         );
     }
 
+    fs.mkdirSync(remotePlugins, { recursive: true });
+    fs.writeFileSync(path.join(remotePlugins, "EmbyLyricEnhance.Core.dll"), "legacy-core", "utf8");
     writePackage("v1");
     expectSuccess(run("install"), "first install");
     assert.strictEqual(fs.readFileSync(path.join(remotePlugins, "EmbyLyricEnhance.dll"), "utf8"), "plugin-v1");
-    assert.strictEqual(fs.readFileSync(path.join(remotePlugins, "EmbyLyricEnhance.Core.dll"), "utf8"), "core-v1");
+    assert(!fs.existsSync(path.join(remotePlugins, "EmbyLyricEnhance.Core.dll")),
+        "installing the single-DLL package should remove the legacy Core DLL");
+    const migrationBackup = fs.readFileSync(path.join(remoteBackup, "latest-install"), "utf8").trim();
+    assert.strictEqual(
+        fs.readFileSync(path.join(remoteBackup, migrationBackup, "EmbyLyricEnhance.Core.dll"), "utf8"),
+        "legacy-core",
+        "the removed legacy Core DLL should remain recoverable in the installation backup"
+    );
 
     writePackage("v2");
     expectSuccess(run("install"), "second install");
@@ -193,11 +201,11 @@ exec /usr/bin/mv "$@"
     const status = run("status");
     expectSuccess(status, "status");
     assert(status.stdout.includes("EmbyLyricEnhance.dll"));
-    assert(status.stdout.includes("EmbyLyricEnhance.Core.dll"));
+    assert(status.stdout.includes("旧版独立 Core DLL：未安装（正常）"));
 
     expectSuccess(run("rollback"), "rollback");
     assert.strictEqual(fs.readFileSync(path.join(remotePlugins, "EmbyLyricEnhance.dll"), "utf8"), "plugin-v1");
-    assert.strictEqual(fs.readFileSync(path.join(remotePlugins, "EmbyLyricEnhance.Core.dll"), "utf8"), "core-v1");
+    assert(!fs.existsSync(path.join(remotePlugins, "EmbyLyricEnhance.Core.dll")));
     assert(fs.existsSync(path.join(remoteBackup, latestBackup, ".restored")));
     const safetyBackup = fs.readdirSync(remoteBackup).find((name) => name.startsWith("rollback-safety-"));
     assert(safetyBackup, "rollback should preserve the files it replaced");
@@ -218,17 +226,14 @@ exec /usr/bin/mv "$@"
 
     writePackage("v4");
     const partialFailure = run("install", null, { FAKE_FAIL_PLUGIN_MOVE_ONCE: "1" });
-    assert.notStrictEqual(partialFailure.status, 0, "a partial two-DLL replacement should report failure");
+    assert.notStrictEqual(partialFailure.status, 0, "a failed single-DLL replacement should report failure");
     assert.strictEqual(
         fs.readFileSync(path.join(remotePlugins, "EmbyLyricEnhance.dll"), "utf8"),
         "plugin-v3",
-        "a failed second move should restore the previous plugin DLL"
+        "a failed move should restore the previous plugin DLL"
     );
-    assert.strictEqual(
-        fs.readFileSync(path.join(remotePlugins, "EmbyLyricEnhance.Core.dll"), "utf8"),
-        "core-v3",
-        "a failed second move should also restore the previous core DLL"
-    );
+    assert(!fs.existsSync(path.join(remotePlugins, "EmbyLyricEnhance.Core.dll")),
+        "failure recovery should preserve the previous single-DLL layout");
 
     const unpersisted = run("install", null, { FAKE_MOUNT_DESTINATION: "/not-the-config-mount" });
     assert.notStrictEqual(unpersisted.status, 0, "installation should stop when the config path is not persistent");
