@@ -37,5 +37,11 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             IsMainConfigPage = true,
             EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html"
         };
+
+        yield return new PluginPageInfo
+        {
+            Name = "embylyricenhanceconfigjs",
+            EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.js"
+        };
     }
 }

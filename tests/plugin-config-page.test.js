@@ -6,12 +6,10 @@ const path = require("path");
 const vm = require("vm");
 
 const root = path.join(__dirname, "..");
-const html = fs.readFileSync(
-    path.join(root, "plugin", "src", "EmbyLyricEnhance.Plugin", "Configuration", "configPage.html"),
+const controllerSource = fs.readFileSync(
+    path.join(root, "plugin", "src", "EmbyLyricEnhance.Plugin", "Configuration", "configPage.js"),
     "utf8"
 );
-const scriptMatch = html.match(/<script type="text\/javascript">([\s\S]*?)<\/script>/);
-assert(scriptMatch, "configuration page script should be embedded in the page");
 
 function createControl(initial) {
     return {
@@ -145,20 +143,8 @@ async function main() {
     let getCalls = 0;
     let updateCalls = 0;
     let failNextGet = false;
-    const documentListeners = {};
-    const documentListenerCounts = {};
-    let mutationCallback = null;
-    let observerCount = 0;
-    let scriptPage = null;
-    class MutationObserver {
-        constructor(callback) {
-            mutationCallback = callback;
-            observerCount += 1;
-        }
-
-        observe() {}
-    }
     const pageConsole = { error() {} };
+    let controllerFactory = null;
     const context = {
         ApiClient: {
             getPluginConfiguration() {
@@ -181,30 +167,27 @@ async function main() {
             showLoadingMsg() {}
         },
         document: {
-            currentScript: {
-                closest() {
-                    return scriptPage;
-                }
-            },
-            documentElement: {},
-            addEventListener(type, listener) {
-                documentListeners[type] = listener;
-                documentListenerCounts[type] = (documentListenerCounts[type] || 0) + 1;
-            },
             querySelectorAll() {
                 return pages.slice();
             }
         },
+        define(dependencies, factory) {
+            assert.deepStrictEqual(Array.from(dependencies), []);
+            controllerFactory = factory;
+        },
         console: pageConsole,
         Promise,
-        window: { console: pageConsole, MutationObserver, setTimeout }
+        window: { console: pageConsole, setTimeout }
     };
 
+    vm.runInNewContext(controllerSource, context, { filename: "configPage.js" });
+    assert.strictEqual(typeof controllerFactory, "function", "the AMD controller should register a factory");
+    const controller = controllerFactory();
+    assert.strictEqual(typeof controller, "function", "the AMD factory should return an Emby view controller");
+
     const stale = createPage();
-    scriptPage = stale.page;
-    vm.runInNewContext(scriptMatch[1], context, { filename: "configPage.inline.js" });
     pages.push(stale.page);
-    mutationCallback([{ addedNodes: [stale.page] }]);
+    controller(stale.page);
     await flushPromises();
 
     assert.strictEqual(stale.attributes["data-elyric-config-bound"], "true");
@@ -212,10 +195,8 @@ async function main() {
     assert.strictEqual(stale.controls.elyricFontSizePercent.value, 100);
 
     const current = createPage();
-    scriptPage = current.page;
-    vm.runInNewContext(scriptMatch[1], context, { filename: "configPage.inline.js" });
     pages.push(current.page);
-    mutationCallback([{ addedNodes: [current.page] }]);
+    controller(current.page);
     await flushPromises();
 
     assert.strictEqual(pages.length, 2, "router-owned configuration pages should remain in Emby's DOM");
@@ -224,11 +205,14 @@ async function main() {
     assert.strictEqual(current.attributes["data-elyric-config-bound"], "true");
     assert.strictEqual(getCalls, 2, "the replacement page should load the persisted configuration once");
     assert.strictEqual(current.controls.elyricFontSizePercent.value, 100);
-    assert(documentListeners.pageshow && documentListeners.viewshow,
-        "both Emby lifecycle handlers should be registered on the document");
-    assert.strictEqual(documentListenerCounts.pageshow, 1, "re-evaluating the script should reuse the lifecycle manager");
-    assert.strictEqual(documentListenerCounts.viewshow, 1, "re-evaluating the script should not duplicate listeners");
-    assert.strictEqual(observerCount, 1, "re-evaluating the script should reuse one insertion observer");
+    assert(stale.pageListeners.pageshow && stale.pageListeners.viewshow,
+        "both Emby lifecycle handlers should be registered on each managed page");
+    assert(current.pageListeners.pageshow && current.pageListeners.viewshow,
+        "the replacement page should receive its own lifecycle handlers");
+
+    controller(current.page);
+    await flushPromises();
+    assert.strictEqual(getCalls, 2, "re-entering the controller must not bind or load the same page twice");
 
     stale.pageListeners.viewshow();
     await flushPromises();
@@ -236,7 +220,7 @@ async function main() {
     assert(current.classes.has("elyric-managed-hidden"), "the inactive duplicate should be hidden without removal");
     assert.strictEqual(getCalls, 3, "reactivating a retained page should reload its server values");
 
-    documentListeners.viewshow({ target: current.page });
+    current.pageListeners.viewshow();
     await flushPromises();
     assert(stale.classes.has("elyric-managed-hidden"), "reactivating the newest page should hide the retained duplicate");
     assert(!current.classes.has("elyric-managed-hidden"));

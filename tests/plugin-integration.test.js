@@ -13,6 +13,7 @@ const pluginSource = fs.readFileSync(path.join(pluginRoot, "Plugin.cs"), "utf8")
 const serviceSource = fs.readFileSync(path.join(pluginRoot, "PublicConfigurationService.cs"), "utf8");
 const projectSource = fs.readFileSync(path.join(pluginRoot, "EmbyLyricEnhance.Plugin.csproj"), "utf8");
 const pageSource = fs.readFileSync(path.join(pluginRoot, "Configuration", "configPage.html"), "utf8");
+const controllerSource = fs.readFileSync(path.join(pluginRoot, "Configuration", "configPage.js"), "utf8");
 const themeSource = fs.readFileSync(path.join(coreRoot, "ThemeIds.cs"), "utf8");
 const publicOptionsSource = fs.readFileSync(path.join(coreRoot, "PublicDisplayOptions.cs"), "utf8");
 
@@ -26,26 +27,24 @@ themes.forEach((theme) => {
 
 const pluginId = "efbd3f14-8799-4a7d-a5ad-7ef93c5b0e5d";
 assert(pluginSource.includes(pluginId), "the plugin entry point should expose the stable plugin id");
-assert(pageSource.includes(pluginId), "the admin page should use the same plugin id");
+assert(controllerSource.includes(pluginId), "the admin controller should use the same plugin id");
 assert(pluginSource.includes("IsMainConfigPage = true"), "Emby should register the settings page as the main plugin configuration page");
 assert(pluginSource.includes("EnableInMainMenu = true"), "the settings page should have a persistent server menu entry");
 assert(pluginSource.includes('MenuSection = "server"'), "the settings page should be grouped with server administration pages");
-assert(pageSource.includes("__embyLyricEnhanceConfigurationManager"),
-    "the lifecycle manager should survive replacement of an individual configuration page");
-assert(pageSource.includes("document.querySelectorAll(pageSelector)"),
+assert(pageSource.includes('data-controller="__plugin/embylyricenhanceconfigjs"'),
+    "Emby should load the settings logic through an external plugin controller");
+assert(!pageSource.includes("<script"), "the settings page should not rely on ignored inline scripts");
+assert(controllerSource.includes("document.querySelectorAll(pageSelector)"),
     "dynamic evaluation should scan all configuration page instances");
-assert(pageSource.includes("pages[pages.length - 1]"), "dynamic evaluation should retain the newest page instance");
-assert(pageSource.includes("elyric-managed-hidden"), "stale plugin pages should be hidden without mutating Emby's page stack");
-assert(!pageSource.includes("candidate.parentNode.removeChild(candidate)"),
+assert(controllerSource.includes("pages[pages.length - 1]"), "dynamic evaluation should retain the newest page instance");
+assert(controllerSource.includes("elyric-managed-hidden"), "stale plugin pages should be hidden without mutating Emby's page stack");
+assert(!controllerSource.includes("candidate.parentNode.removeChild(candidate)"),
     "the plugin must not remove router-owned page nodes from Emby's DOM");
-assert(pageSource.includes('document.addEventListener("pageshow"') && pageSource.includes('document.addEventListener("viewshow"'),
-    "both legacy and current Emby page lifecycle events should be observed across replaced pages");
-assert(pageSource.includes("new window.MutationObserver"),
-    "page insertion should be observed when Emby evaluates the script before attaching its page");
-assert(pageSource.includes("scanSoon"), "page insertion scans should be deferred until the new page is attached");
-assert(pageSource.includes("if (loadPromise)"), "repeated page events should share one configuration request");
-assert(pageSource.includes("if (saving)"), "repeated form submissions should be ignored while a save is active");
-assert(pageSource.includes("保存成功，服务器已回读确认"), "successful saves should visibly confirm a server round trip");
+assert(controllerSource.includes('page.addEventListener("pageshow"') && controllerSource.includes('page.addEventListener("viewshow"'),
+    "both legacy and current Emby page lifecycle events should refresh the controller view");
+assert(controllerSource.includes("if (loadPromise)"), "repeated page events should share one configuration request");
+assert(controllerSource.includes("if (saving)"), "repeated form submissions should be ignored while a save is active");
+assert(controllerSource.includes("保存成功，服务器已回读确认"), "successful saves should visibly confirm a server round trip");
 assert(pageSource.includes("重新读取服务器设置"), "administrators should be able to retry a failed configuration load");
 assert(pageSource.includes("background: transparent"), "the configuration page should inherit the active Emby theme");
 assert(pageSource.includes("var(--theme-primary-color"), "status accents should follow the active Emby theme color");
@@ -97,7 +96,7 @@ const settingIds = [
     "elyricShowThirdAndLaterLines"
 ];
 settingIds.forEach((id) => {
-    const occurrences = pageSource.match(new RegExp(id, "g")) || [];
+    const occurrences = (pageSource + controllerSource).match(new RegExp(id, "g")) || [];
     assert(occurrences.length >= 3, `${id} should be declared, loaded and saved`);
 });
 
@@ -123,15 +122,17 @@ assert(!projectSource.includes("ProjectReference"), "the deployed plugin must no
 assert(!projectSource.includes('Include="MediaBrowser.Controller"'));
 assert(!projectSource.includes('Include="MediaBrowser.Model"'));
 assert(projectSource.includes("4.9.1.90"), "the successfully restored Emby SDK should be pinned");
+assert(projectSource.includes('EmbeddedResource Include="Configuration\\configPage.js"'),
+    "the external page controller should be embedded in the plugin DLL");
+assert(pluginSource.includes('Name = "embylyricenhanceconfigjs"'),
+    "the external page controller should be registered with Emby");
 
 assert(!pageSource.includes("innerHTML"), "the configuration page should not use unsafe HTML assignment");
-assert(pageSource.includes("ApiClient.getPluginConfiguration"));
-assert(pageSource.includes("ApiClient.updatePluginConfiguration"));
-const pageScript = pageSource.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
-assert(pageScript, "the admin page should contain its lifecycle script");
-assert.doesNotThrow(() => new Function(pageScript[1]), "the admin page script should parse as JavaScript");
-assert(pageSource.includes("data-elyric-config-bound"), "the admin page should not bind duplicate lifecycle handlers");
-assert(pageSource.includes("errorMessage("), "configuration load and save failures should be surfaced safely");
+assert(controllerSource.includes("ApiClient.getPluginConfiguration"));
+assert(controllerSource.includes("ApiClient.updatePluginConfiguration"));
+assert.doesNotThrow(() => new Function(controllerSource), "the admin controller should parse as JavaScript");
+assert(controllerSource.includes("data-elyric-config-bound"), "the admin controller should not bind duplicate lifecycle handlers");
+assert(controllerSource.includes("errorMessage("), "configuration load and save failures should be surfaced safely");
 assert(pageSource.includes("pattern=\"#[0-9A-Fa-f]{6}\""), "the admin page should constrain custom colors before save");
 assert(adapterCss.includes(".elyric-subline:nth-child(n+3)"), "third and later sublines should share consistent styling");
 
