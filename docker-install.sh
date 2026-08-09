@@ -16,6 +16,51 @@ fail() {
     exit 1
 }
 
+recover_original_from_container_image() {
+    image_id=$(docker inspect -f '{{.Image}}' "$container" 2>/dev/null || true)
+    [ -n "$image_id" ] || fail "无法读取容器 $container 的不可变镜像 ID。"
+
+    recovery_parent=${TMPDIR:-/tmp}
+    recovery_dir=$(mktemp -d "$recovery_parent/elyric-recover.XXXXXX") ||
+        fail "无法创建临时恢复目录。"
+    recovery_container=
+
+    cleanup_recovery() {
+        if [ -n "$recovery_container" ]; then
+            docker rm -f "$recovery_container" >/dev/null 2>&1 || true
+        fi
+        case "$recovery_dir" in
+            "$recovery_parent"/elyric-recover.*)
+                rm -rf -- "$recovery_dir"
+                ;;
+        esac
+    }
+    trap cleanup_recovery 0
+    trap 'cleanup_recovery; exit 1' HUP INT TERM
+
+    say "当前文件已是增强版但原版备份缺失，正在从容器的不可变镜像安全恢复……"
+    recovery_container=$(docker create "$image_id") || fail "无法从当前镜像创建不启动的临时容器。"
+    [ -n "$recovery_container" ] || fail "临时容器 ID 为空。"
+
+    docker cp "$recovery_container:/system/dashboard-ui/videoosd/lyrics.js" "$recovery_dir/lyrics.js" >/dev/null ||
+        fail "无法从镜像提取原版 lyrics.js。"
+    docker cp "$recovery_container:/system/dashboard-ui/videoosd/lyrics.css" "$recovery_dir/lyrics.css" >/dev/null ||
+        fail "无法从镜像提取原版 lyrics.css。"
+
+    docker exec -u 0 "$container" /bin/sh -c "mkdir -p '$REMOTE_ROOT/recovered-original'"
+    docker cp "$recovery_dir/lyrics.js" "$container:$REMOTE_ROOT/recovered-original/lyrics.js" >/dev/null
+    docker cp "$recovery_dir/lyrics.css" "$container:$REMOTE_ROOT/recovered-original/lyrics.css" >/dev/null
+    docker exec -u 0 \
+        -e ELYRIC_PAYLOAD_ROOT="$REMOTE_ROOT/adapter" \
+        -e ELYRIC_RECOVERY_ROOT="$REMOTE_ROOT/recovered-original" \
+        "$container" /bin/sh "$REMOTE_ROOT/container-manager.sh" recover-original
+
+    cleanup_recovery
+    recovery_container=
+    recovery_dir=
+    trap - 0 HUP INT TERM
+}
+
 command -v docker >/dev/null 2>&1 || fail "没有找到 docker 命令。请在 Emby Docker 宿主机运行本脚本。"
 docker info >/dev/null 2>&1 || fail "无法连接 Docker。请使用有 Docker 权限的账号运行。"
 [ -f "$ADAPTER_DIR/lyrics.inject.js" ] || fail "缺少 $ADAPTER_DIR/lyrics.inject.js"
@@ -84,6 +129,20 @@ docker exec -u 0 "$container" /bin/sh -c "rm -rf '$REMOTE_ROOT' && mkdir -p '$RE
 docker cp "$ADAPTER_DIR/lyrics.inject.js" "$container:$REMOTE_ROOT/adapter/lyrics.inject.js" >/dev/null
 docker cp "$ADAPTER_DIR/lyrics.inject.css" "$container:$REMOTE_ROOT/adapter/lyrics.inject.css" >/dev/null
 docker cp "$MANAGER" "$container:$REMOTE_ROOT/container-manager.sh" >/dev/null
+
+case "$action" in
+    install|enhanced|original|undo)
+        if docker exec "$container" /bin/sh -c '
+target=/system/dashboard-ui/videoosd/lyrics.js
+original=/config/emby-lyric-enhance/4.9.5.0/original
+grep -Fq "ELYRIC_ENHANCE_BEGIN:4.9.5.0" "$target" 2>/dev/null &&
+    { [ ! -f "$original/lyrics.js" ] || [ ! -f "$original/lyrics.css" ]; }
+'; then
+            recover_original_from_container_image
+        fi
+        ;;
+esac
+
 docker exec -u 0 -e ELYRIC_PAYLOAD_ROOT="$REMOTE_ROOT/adapter" "$container" /bin/sh "$REMOTE_ROOT/container-manager.sh" "$action"
 
 case "$action" in

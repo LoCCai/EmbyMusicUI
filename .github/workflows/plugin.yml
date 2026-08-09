@@ -8,6 +8,8 @@ on:
       - "adapters/4.9.5.0/**"
       - "tests/**"
       - "docker-plugin-install.sh"
+      - "docker-install.sh"
+      - "scripts/container-manager.sh"
       - ".github/workflows/plugin.yml"
   push:
     branches:
@@ -17,6 +19,8 @@ on:
       - "adapters/4.9.5.0/**"
       - "tests/**"
       - "docker-plugin-install.sh"
+      - "docker-install.sh"
+      - "scripts/container-manager.sh"
       - ".github/workflows/plugin.yml"
 
 permissions:
@@ -40,10 +44,13 @@ jobs:
           node tests/plugin-integration.test.js
           node tests/plugin-config-page.test.js
           node tests/docker-plugin-install.test.js
+          node tests/container-manager.test.js
       - name: Check shell scripts
         run: |
           sh -n plugin/scripts/build.sh
           sh -n docker-plugin-install.sh
+          sh -n docker-install.sh
+          sh -n scripts/container-manager.sh
       - name: Test configuration core
         run: dotnet run --project plugin/tests/EmbyLyricEnhance.Core.Tests/EmbyLyricEnhance.Core.Tests.csproj --configuration Release
       - name: Restore and build Emby plugin

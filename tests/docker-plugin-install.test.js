@@ -240,7 +240,7 @@ exec /usr/bin/mv "$@"
     assert(unpersisted.stderr.includes("没有持久挂载"));
 
     writePackage("v5");
-    const automaticSelection = runInteractive("not-a-number\n99\n1\n");
+    const automaticSelection = runInteractive("not-a-number\n99\n1\r\n");
     expectSuccess(automaticSelection, "automatic numbered container selection");
     assert(automaticSelection.stdout.includes("1) emby-auto"));
     assert(automaticSelection.stdout.includes("没有我要的容器"));

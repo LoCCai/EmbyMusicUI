@@ -32,6 +32,8 @@
 - 实机下载并检查 `/web/videoosd/lyrics.js`，确认当前容器仍是旧前端适配器：不包含 `PublicConfiguration`、显示 CSS 变量或 DLL 配置读取；只更新 DLL 无法改变播放页效果
 - 0.2.6 从 Emby 4.9.5.0 歌词 AMD 模块的 `_connectionmanager` 取得当前服务器的认证 API 客户端；设置页使用 `apiClientResolver`，并同时更换 HTML/控制器资源名以避开 Emby 按旧 URL 缓存的 0.2.4 页面
 - DLL 安装脚本现会检查活动 `lyrics.js` 是否包含公共配置读取；若仍是旧前端，会明确提示再执行 `docker-install.sh`
+- 前端安装器遇到“当前已是增强版、但 `/config` 原版备份缺失”时，会从运行容器记录的不可变镜像 ID 创建不启动的临时容器，提取并校验 4.9.5.0 原文件，补回备份后再重新注入；活动 Emby 容器不删除、不重建
+- Docker 插件容器编号输入会先去除空白和回车字符，兼容终端交互中的 `1\r` 输入
 
 ## Emby 4.9.5.0 定向适配
 

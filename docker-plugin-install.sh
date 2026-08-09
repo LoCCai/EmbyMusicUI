@@ -84,6 +84,7 @@ EOF
         while :; do
             printf '\n请输入序号：'
             IFS= read -r selected_choice || fail "没有读取到容器选择。"
+            selected_choice=$(printf '%s' "$selected_choice" | tr -d '[:space:]')
             case "$selected_choice" in
                 ''|*[!0-9]*)
                     say "请输入列表中的数字序号。"

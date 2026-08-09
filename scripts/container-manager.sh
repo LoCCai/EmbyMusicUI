@@ -12,8 +12,9 @@ ENHANCED_ROOT="$BACKUP_ROOT/enhanced"
 PAYLOAD_ROOT="${ELYRIC_PAYLOAD_ROOT:-/tmp/emby-lyric-enhance/adapter}"
 PAYLOAD_JS="$PAYLOAD_ROOT/lyrics.inject.js"
 PAYLOAD_CSS="$PAYLOAD_ROOT/lyrics.inject.css"
-EXPECTED_JS="32b712b634d0191da1dec23eebd63bde2a94bba67ba1fd6cea5b2959309649bb"
-EXPECTED_CSS="82c4df323c0a6dd100863d0e261a5e09317530c8f39cd55c203ebac8899224b7"
+RECOVERY_ROOT="${ELYRIC_RECOVERY_ROOT:-$PAYLOAD_ROOT/recovered-original}"
+EXPECTED_JS="${ELYRIC_EXPECTED_JS:-32b712b634d0191da1dec23eebd63bde2a94bba67ba1fd6cea5b2959309649bb}"
+EXPECTED_CSS="${ELYRIC_EXPECTED_CSS:-82c4df323c0a6dd100863d0e261a5e09317530c8f39cd55c203ebac8899224b7}"
 MARKER="ELYRIC_ENHANCE_BEGIN:$VERSION"
 ANCHOR="_exports.default=LyricsRenderer"
 
@@ -59,6 +60,34 @@ verify_original_backups() {
     [ -f "$ORIGINAL_ROOT/lyrics.css" ] || fail "缺少原始 lyrics.css 备份。"
     verify_original_file "$ORIGINAL_ROOT/lyrics.js" "$EXPECTED_JS" "备份 lyrics.js"
     verify_original_file "$ORIGINAL_ROOT/lyrics.css" "$EXPECTED_CSS" "备份 lyrics.css"
+}
+
+recover_original_backups() {
+    recovery_js="$RECOVERY_ROOT/lyrics.js"
+    recovery_css="$RECOVERY_ROOT/lyrics.css"
+    [ -f "$recovery_js" ] || fail "恢复源缺少 lyrics.js：$recovery_js"
+    [ -f "$recovery_css" ] || fail "恢复源缺少 lyrics.css：$recovery_css"
+    verify_original_file "$recovery_js" "$EXPECTED_JS" "镜像原版 lyrics.js"
+    verify_original_file "$recovery_css" "$EXPECTED_CSS" "镜像原版 lyrics.css"
+
+    mkdir -p "$ORIGINAL_ROOT"
+    tmp_js="$ORIGINAL_ROOT/lyrics.js.recover.$$"
+    tmp_css="$ORIGINAL_ROOT/lyrics.css.recover.$$"
+    recovery_cleanup() {
+        rm -f "$tmp_js" "$tmp_css"
+    }
+    trap recovery_cleanup 0
+    trap 'recovery_cleanup; exit 1' HUP INT TERM
+
+    cp "$recovery_js" "$tmp_js"
+    cp "$recovery_css" "$tmp_css"
+    chmod 0644 "$tmp_js" "$tmp_css"
+    mv -f "$tmp_js" "$ORIGINAL_ROOT/lyrics.js"
+    mv -f "$tmp_css" "$ORIGINAL_ROOT/lyrics.css"
+    verify_original_backups
+
+    trap - 0 HUP INT TERM
+    say "已从当前容器的不可变镜像补回 Emby $VERSION 原版备份。"
 }
 
 require_managed_target() {
@@ -207,6 +236,9 @@ show_status() {
 }
 
 case "${1:-status}" in
+    recover-original)
+        recover_original_backups
+        ;;
     install|enhanced)
         if [ "${1:-}" = "install" ]; then
             install_enhanced
@@ -221,6 +253,6 @@ case "${1:-status}" in
         show_status
         ;;
     *)
-        fail "未知命令：$1（支持 install、original、enhanced、status）"
+        fail "未知命令：$1（支持 install、original、enhanced、status、recover-original）"
         ;;
 esac

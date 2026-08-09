@@ -104,6 +104,8 @@ sh docker-install.sh <容器名或ID> undo
 
 如果脚本未检测到 `/config` 持久挂载，会先警告并要求确认。
 
+如果当前 `/system` 已是旧增强版，但 `/config/emby-lyric-enhance/4.9.5.0/original/` 丢失，新版安装器会从当前 Emby 容器的不可变镜像 ID 创建一个不启动的临时容器，只提取原版 `lyrics.js/css`。两个文件必须通过 Emby 4.9.5.0 SHA-256 校验才会补回备份并继续注入；正在运行的 Emby 容器不会被删除或重建。
+
 ## 修改范围
 
 4.9.5.0 适配只修改容器中的：
