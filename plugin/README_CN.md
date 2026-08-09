@@ -82,7 +82,28 @@ sh docker-plugin-install.sh <Emby容器名> install-restart
 sh docker-plugin-install.sh <Emby容器名> status
 ```
 
-脚本将两枚 DLL 作为一组暂存和备份；替换过程中若出现部分失败，会尝试恢复同一组旧文件。备份保存在 `/config/emby-lyric-enhance/plugin-backup/` 的时间戳目录中。
+查看可用备份：
+
+```bash
+sh docker-plugin-install.sh <Emby容器名> backups
+```
+
+恢复最近一个尚未使用的安装备份：
+
+```bash
+sh docker-plugin-install.sh <Emby容器名> rollback
+sh docker-plugin-install.sh <Emby容器名> rollback-restart
+```
+
+也可以从 `backups` 输出中选择一个备份名：
+
+```bash
+sh docker-plugin-install.sh <Emby容器名> rollback <备份名>
+```
+
+脚本会先确认容器的 `/config` 已持久挂载，再将两枚 DLL 作为一组暂存和备份。替换过程中若出现部分失败，会尝试恢复同一组旧文件；执行回滚前也会额外保存当前文件。备份保存在 `/config/emby-lyric-enhance/plugin-backup/`，已消费的备份会标记为 `restored`，避免误重复应用。
+
+只有在明确接受容器重建后插件文件可能丢失时，才能临时设置 `ELYRIC_ALLOW_UNPERSISTED_CONFIG=1` 跳过持久化保护。
 
 首次安装或更新 DLL 后必须重启 Emby。管理页保存显示设置、浏览器切换主题或重新注入前端文件不需要重启。
 

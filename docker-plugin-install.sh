@@ -2,12 +2,13 @@
 set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-package_root="$script_dir/plugin/artifacts/package"
+package_root=${ELYRIC_PACKAGE_ROOT:-"$script_dir/plugin/artifacts/package"}
 plugin_dll="$package_root/EmbyLyricEnhance.dll"
 core_dll="$package_root/EmbyLyricEnhance.Core.dll"
-remote_stage="/tmp/emby-lyric-enhance-plugin"
-remote_plugins="/config/plugins"
-remote_backup="/config/emby-lyric-enhance/plugin-backup"
+remote_stage=${ELYRIC_REMOTE_STAGE:-/tmp/emby-lyric-enhance-plugin}
+remote_plugins=${ELYRIC_REMOTE_PLUGINS:-/config/plugins}
+remote_backup=${ELYRIC_REMOTE_BACKUP:-/config/emby-lyric-enhance/plugin-backup}
+config_destination=${ELYRIC_CONFIG_DESTINATION:-/config}
 
 say() {
     printf '%s\n' "$*"
@@ -18,11 +19,25 @@ fail() {
     exit 1
 }
 
+restart_if_requested() {
+    case "$action" in
+        *-restart)
+            say "正在重启容器以加载插件……"
+            docker restart "$container" >/dev/null
+            say "容器已重启。"
+            ;;
+        *)
+            say "必须重启 Emby 容器后，C# 插件变更才会加载。"
+            ;;
+    esac
+}
+
 command -v docker >/dev/null 2>&1 || fail "没有找到 docker 命令。请在 Emby Docker 宿主机运行。"
 docker info >/dev/null 2>&1 || fail "无法连接 Docker。"
 
 container=${1:-}
 action=${2:-install}
+backup_name=${3:-}
 
 if [ -z "$container" ]; then
     say "当前正在运行的 Docker 容器："
@@ -35,31 +50,88 @@ fi
 docker inspect "$container" >/dev/null 2>&1 || fail "找不到容器：$container"
 
 case "$action" in
-    install|install-restart|status) ;;
-    *) fail "未知操作：$action（支持 install、install-restart、status）" ;;
+    install|install-restart|rollback|rollback-restart|status|backups) ;;
+    *) fail "未知操作：$action（支持 install、install-restart、rollback、rollback-restart、status、backups）" ;;
 esac
 
+if [ -n "$backup_name" ]; then
+    case "$backup_name" in
+        *[!A-Za-z0-9._-]*) fail "备份名包含非法字符。" ;;
+        install-*|rollback-safety-*) ;;
+        *) fail "备份名必须来自 backups 输出中的 install-* 或 rollback-safety-*。" ;;
+    esac
+fi
+
 if [ "$action" = "status" ]; then
-    docker exec "$container" /bin/sh -c \
-        "for file in '$remote_plugins/EmbyLyricEnhance.dll' '$remote_plugins/EmbyLyricEnhance.Core.dll'; do if [ -f \"\$file\" ]; then ls -l \"\$file\"; else echo \"缺少：\$file\"; fi; done"
+    docker exec "$container" /bin/sh -c '
+plugins=$1
+for name in EmbyLyricEnhance.dll EmbyLyricEnhance.Core.dll; do
+    if [ -f "$plugins/$name" ]; then
+        if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$plugins/$name"
+        else
+            ls -l "$plugins/$name"
+        fi
+    else
+        echo "缺少：$plugins/$name"
+    fi
+done
+' sh "$remote_plugins"
     exit 0
 fi
 
-[ -f "$plugin_dll" ] || fail "缺少 $plugin_dll，请先运行 plugin/scripts/build.ps1 或 build.sh。"
-[ -f "$core_dll" ] || fail "缺少 $core_dll，请先构建插件。"
+if [ "$action" = "backups" ]; then
+    docker exec "$container" /bin/sh -c '
+backup_root=$1
+found=0
+for directory in "$backup_root"/install-* "$backup_root"/rollback-safety-*; do
+    [ -d "$directory" ] || continue
+    found=1
+    state=available
+    [ -f "$directory/.restored" ] && state=restored
+    printf "%s\t%s\n" "${directory##*/}" "$state"
+done
+[ "$found" -eq 1 ] || echo "没有插件备份。"
+' sh "$remote_backup"
+    exit 0
+fi
 
-docker exec -u 0 "$container" /bin/sh -c \
-    "rm -rf '$remote_stage' && mkdir -p '$remote_stage' '$remote_plugins' '$remote_backup'"
-docker cp "$plugin_dll" "$container:$remote_stage/EmbyLyricEnhance.dll" >/dev/null
-docker cp "$core_dll" "$container:$remote_stage/EmbyLyricEnhance.Core.dll" >/dev/null
+mounts=$(docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$container")
+case "
+$mounts
+" in
+    *"
+$config_destination
+"*) ;;
+    *)
+        [ "${ELYRIC_ALLOW_UNPERSISTED_CONFIG:-0}" = "1" ] ||
+            fail "容器没有持久挂载 $config_destination。为避免重建容器后丢失插件，安装已停止。"
+        say "警告：正在写入未确认持久化的 $config_destination。"
+        ;;
+esac
 
-docker exec -u 0 "$container" /bin/sh -c '
+if [ "$action" = "install" ] || [ "$action" = "install-restart" ]; then
+    [ -s "$plugin_dll" ] || fail "缺少或为空：$plugin_dll，请先运行 plugin/scripts/build.ps1 或 build.sh。"
+    [ -s "$core_dll" ] || fail "缺少或为空：$core_dll，请先构建插件。"
+
+    docker exec -u 0 "$container" /bin/sh -c '
 set -eu
 stage=$1
 plugins=$2
 backup_root=$3
-backup_set="$backup_root/$(date +%Y%m%d-%H%M%S)-$$"
-names="EmbyLyricEnhance.dll EmbyLyricEnhance.Core.dll"
+rm -rf "$stage"
+mkdir -p "$stage" "$plugins" "$backup_root"
+' sh "$remote_stage" "$remote_plugins" "$remote_backup"
+    docker cp "$plugin_dll" "$container:$remote_stage/EmbyLyricEnhance.dll" >/dev/null
+    docker cp "$core_dll" "$container:$remote_stage/EmbyLyricEnhance.Core.dll" >/dev/null
+
+    docker exec -u 0 "$container" /bin/sh -c '
+set -eu
+stage=$1
+plugins=$2
+backup_root=$3
+backup_set="$backup_root/install-$(date +%Y%m%d-%H%M%S)-$$"
+names="EmbyLyricEnhance.Core.dll EmbyLyricEnhance.dll"
 
 mkdir -p "$backup_set"
 for name in $names; do
@@ -98,17 +170,104 @@ if [ "$install_ok" -ne 1 ]; then
 fi
 
 rm -rf "$stage"
+printf "%s\n" "${backup_set##*/}" > "$backup_root/latest-install"
 printf "备份集：%s\n" "$backup_set"
 ' sh "$remote_stage" "$remote_plugins" "$remote_backup"
 
-say "插件 DLL 已复制到 $remote_plugins。"
-say "旧 DLL（若存在）已按安装时间成组保存在 $remote_backup。"
-
-if [ "$action" = "install-restart" ]; then
-    say "正在重启容器以加载插件……"
-    docker restart "$container" >/dev/null
-    say "容器已重启。"
-else
-    say "必须重启 Emby 容器后，C# 插件和设置页才会加载。"
-    say "需要立即重启时运行：sh docker-plugin-install.sh '$container' install-restart"
+    say "插件 DLL 已复制到 $remote_plugins。"
+    say "旧 DLL（若存在）已成组保存在 $remote_backup。"
+    restart_if_requested
+    exit 0
 fi
+
+docker exec -u 0 "$container" /bin/sh -c '
+set -eu
+plugins=$1
+backup_root=$2
+requested=$3
+names="EmbyLyricEnhance.Core.dll EmbyLyricEnhance.dll"
+selected=
+
+if [ -n "$requested" ]; then
+    selected="$backup_root/$requested"
+else
+    if [ -f "$backup_root/latest-install" ]; then
+        IFS= read -r latest_name < "$backup_root/latest-install" || true
+        case "$latest_name" in
+            install-*)
+                if [ -d "$backup_root/$latest_name" ] && [ ! -f "$backup_root/$latest_name/.restored" ]; then
+                    selected="$backup_root/$latest_name"
+                fi
+                ;;
+        esac
+    fi
+    if [ -z "$selected" ]; then
+        for candidate in "$backup_root"/install-*; do
+            [ -d "$candidate" ] || continue
+            [ -f "$candidate/.restored" ] && continue
+            selected=$candidate
+        done
+    fi
+fi
+
+[ -n "$selected" ] && [ -d "$selected" ] || {
+    echo "错误：没有可用的安装备份。" >&2
+    exit 1
+}
+[ ! -f "$selected/.restored" ] || {
+    echo "错误：该备份已经执行过回滚：${selected##*/}" >&2
+    exit 1
+}
+
+for name in $names; do
+    [ -f "$selected/$name" ] || [ -f "$selected/$name.missing" ] || {
+        echo "错误：备份集不完整：$selected/$name" >&2
+        exit 1
+    }
+done
+
+safety="$backup_root/rollback-safety-$(date +%Y%m%d-%H%M%S)-$$"
+mkdir -p "$safety"
+for name in $names; do
+    if [ -f "$plugins/$name" ]; then
+        cp -p "$plugins/$name" "$safety/$name"
+    else
+        : > "$safety/$name.missing"
+    fi
+    if [ -f "$selected/$name" ]; then
+        cp "$selected/$name" "$plugins/$name.rollback"
+        chmod 0644 "$plugins/$name.rollback"
+    fi
+done
+
+rollback_ok=1
+for name in $names; do
+    if [ -f "$selected/$name" ]; then
+        mv -f "$plugins/$name.rollback" "$plugins/$name" || rollback_ok=0
+    else
+        rm -f "$plugins/$name" || rollback_ok=0
+    fi
+done
+
+if [ "$rollback_ok" -ne 1 ]; then
+    echo "错误：回滚未完整应用，正在恢复回滚前文件。" >&2
+    set +e
+    for name in $names; do
+        if [ -f "$safety/$name" ]; then
+            cp -p "$safety/$name" "$plugins/$name"
+        else
+            rm -f "$plugins/$name"
+        fi
+        rm -f "$plugins/$name.rollback"
+    done
+    exit 1
+fi
+
+: > "$selected/.restored"
+rm -f "$backup_root/latest-install"
+printf "已恢复备份：%s\n" "$selected"
+printf "回滚前文件另存为：%s\n" "$safety"
+' sh "$remote_plugins" "$remote_backup" "$backup_name"
+
+say "插件 DLL 已回滚。"
+restart_if_requested

@@ -21,6 +21,11 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+& node (Join-Path $repositoryRoot "tests\docker-plugin-install.test.js")
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
 & node --check (Join-Path $repositoryRoot "adapters\4.9.5.0\lyrics.inject.js")
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

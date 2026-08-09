@@ -96,6 +96,16 @@ Emby Web 播放页
 - [x] `git diff --check`
 - [x] 未验证的真实容器检查项单独列出
 
+### E. 部署加固
+
+- [x] 安装前确认 `/config` 持久挂载
+- [x] 状态输出包含两枚 DLL 的 SHA-256（容器支持 `sha256sum` 时）
+- [x] 列出安装备份及是否已经回滚
+- [x] 支持恢复最近或指定备份，回滚前另存当前 DLL
+- [x] 安装和回滚均支持可选容器重启
+- [x] 假 Docker 环境覆盖安装、升级、备份、回滚、重复保护和持久化阻断
+- [ ] 在真实 NAS Docker 环境执行同一套验收
+
 ## 环境检查记录
 
 2026-08-09：
@@ -113,8 +123,8 @@ Emby Web 播放页
 - `plugin\scripts\verify.ps1` 通过：C# 配置核心、Emby API 契约桩、`MediaBrowser.Common 4.9.1.90` 真实程序集 API 编译、前端适配器和前后端同步测试均为绿色。
 - `node --check adapters\4.9.5.0\lyrics.inject.js`、`git diff --check` 通过。
 - Git for Windows 的 `sh -n` 已确认 `plugin/scripts/build.sh` 与 `docker-plugin-install.sh` 语法有效。
-- GitHub Actions 会进行真实 NuGet 恢复、Release 构建，并上传两枚插件 DLL；这一步要等分支成功推送后观察结果。
-- 当前 Git 暂存/提交尚未执行：工作区对 `.git` 的写入需要提升权限，但审批服务连续返回 503。所有源文件改动仍完整保存在工作区。
+- 提交 `80b15a4` 已推送至 `origin/codex/plugin-settings`；GitHub Actions 会进行真实 NuGet 恢复、Release 构建，并上传两枚插件 DLL。
+- 本轮部署加固在该提交之后继续开发，完成测试后需要形成后续提交。
 - 已核对 `EmbyLyricEnhance.dll` 版本为 0.2.0.0，并包含 `EmbyLyricEnhance.Plugin.Configuration.configPage.html` 嵌入资源；核心 DLL 与插件 DLL 均已生成。
 
 ## 风险与待确认
@@ -124,6 +134,7 @@ Emby Web 播放页
 - 公共显示接口仅有匿名 GET，并只返回清洗后的非敏感视觉字段；管理员修改仍由 Emby 内置插件配置 API 鉴权。
 - C# DLL 无法改变原生客户端 UI；这是产品边界，不作为缺陷处理。
 - 本机无 Docker，发布前仍需在实际 Emby 4.9.5.0 容器完成 DLL 加载、设置页保存和 Web 配置读取测试。
+- 假 Docker 测试能验证脚本状态机和文件恢复，但不能证明 NAS 权限、容器镜像工具集或 Emby 的实际 DLL 加载行为。
 
 ## 决策日志
 
