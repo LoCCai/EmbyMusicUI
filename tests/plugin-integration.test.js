@@ -28,6 +28,19 @@ const pluginId = "efbd3f14-8799-4a7d-a5ad-7ef93c5b0e5d";
 assert(pluginSource.includes(pluginId), "the plugin entry point should expose the stable plugin id");
 assert(pageSource.includes(pluginId), "the admin page should use the same plugin id");
 assert(pluginSource.includes("IsMainConfigPage = true"), "Emby should register the settings page as the main plugin configuration page");
+assert(pluginSource.includes("EnableInMainMenu = true"), "the settings page should have a persistent server menu entry");
+assert(pluginSource.includes('MenuSection = "server"'), "the settings page should be grouped with server administration pages");
+assert(pageSource.includes("document.currentScript"), "each injected script should bind to its own page instance");
+assert(pageSource.includes("pageInstances[pageInstances.length - 1]"), "dynamic evaluation should fall back to the newest page instance");
+assert(pageSource.includes("candidate.parentNode.removeChild(candidate)"), "stale duplicate configuration pages should be removed");
+assert(pageSource.includes('addEventListener("pageshow"') && pageSource.includes('addEventListener("viewshow"'),
+    "both legacy and current Emby page lifecycle events should refresh configuration");
+assert(pageSource.includes("if (loadPromise)"), "repeated page events should share one configuration request");
+assert(pageSource.includes("if (saving)"), "repeated form submissions should be ignored while a save is active");
+assert(pageSource.includes("设置已保存并重新读取"), "successful saves should confirm a server round trip inline");
+assert(pageSource.includes("var(--theme-background"), "the configuration page should cover the previous transparent route");
+assert(!pageSource.includes("processPluginConfigurationUpdateResult"),
+    "saving should not invoke the navigation-oriented helper that can duplicate dynamic pages");
 
 const publicRoute = "EmbyLyricEnhance/PublicConfiguration";
 assert(adapterJs.includes(`PUBLIC_CONFIGURATION_PATH = "${publicRoute}"`));

@@ -29,6 +29,16 @@ namespace MediaBrowser.Model.Plugins
 
         public string EmbeddedResourcePath { get; set; } = "";
 
+        public bool EnableInMainMenu { get; set; }
+
+        public bool EnableInUserMenu { get; set; }
+
+        public string MenuSection { get; set; } = "";
+
+        public string FeatureId { get; set; } = "";
+
+        public string MenuIcon { get; set; } = "";
+
         public bool IsMainConfigPage { get; set; }
     }
 }

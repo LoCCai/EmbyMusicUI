@@ -30,7 +30,10 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         yield return new PluginPageInfo
         {
             Name = "EmbyLyricEnhance",
-            DisplayName = "Emby Lyric Enhance",
+            DisplayName = "歌词增强",
+            EnableInMainMenu = true,
+            MenuSection = "server",
+            MenuIcon = "music_note",
             IsMainConfigPage = true,
             EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html"
         };

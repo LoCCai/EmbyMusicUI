@@ -22,6 +22,8 @@
 
 公共读取接口为 `GET /EmbyLyricEnhance/PublicConfiguration`。官方公共 SDK 不提供此前假设的控制器鉴权特性，因此该接口按数据边界设计为匿名只读：只返回清洗后的非敏感显示字段，没有 POST、PUT 或 DELETE 路由，也不返回管理能力、路径、令牌或用户数据。管理员写入仍使用 Emby 内置且受保护的插件配置 API。
 
+0.2.2 起，管理设置页会以“歌词增强”注册到 Emby 服务器左侧菜单。动态进入页面时只保留并绑定最新实例，同时兼容 `pageshow` 与 `viewshow`；保存期间禁止重复提交，成功后原地重新读取服务器配置，不再调用会触发页面导航的通用结果处理器。
+
 ## 构建
 
 `codex/plugin-settings` 分支在 `plugin/artifacts/package/` 中附带单文件 Release DLL。只是在 Docker 宿主机安装现成版本时不需要安装 .NET SDK；修改 C# 源码或准备新版本时才需要重新构建并同步更新该 DLL。
@@ -46,7 +48,7 @@ plugin\scripts\build.ps1 -EmbyApiVersion <已验证的API包版本>
 
 服务器版本号与开发 API 包版本不一定完全相同；Emby Server 4.9.5.0 对应的已恢复开发 SDK 是 4.9.1.90。
 
-初版 0.2.0.0 已在 Windows x64、.NET SDK 8.0.423 上完成真实 Release 构建且设置页正确嵌入。随后 Emby 4.9.5.0 实机验证发现其插件加载上下文不能稳定解析同目录的独立 `EmbyLyricEnhance.Core.dll`，因此 0.2.1 起把 Core 源码直接编入主插件，只交付 `EmbyLyricEnhance.dll`。0.2.1.0 已使用恢复好的官方 SDK 离线 Release 构建，结果为 0 警告、0 错误；产物不再引用 Core 程序集，设置页资源仍正确嵌入。
+初版 0.2.0.0 已在 Windows x64、.NET SDK 8.0.423 上完成真实 Release 构建且设置页正确嵌入。随后 Emby 4.9.5.0 实机验证发现其插件加载上下文不能稳定解析同目录的独立 `EmbyLyricEnhance.Core.dll`，因此 0.2.1 起把 Core 源码直接编入主插件，只交付 `EmbyLyricEnhance.dll`。当前 0.2.2.0 已使用恢复好的官方 SDK 离线 Release 构建，结果为 0 警告、0 错误；产物不引用 Core 程序集，设置页资源仍正确嵌入。
 
 ## 本地验证
 

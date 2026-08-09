@@ -38,6 +38,7 @@ jobs:
           node --check adapters/4.9.5.0/lyrics.inject.js
           node tests/adapter.test.js
           node tests/plugin-integration.test.js
+          node tests/plugin-config-page.test.js
           node tests/docker-plugin-install.test.js
       - name: Check shell scripts
         run: |

@@ -1,6 +1,7 @@
 <div id="EmbyLyricEnhanceConfigPage"
      data-role="page"
      class="page type-interior pluginConfigurationPage"
+     style="min-height:100%;background:var(--theme-background, var(--background-color, #101010));"
      data-require="emby-input,emby-button,emby-select,emby-checkbox">
     <div data-role="content">
         <div class="content-primary">
@@ -97,6 +98,8 @@
                     保存后，已打开的播放页会在下次进入歌词页面时读取新默认值。首次安装或更新 DLL 后仍需重启 Emby 以加载插件。
                 </div>
 
+                <div id="elyricSaveStatus" class="fieldDescription" role="status" aria-live="polite"></div>
+
                 <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                     <span>保存</span>
                 </button>
@@ -109,13 +112,35 @@
             "use strict";
 
             var pluginId = "efbd3f14-8799-4a7d-a5ad-7ef93c5b0e5d";
-            var page = document.querySelector("#EmbyLyricEnhanceConfigPage");
-            var form = document.querySelector("#EmbyLyricEnhanceConfigForm");
+            var pageSelector = "#EmbyLyricEnhanceConfigPage";
+            var pageInstances = document.querySelectorAll(pageSelector);
+            var currentScript = document.currentScript;
+            var page = currentScript && currentScript.closest
+                ? currentScript.closest(pageSelector)
+                : null;
+
+            if (!page && pageInstances.length) {
+                page = pageInstances[pageInstances.length - 1];
+            }
+            if (!page) {
+                return;
+            }
+
+            Array.prototype.forEach.call(pageInstances, function (candidate) {
+                if (candidate !== page && candidate.parentNode) {
+                    candidate.parentNode.removeChild(candidate);
+                }
+            });
+
+            var form = page.querySelector("#EmbyLyricEnhanceConfigForm");
 
             if (!page || !form || page.getAttribute("data-elyric-config-bound") === "true") {
                 return;
             }
             page.setAttribute("data-elyric-config-bound", "true");
+            var submitButton = form.querySelector('button[type="submit"]');
+            var loadPromise = null;
+            var saving = false;
 
             function element(id) {
                 return page.querySelector("#" + id);
@@ -137,22 +162,31 @@
                 element("elyricHighlightColor").disabled = element("elyricUseThemeColor").checked;
             }
 
+            function showStatus(message, isError) {
+                var status = element("elyricSaveStatus");
+                status.textContent = message || "";
+                status.style.color = isError ? "#ff8a80" : "";
+            }
+
             function handleError(error) {
                 Dashboard.hideLoadingMsg();
-                if (Dashboard.alert) {
-                    Dashboard.alert({
-                        message: error && error.message
-                            ? error.message
-                            : "Emby Lyric Enhance 配置操作失败，请检查服务器日志。"
-                    });
-                } else if (window.console && console.error) {
+                showStatus(
+                    error && error.message
+                        ? error.message
+                        : "Emby Lyric Enhance 配置操作失败，请检查服务器日志。",
+                    true
+                );
+                if (window.console && console.error) {
                     console.error(error);
                 }
             }
 
             function loadConfiguration() {
+                if (loadPromise) {
+                    return loadPromise;
+                }
                 Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(pluginId).then(function (configuration) {
+                loadPromise = ApiClient.getPluginConfiguration(pluginId).then(function (configuration) {
                     var display = configuration.Display || {};
                     setValue("elyricDefaultTheme", display.DefaultTheme, "classic");
                     setChecked("elyricAllowUserThemeOverride", display.AllowUserThemeOverride, true);
@@ -169,14 +203,29 @@
                     setChecked("elyricShowSecondLine", display.ShowSecondLine, true);
                     setChecked("elyricShowThirdAndLaterLines", display.ShowThirdAndLaterLines, true);
                     syncColorInput();
+                    return configuration;
+                }).finally(function () {
                     Dashboard.hideLoadingMsg();
-                }).catch(handleError);
+                    loadPromise = null;
+                });
+                return loadPromise;
             }
 
-            page.addEventListener("pageshow", loadConfiguration);
+            function refreshConfiguration() {
+                loadConfiguration().catch(handleError);
+            }
+
+            page.addEventListener("pageshow", refreshConfiguration);
+            page.addEventListener("viewshow", refreshConfiguration);
             element("elyricUseThemeColor").addEventListener("change", syncColorInput);
             form.addEventListener("submit", function (event) {
                 event.preventDefault();
+                if (saving) {
+                    return false;
+                }
+                saving = true;
+                submitButton.disabled = true;
+                showStatus("", false);
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(pluginId).then(function (configuration) {
                     configuration.Display = configuration.Display || {};
@@ -196,9 +245,24 @@
                     display.ShowSecondLine = element("elyricShowSecondLine").checked;
                     display.ShowThirdAndLaterLines = element("elyricShowThirdAndLaterLines").checked;
                     return ApiClient.updatePluginConfiguration(pluginId, configuration);
-                }).then(Dashboard.processPluginConfigurationUpdateResult).catch(handleError);
+                }).then(function () {
+                    return loadConfiguration();
+                }).then(function () {
+                    showStatus("设置已保存并重新读取。", false);
+                }).catch(handleError).finally(function () {
+                    saving = false;
+                    submitButton.disabled = false;
+                    Dashboard.hideLoadingMsg();
+                });
                 return false;
             });
+
+            Promise.resolve().then(function () {
+                if (page.isConnected) {
+                    return loadConfiguration();
+                }
+                return null;
+            }).catch(handleError);
         })();
     </script>
 </div>
