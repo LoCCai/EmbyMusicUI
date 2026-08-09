@@ -1,8 +1,18 @@
-define([], function () {
+define(["apiClientResolver"], function (apiClientResolver) {
     "use strict";
 
     var pluginId = "efbd3f14-8799-4a7d-a5ad-7ef93c5b0e5d";
     var pageSelector = "#EmbyLyricEnhanceConfigPage";
+
+    function activeApiClient() {
+        var apiClient = "function" === typeof apiClientResolver
+            ? apiClientResolver()
+            : null;
+        if (!apiClient) {
+            throw new Error("当前 Emby 服务器连接尚未就绪。");
+        }
+        return apiClient;
+    }
 
     function setManagedVisibility(page, isActive) {
         if (!page || !page.classList) {
@@ -147,7 +157,14 @@ define([], function () {
             setFormReady(false);
             showStatus(options.pendingMessage || "正在读取服务器设置…", "loading");
             Dashboard.showLoadingMsg();
-            loadPromise = ApiClient.getPluginConfiguration(pluginId).then(function (configuration) {
+            var apiClient;
+            try {
+                apiClient = activeApiClient();
+            } catch (error) {
+                Dashboard.hideLoadingMsg();
+                return Promise.reject(error);
+            }
+            loadPromise = apiClient.getPluginConfiguration(pluginId).then(function (configuration) {
                 applyConfiguration(configuration);
                 setFormReady(true);
                 if (false !== options.readyMessage) {
@@ -201,7 +218,18 @@ define([], function () {
             submitLabel.textContent = "正在保存…";
             showStatus("正在保存，并等待服务器回读确认…", "loading");
             Dashboard.showLoadingMsg();
-            ApiClient.getPluginConfiguration(pluginId).then(function (configuration) {
+            var apiClient;
+            try {
+                apiClient = activeApiClient();
+            } catch (error) {
+                saving = false;
+                setFormReady(wasReady);
+                submitLabel.textContent = "保存";
+                errorMessage("保存失败，无法获取 Emby 服务器连接", error);
+                Dashboard.hideLoadingMsg();
+                return false;
+            }
+            apiClient.getPluginConfiguration(pluginId).then(function (configuration) {
                 configuration.Display = configuration.Display || {};
                 var display = configuration.Display;
                 display.DefaultTheme = element("elyricDefaultTheme").value;
@@ -218,7 +246,7 @@ define([], function () {
                 display.OtherLinesBlurPixels = numberValue("elyricOtherLinesBlurPixels");
                 display.ShowSecondLine = element("elyricShowSecondLine").checked;
                 display.ShowThirdAndLaterLines = element("elyricShowThirdAndLaterLines").checked;
-                return ApiClient.updatePluginConfiguration(pluginId, configuration);
+                return apiClient.updatePluginConfiguration(pluginId, configuration);
             }).then(function () {
                 return loadConfiguration({
                     force: true,

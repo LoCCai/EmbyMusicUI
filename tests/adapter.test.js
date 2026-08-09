@@ -174,6 +174,7 @@ const localStorage = {
 };
 
 let serverConfigurationRequests = 0;
+let connectionManagerRequests = 0;
 const requestedConfigurationPaths = [];
 const ApiClient = {
     getUrl(pathValue) {
@@ -199,6 +200,15 @@ const ApiClient = {
             showSecondLine: false,
             showThirdAndLaterLines: false
         });
+    }
+};
+const connectionManager = {
+    default: {
+        getApiClient(item) {
+            connectionManagerRequests += 1;
+            assert(item, "the live Emby connection manager should receive the renderer item");
+            return ApiClient;
+        }
     }
 };
 
@@ -246,8 +256,19 @@ new Function(
     "cancelAnimationFrame",
     "localStorage",
     "ApiClient",
+    "_connectionmanager",
     adapter
-)(LyricsRenderer, document, MutationObserver, performance, requestAnimationFrame, cancelAnimationFrame, localStorage, ApiClient);
+)(
+    LyricsRenderer,
+    document,
+    MutationObserver,
+    performance,
+    requestAnimationFrame,
+    cancelAnimationFrame,
+    localStorage,
+    ApiClient,
+    connectionManager
+);
 
 async function flushPromises() {
     await Promise.resolve();
@@ -271,6 +292,7 @@ function createLyricElement(index) {
     const playbackPage = new FakeNode("div");
     document.body.appendChild(playbackPage);
     renderer.itemsContainer = new FakeNode("div");
+    renderer.currentItem = { Id: "server-config-test" };
     playbackPage.appendChild(renderer.itemsContainer);
     renderer.itemsContainer.appendChild(visible.item);
     renderer.sourceEvents = [
@@ -290,6 +312,8 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), "apple",
         "the server theme should apply when the browser has no saved override");
     assert.strictEqual(serverConfigurationRequests, 1, "overlapping renderers should share one configuration request");
+    assert.strictEqual(connectionManagerRequests, 1,
+        "Emby 4.9.5 should resolve its authenticated API client through the module connection manager");
     assert.deepStrictEqual(requestedConfigurationPaths, ["EmbyLyricEnhance/PublicConfiguration"]);
     assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-font-size"), "135%");
     assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-line-height"), "1.5");

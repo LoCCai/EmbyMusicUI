@@ -29,6 +29,9 @@
 - 0.2.5 把设置逻辑迁移到 Emby `data-controller` 加载的独立 AMD 资源 `configPage.js`，仍保留非破坏性重复页隐藏、加载失败保护、双提交保护和保存后服务器回读
 - 实机同时定位到服务器全局 `/web/ede.user.js:5058` 在 `viewshow` 中对空对象设置 `itemId`；该异常会中断 Emby 所有管理页的显隐流程，并非歌词插件独有问题
 - 为 Emby Danmaku Extension 1.47 增加定向兼容补丁：`itemId` 只在 `video-osd` 分支中写入，并保护 `detail`/`params`/EDE 实例与销毁定时器数组；补丁已在用户提供的完整 1.47 脚本上试应用，并通过语法和管理页/播放页行为测试
+- 实机下载并检查 `/web/videoosd/lyrics.js`，确认当前容器仍是旧前端适配器：不包含 `PublicConfiguration`、显示 CSS 变量或 DLL 配置读取；只更新 DLL 无法改变播放页效果
+- 0.2.6 从 Emby 4.9.5.0 歌词 AMD 模块的 `_connectionmanager` 取得当前服务器的认证 API 客户端；设置页使用 `apiClientResolver`，并同时更换 HTML/控制器资源名以避开 Emby 按旧 URL 缓存的 0.2.4 页面
+- DLL 安装脚本现会检查活动 `lyrics.js` 是否包含公共配置读取；若仍是旧前端，会明确提示再执行 `docker-install.sh`
 
 ## Emby 4.9.5.0 定向适配
 

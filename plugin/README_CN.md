@@ -20,9 +20,9 @@
 - 当前行缩放、其他行透明度和模糊
 - 第二行、第三行及更多子行显示开关
 
-公共读取接口为 `GET /EmbyLyricEnhance/PublicConfiguration`。官方公共 SDK 不提供此前假设的控制器鉴权特性，因此该接口按数据边界设计为匿名只读：只返回清洗后的非敏感显示字段，没有 POST、PUT 或 DELETE 路由，也不返回管理能力、路径、令牌或用户数据。管理员写入仍使用 Emby 内置且受保护的插件配置 API。
+公共读取接口为 `GET /EmbyLyricEnhance/PublicConfiguration`。Emby 4.9.5.0 实机在没有有效会话时返回 401，播放页因此通过歌词模块 `_connectionmanager` 取得当前服务器的认证 API 客户端后读取。接口只返回清洗后的非敏感显示字段，没有 POST、PUT 或 DELETE 路由，也不返回管理能力、路径、令牌或用户数据。管理员写入仍使用 Emby 内置且受保护的插件配置 API。
 
-0.2.2 起，管理设置页会以“歌词增强”注册到 Emby 服务器左侧菜单。0.2.5 使用 Emby `data-controller` 加载独立的 AMD 页面控制器，解决 4.9.5.0 实机不执行动态配置页内联脚本的问题。控制器不删除 Emby 路由持有的节点，只对本插件重复页做非侵入隐藏；页面背景透明继承当前 Emby 主题。保存期间禁止重复提交，按钮和主题色状态条会显示进度；成功后原地重新读取服务器配置并回显确认摘要。读取失败时禁止保存空白表单，并可手动重新读取。
+0.2.2 起，管理设置页会以“歌词增强”注册到 Emby 服务器左侧菜单。0.2.6 使用 Emby `data-controller` 加载独立 AMD 页面控制器，并通过 `apiClientResolver` 获取认证客户端。HTML 和控制器使用新资源名，避免 Emby 继续返回旧版缓存页面。控制器不删除 Emby 路由持有的节点，只对本插件重复页做非侵入隐藏；页面背景透明继承当前 Emby 主题。保存期间禁止重复提交，成功后原地重新读取服务器配置并回显摘要；读取失败时禁止保存空白表单。
 
 ## 构建
 
@@ -48,7 +48,7 @@ plugin\scripts\build.ps1 -EmbyApiVersion <已验证的API包版本>
 
 服务器版本号与开发 API 包版本不一定完全相同；Emby Server 4.9.5.0 对应的已恢复开发 SDK 是 4.9.1.90。
 
-初版 0.2.0.0 已在 Windows x64、.NET SDK 8.0.423 上完成真实 Release 构建且设置页正确嵌入。随后 Emby 4.9.5.0 实机验证发现其插件加载上下文不能稳定解析同目录的独立 `EmbyLyricEnhance.Core.dll`，因此 0.2.1 起把 Core 源码直接编入主插件，只交付 `EmbyLyricEnhance.dll`。当前 0.2.5.0 已使用恢复好的官方 SDK 离线 Release 构建，结果为 0 警告、0 错误；产物不引用 Core 程序集，并同时嵌入了配置页 HTML 和独立页面控制器。
+初版 0.2.0.0 已在 Windows x64、.NET SDK 8.0.423 上完成真实 Release 构建且设置页正确嵌入。随后 Emby 4.9.5.0 实机验证发现其插件加载上下文不能稳定解析同目录的独立 `EmbyLyricEnhance.Core.dll`，因此 0.2.1 起把 Core 源码直接编入主插件，只交付 `EmbyLyricEnhance.dll`。当前 0.2.6.0 已使用恢复好的官方 SDK 离线 Release 构建，结果为 0 警告、0 错误；产物不引用 Core 程序集，并同时嵌入了更名后的配置页 HTML 和认证页面控制器。
 
 ## 本地验证
 
@@ -118,6 +118,15 @@ sh docker-plugin-install.sh <Emby容器名> rollback <备份名>
 只有在明确接受容器重建后插件文件可能丢失时，才能临时设置 `ELYRIC_ALLOW_UNPERSISTED_CONFIG=1` 跳过持久化保护。
 
 首次安装或更新 DLL 后必须重启 Emby。管理页保存显示设置、浏览器切换主题或重新注入前端文件不需要重启。
+
+DLL 设置要影响播放页，容器还必须安装包含公共配置读取的最新前端适配器：
+
+```bash
+sh docker-plugin-install.sh <Emby容器名> install-restart
+sh docker-install.sh <Emby容器名> install
+```
+
+DLL 安装脚本会检查活动 `lyrics.js`。若尚未包含 `EmbyLyricEnhance/PublicConfiguration`，会输出第二条命令的提示。
 
 ## 发布前真实环境检查
 

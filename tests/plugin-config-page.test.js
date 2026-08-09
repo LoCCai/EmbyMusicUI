@@ -172,7 +172,7 @@ async function main() {
             }
         },
         define(dependencies, factory) {
-            assert.deepStrictEqual(Array.from(dependencies), []);
+            assert.deepStrictEqual(Array.from(dependencies), ["apiClientResolver"]);
             controllerFactory = factory;
         },
         console: pageConsole,
@@ -182,7 +182,7 @@ async function main() {
 
     vm.runInNewContext(controllerSource, context, { filename: "configPage.js" });
     assert.strictEqual(typeof controllerFactory, "function", "the AMD controller should register a factory");
-    const controller = controllerFactory();
+    const controller = controllerFactory(() => context.ApiClient);
     assert.strictEqual(typeof controller, "function", "the AMD factory should return an Emby view controller");
 
     const stale = createPage();

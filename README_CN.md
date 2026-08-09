@@ -82,6 +82,8 @@ sh docker-install.sh <容器名或ID> undo
 
 歌词渲染仍是 Emby Web 前端适配器，覆盖 Emby Web 及复用该 Web 前端的客户端，不会强制改变 Android、iOS 或电视端的原生歌词页面。可选 C# 插件只提供服务器设置层，不会改变这一客户端边界。
 
+如果安装了 C# 插件，它的颜色、字号等默认值只会被最新前端适配器读取。因此插件 DLL 和 `/system/dashboard-ui/videoosd/lyrics.js` 需要分别更新；只运行 `docker-plugin-install.sh` 不会改动 Emby Web 文件。
+
 ## 备份与容器更新警告
 
 原始文件和生成后的增强文件保存在：

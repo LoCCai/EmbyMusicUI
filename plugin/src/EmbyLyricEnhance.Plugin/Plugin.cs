@@ -29,7 +29,7 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         yield return new PluginPageInfo
         {
-            Name = "EmbyLyricEnhance",
+            Name = "EmbyLyricEnhanceV026",
             DisplayName = "歌词增强",
             EnableInMainMenu = true,
             MenuSection = "server",
@@ -40,7 +40,7 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         yield return new PluginPageInfo
         {
-            Name = "embylyricenhanceconfigjs",
+            Name = "embylyricenhanceconfigjsv026",
             EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.js"
         };
     }

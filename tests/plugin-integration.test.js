@@ -28,11 +28,15 @@ themes.forEach((theme) => {
 const pluginId = "efbd3f14-8799-4a7d-a5ad-7ef93c5b0e5d";
 assert(pluginSource.includes(pluginId), "the plugin entry point should expose the stable plugin id");
 assert(controllerSource.includes(pluginId), "the admin controller should use the same plugin id");
+assert(controllerSource.includes('define(["apiClientResolver"]'),
+    "the admin controller should resolve the authenticated client through Emby's AMD module");
 assert(pluginSource.includes("IsMainConfigPage = true"), "Emby should register the settings page as the main plugin configuration page");
 assert(pluginSource.includes("EnableInMainMenu = true"), "the settings page should have a persistent server menu entry");
 assert(pluginSource.includes('MenuSection = "server"'), "the settings page should be grouped with server administration pages");
-assert(pageSource.includes('data-controller="__plugin/embylyricenhanceconfigjs"'),
+assert(pageSource.includes('data-controller="__plugin/embylyricenhanceconfigjsv026"'),
     "Emby should load the settings logic through an external plugin controller");
+assert(pluginSource.includes('Name = "EmbyLyricEnhanceV026"'),
+    "the main configuration resource name should change when its cached page payload changes");
 assert(!pageSource.includes("<script"), "the settings page should not rely on ignored inline scripts");
 assert(controllerSource.includes("document.querySelectorAll(pageSelector)"),
     "dynamic evaluation should scan all configuration page instances");
@@ -53,6 +57,10 @@ assert(!pageSource.includes("processPluginConfigurationUpdateResult"),
 
 const publicRoute = "EmbyLyricEnhance/PublicConfiguration";
 assert(adapterJs.includes(`PUBLIC_CONFIGURATION_PATH = "${publicRoute}"`));
+assert(adapterJs.includes('"undefined" !== typeof _connectionmanager'),
+    "the injected Emby 4.9.5 adapter should use the host lyrics module connection manager");
+assert(adapterJs.includes("_connectionmanager.default.getApiClient(renderer.currentItem)"),
+    "the public configuration request should use the authenticated client for the current media item");
 assert(serviceSource.includes(`/EmbyLyricEnhance/PublicConfiguration`));
 assert(serviceSource.includes("\"GET\""), "public display defaults should be read-only");
 assert(!serviceSource.includes("POST") && !serviceSource.includes("PUT") && !serviceSource.includes("DELETE"),
@@ -124,12 +132,12 @@ assert(!projectSource.includes('Include="MediaBrowser.Model"'));
 assert(projectSource.includes("4.9.1.90"), "the successfully restored Emby SDK should be pinned");
 assert(projectSource.includes('EmbeddedResource Include="Configuration\\configPage.js"'),
     "the external page controller should be embedded in the plugin DLL");
-assert(pluginSource.includes('Name = "embylyricenhanceconfigjs"'),
+assert(pluginSource.includes('Name = "embylyricenhanceconfigjsv026"'),
     "the external page controller should be registered with Emby");
 
 assert(!pageSource.includes("innerHTML"), "the configuration page should not use unsafe HTML assignment");
-assert(controllerSource.includes("ApiClient.getPluginConfiguration"));
-assert(controllerSource.includes("ApiClient.updatePluginConfiguration"));
+assert(controllerSource.includes("apiClient.getPluginConfiguration"));
+assert(controllerSource.includes("apiClient.updatePluginConfiguration"));
 assert.doesNotThrow(() => new Function(controllerSource), "the admin controller should parse as JavaScript");
 assert(controllerSource.includes("data-elyric-config-bound"), "the admin controller should not bind duplicate lifecycle handlers");
 assert(controllerSource.includes("errorMessage("), "configuration load and save failures should be surfaced safely");

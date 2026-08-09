@@ -31,6 +31,19 @@ restart_if_requested() {
     esac
 }
 
+report_frontend_configuration_support() {
+    if docker exec "$container" /bin/sh -c '
+lyrics=/system/dashboard-ui/videoosd/lyrics.js
+[ -f "$lyrics" ] && grep -q "EmbyLyricEnhance/PublicConfiguration" "$lyrics"
+' >/dev/null 2>&1; then
+        say "Emby Web 前端适配器：已包含 DLL 公共配置读取。"
+    else
+        say "警告：当前 Emby Web 歌词文件未包含 DLL 配置读取。"
+        say "请再执行：sh docker-install.sh '$container' install"
+        say "只更新 EmbyLyricEnhance.dll 不会自动修改 /system/dashboard-ui/videoosd/lyrics.js。"
+    fi
+}
+
 choose_container() {
     running_containers=$(docker ps --format '{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}')
     detected_containers=
@@ -160,6 +173,7 @@ else
     echo "旧版独立 Core DLL：未安装（正常）"
 fi
 ' sh "$remote_plugins"
+    report_frontend_configuration_support
     exit 0
 fi
 
@@ -257,6 +271,7 @@ printf "备份集：%s\n" "$backup_set"
 
     say "单文件插件 DLL 已复制到 $remote_plugins；旧版独立 Core DLL 已清理。"
     say "旧插件文件（若存在）已成组保存在 $remote_backup。"
+    report_frontend_configuration_support
     restart_if_requested
     exit 0
 fi

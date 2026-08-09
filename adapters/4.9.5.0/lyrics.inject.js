@@ -329,7 +329,18 @@
         };
     }
 
-    function activeApiClient() {
+    function activeApiClient(renderer) {
+        if (renderer
+            && renderer.currentItem
+            && "undefined" !== typeof _connectionmanager
+            && _connectionmanager
+            && _connectionmanager.default
+            && _connectionmanager.default.getApiClient) {
+            var connectedClient = _connectionmanager.default.getApiClient(renderer.currentItem);
+            if (connectedClient && connectedClient.getJSON) {
+                return connectedClient;
+            }
+        }
         if ("undefined" !== typeof ApiClient && ApiClient && ApiClient.getJSON) {
             return ApiClient;
         }
@@ -339,11 +350,11 @@
         return null;
     }
 
-    function requestServerConfiguration() {
+    function requestServerConfiguration(renderer) {
         if (serverConfigurationPromise) {
             return serverConfigurationPromise;
         }
-        var apiClient = activeApiClient();
+        var apiClient = activeApiClient(renderer);
         if (!apiClient) {
             return null;
         }
@@ -490,7 +501,7 @@
         if (renderer.__elyricConfigurationRequested) {
             return;
         }
-        var request = requestServerConfiguration();
+        var request = requestServerConfiguration(renderer);
         if (!request) {
             return;
         }
