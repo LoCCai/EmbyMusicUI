@@ -1,0 +1,28 @@
+--- a/ede.user.js
++++ b/ede.user.js
+@@ -4774,2 +4774,6 @@
+-        window.ede.destroyIntervalIds.map(id => clearInterval(id));
+-        window.ede.destroyIntervalIds = [];
++        const ede = window.ede;
++        if (!ede || !Array.isArray(ede.destroyIntervalIds)) {
++            return;
++        }
++        ede.destroyIntervalIds.forEach(id => clearInterval(id));
++        ede.destroyIntervalIds = [];
+@@ -5018 +5022,2 @@
+-        if (e.detail.type !== 'video-osd') {
++        const detail = e && e.detail;
++        if (!detail || detail.type !== 'video-osd') {
+@@ -5022 +5027 @@
+-        if (window.ede.danmaku) {
++        if (window.ede && window.ede.danmaku) {
+@@ -5043,0 +5049 @@
++        const detail = e && e.detail ? e.detail : {};
+@@ -5047 +5053 @@
+-        if (e.detail.type === 'video-osd') {
++        if (detail.type === 'video-osd') {
+@@ -5048,0 +5055,2 @@
++            const params = detail.params || {};
++            window.ede.itemId = params.id || '';
+@@ -5058 +5065,0 @@
+-        window.ede.itemId = e.detail.params.id ? e.detail.params.id : '';

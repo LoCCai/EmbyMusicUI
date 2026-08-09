@@ -146,7 +146,7 @@ Emby Web 播放页
 - C# DLL 无法改变原生客户端 UI；这是产品边界，不作为缺陷处理。
 - 本机无 Docker，发布前仍需在实际 Emby 4.9.5.0 容器完成 DLL 加载、设置页保存和 Web 配置读取测试。
 - 假 Docker 测试能验证脚本状态机和文件恢复，但不能证明 NAS 权限、容器镜像工具集或 Emby 的实际 DLL 加载行为。
-- 实机 `/web/ede.user.js:5058` 的 `viewshow` 回调会对空对象写入 `itemId`，并中断 Emby 自身的页面隐藏流程；已观察到 Cinema Intros、CustomCssJS Provider 和歌词页都可被影响，需单独修复该服务器全局脚本。
+- 实机 `/web/ede.user.js:5058` 的 `viewshow` 回调会对空对象写入 `itemId`，并中断 Emby 自身的页面隐藏流程；已观察到 Cinema Intros、CustomCssJS Provider 和歌词页都可被影响。Emby Danmaku Extension 1.47 定向补丁已完成并通过本地测试，待服务器替换后做实机验收。
 
 ## 决策日志
 
