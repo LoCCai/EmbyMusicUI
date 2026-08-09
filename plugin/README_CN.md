@@ -64,7 +64,15 @@ plugin\scripts\verify.ps1 -IncludeEmbyBuild
 
 ## Docker 安装
 
-先构建，再在 Emby Docker 宿主机执行：
+先构建，再在 Emby Docker 宿主机直接执行：
+
+```bash
+sh docker-plugin-install.sh
+```
+
+不传容器参数时，脚本会在运行中的容器里检索名称、镜像或状态包含 `emby`（不区分大小写）的候选项，并显示编号供选择。候选列表的最后一项固定为“没有我要的容器，手动输入”；选择后会列出全部运行中容器，再接受容器名或 ID。没有自动发现候选项时会直接进入手动输入。
+
+也可以传参跳过交互选择：
 
 ```bash
 sh docker-plugin-install.sh <Emby容器名> install
@@ -114,6 +122,6 @@ sh docker-plugin-install.sh <Emby容器名> rollback <备份名>
 - 管理后台能打开、保存并重新读取设置页
 - 公共配置接口只允许 GET，并且只返回文档列出的非敏感显示字段
 - 播放页能取得设置；删除或停用插件后仍安全回退
-- Docker 更新、成组备份、失败恢复和容器重启行为符合预期
+- Docker 自动发现/手动选择、更新、成组备份、失败恢复和容器重启行为符合预期
 
 这些项目必须在真实 NAS/Emby 容器完成，不能用本地契约桩的通过结果代替。

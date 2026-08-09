@@ -55,9 +55,15 @@ case "$command" in
         exit 0
         ;;
     ps)
-        printf '%s\\n' 'emby-test fake/image running'
+        if [ "\${FAKE_PS_MODE:-matches}" = "no-match" ]; then
+            printf '%s\\n' 'def456|database|postgres:16|Up 1 hour'
+        else
+            printf '%s\\n' 'abc123|emby-auto|emby/embyserver:4.9.5.0|Up 1 hour'
+            printf '%s\\n' 'def456|database|postgres:16|Up 1 hour'
+        fi
         ;;
     inspect)
+        printf 'inspect %s\\n' "$*" >> "$FAKE_DOCKER_LOG"
         if [ "\${1:-}" = "--format" ]; then
             printf '%s\\n' "$FAKE_MOUNT_DESTINATION"
         fi
@@ -114,13 +120,10 @@ exec /usr/bin/mv "$@"
         fs.writeFileSync(path.join(packageRoot, "EmbyLyricEnhance.Core.dll"), `core-${version}`, "utf8");
     }
 
-    function run(action, backupName, overrides) {
-        const localPath = (value) => posixPath(path.relative(root, value));
-        const args = [localPath(installer), "emby-test", action];
-        if (backupName) {
-            args.push(backupName);
-        }
-        const environment = {
+    const localPath = (value) => posixPath(path.relative(root, value));
+
+    function createEnvironment(overrides) {
+        return {
             ...process.env,
             PATH: `${localPath(fakeBin)}:/usr/bin:/bin`,
             ELYRIC_PACKAGE_ROOT: localPath(packageRoot),
@@ -135,7 +138,23 @@ exec /usr/bin/mv "$@"
             FAKE_MV_MARKER: localPath(path.join(temporaryRoot, "mv-failed-once")),
             ...(overrides || {})
         };
-        return spawnSync(shell, args, { cwd: root, encoding: "utf8", env: environment });
+    }
+
+    function run(action, backupName, overrides) {
+        const args = [localPath(installer), "emby-test", action];
+        if (backupName) {
+            args.push(backupName);
+        }
+        return spawnSync(shell, args, { cwd: root, encoding: "utf8", env: createEnvironment(overrides) });
+    }
+
+    function runInteractive(input, overrides) {
+        return spawnSync(shell, [localPath(installer)], {
+            cwd: root,
+            encoding: "utf8",
+            env: createEnvironment(overrides),
+            input
+        });
     }
 
     function expectSuccess(result, label) {
@@ -209,7 +228,28 @@ exec /usr/bin/mv "$@"
     assert.notStrictEqual(unpersisted.status, 0, "installation should stop when the config path is not persistent");
     assert(unpersisted.stderr.includes("没有持久挂载"));
 
-    console.log("docker plugin install, backup, rollback, restart and persistence checks: ok");
+    writePackage("v5");
+    const automaticSelection = runInteractive("not-a-number\n99\n1\n");
+    expectSuccess(automaticSelection, "automatic numbered container selection");
+    assert(automaticSelection.stdout.includes("1) emby-auto"));
+    assert(automaticSelection.stdout.includes("没有我要的容器"));
+    assert(automaticSelection.stdout.includes("请输入列表中的数字序号"));
+    assert(automaticSelection.stdout.includes("序号超出范围"));
+    assert(fs.readFileSync(dockerLog, "utf8").includes("inspect emby-auto"));
+
+    writePackage("v6");
+    const manualSelection = runInteractive("2\nmanual-emby\n");
+    expectSuccess(manualSelection, "manual fallback after numbered discovery");
+    assert(manualSelection.stdout.includes("当前正在运行的全部 Docker 容器"));
+    assert(fs.readFileSync(dockerLog, "utf8").includes("inspect manual-emby"));
+
+    writePackage("v7");
+    const noMatchSelection = runInteractive("manually-entered-emby\n", { FAKE_PS_MODE: "no-match" });
+    expectSuccess(noMatchSelection, "manual input when no Emby-like container is found");
+    assert(noMatchSelection.stdout.includes("没有自动发现"));
+    assert(fs.readFileSync(dockerLog, "utf8").includes("inspect manually-entered-emby"));
+
+    console.log("docker plugin discovery, install, backup, rollback, restart and persistence checks: ok");
 } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
 }
