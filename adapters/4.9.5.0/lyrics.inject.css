@@ -388,6 +388,12 @@
 .elyric-player-shell[data-elyric-player-layout="vinyl"][data-elyric-artwork-rotate="true"] .elyric-player-artwork,
 .elyric-player-shell[data-elyric-player-layout="lyrics"][data-elyric-artwork-rotate="true"] .elyric-player-artwork {
     animation: elyric-vinyl-spin 28s linear infinite;
+    animation-play-state: paused;
+}
+
+.elyric-player-shell[data-elyric-player-layout="vinyl"][data-elyric-artwork-rotate="true"][data-elyric-playback-active="true"] .elyric-player-artwork,
+.elyric-player-shell[data-elyric-player-layout="lyrics"][data-elyric-artwork-rotate="true"][data-elyric-playback-active="true"] .elyric-player-artwork {
+    animation-play-state: running;
 }
 
 .elyric-player-shell[data-elyric-player-layout="vinyl"] .elyric-player-title,
@@ -732,12 +738,13 @@
     z-index: 1260;
     display: grid;
     grid-template-columns: minmax(13rem, 1fr) minmax(22rem, 1.3fr) minmax(16rem, 1fr);
-    grid-template-rows: 3.2rem minmax(0, 1fr) auto auto;
+    grid-template-rows: 3.2rem minmax(0, 1fr) auto auto 1.1rem;
     grid-template-areas:
         "topbar topbar topbar"
         "identity empty empty"
         "metadata transport tools"
-        "metadata progress volume";
+        "metadata progress volume"
+        "visualizer visualizer visualizer";
     gap: .45rem clamp(.75rem, 1.5vw, 1.5rem);
     padding: max(1.1rem, env(safe-area-inset-top, 0px)) clamp(1.5rem, 3vw, 3rem) max(1.15rem, env(safe-area-inset-bottom, 0px));
     color: #f7f7f8;
@@ -776,15 +783,20 @@
 }
 
 .elyric-player-button-back {
-    min-width: 2.35rem;
-    padding: 0;
-    font-size: 2rem;
-    font-weight: 300;
+    min-width: 3rem;
+    padding: 0 .72rem;
+    border-color: color-mix(in srgb, var(--theme-primary-color, #86d41f) 36%, transparent);
+    color: #f7f7f8;
+    background: color-mix(in srgb, var(--theme-primary-color, #86d41f) 16%, rgba(255, 255, 255, .08));
+    font-size: 1.5rem;
+    font-weight: 550;
 }
 
 .elyric-player-button-cast {
     margin-left: auto;
-    font-size: .7rem;
+    border-color: color-mix(in srgb, var(--theme-primary-color, #86d41f) 32%, transparent);
+    background: color-mix(in srgb, var(--theme-primary-color, #86d41f) 13%, rgba(255, 255, 255, .06));
+    font-size: .75rem;
 }
 
 .elyric-player-identity {
@@ -847,16 +859,32 @@
     font-size: .66rem;
 }
 
+.elyric-player-format {
+    margin-top: .42rem;
+    color: color-mix(in srgb, var(--theme-primary-color, #86d41f) 62%, rgba(255, 255, 255, .48));
+    font-size: .64rem;
+    font-weight: 650;
+    letter-spacing: .02em;
+}
+
 .elyric-player-transport {
     grid-area: transport;
     z-index: 3;
     gap: clamp(.5rem, 1vw, 1rem);
 }
 
+.elyric-player-transport .elyric-player-button {
+    min-width: 3.15rem;
+    height: 3.15rem;
+    border-radius: 1rem;
+    font-size: 1.12rem;
+}
+
 .elyric-player-progress {
     grid-area: progress;
     z-index: 3;
-    width: min(34rem, 100%);
+    width: min(58rem, 68vw);
+    max-width: none;
     justify-self: center;
     grid-template-columns: 3.1rem minmax(8rem, 1fr) 3.1rem;
     color: rgba(255, 255, 255, .48);
@@ -886,17 +914,76 @@
 }
 
 .elyric-player-button-playPause {
-    width: 3.15rem;
-    height: 3.15rem;
+    width: 4.15rem !important;
+    height: 4.15rem !important;
+    border-radius: 1.25rem !important;
     color: #15200b;
     background: color-mix(in srgb, var(--theme-primary-color, #86d41f) 78%, #fff);
     box-shadow: 0 .45rem 1.3rem color-mix(in srgb, var(--theme-primary-color, #86d41f) 28%, transparent);
 }
 
+.elyric-player-progress-slider::-webkit-slider-runnable-track {
+    height: .34rem;
+}
+
+.elyric-player-progress-slider::-moz-range-track,
+.elyric-player-progress-slider::-moz-range-progress {
+    height: .34rem;
+}
+
+.elyric-player-progress-slider::-webkit-slider-thumb {
+    width: .94rem;
+    height: .94rem;
+    margin-top: -.3rem;
+}
+
+.elyric-player-progress-slider::-moz-range-thumb {
+    width: .94rem;
+    height: .94rem;
+}
+
 .elyric-player-button-secondline,
-.elyric-player-button-rotation {
+.elyric-player-button-rotation,
+.elyric-player-button-info {
     width: auto;
     font-size: .68rem;
+}
+
+.elyric-player-visualizer {
+    grid-area: visualizer;
+    z-index: 2;
+    display: flex;
+    width: min(17rem, 40vw);
+    height: 1rem;
+    align-items: flex-end;
+    justify-self: center;
+    gap: .24rem;
+    opacity: .48;
+    pointer-events: none;
+}
+
+.elyric-player-visualizer span {
+    width: .2rem;
+    height: 25%;
+    flex: 1 1 auto;
+    border-radius: 999px;
+    background: var(--elyric-highlight-color, var(--theme-primary-color, #86d41f));
+    animation: elyric-visualizer-pulse .82s ease-in-out infinite alternate;
+    animation-play-state: paused;
+    transform-origin: 50% 100%;
+}
+
+.elyric-player-shell[data-elyric-playback-active="true"] .elyric-player-visualizer span {
+    animation-play-state: running;
+}
+
+.elyric-player-visualizer span:nth-child(3n + 1) { animation-duration: .62s; }
+.elyric-player-visualizer span:nth-child(3n + 2) { animation-duration: .94s; }
+.elyric-player-visualizer span:nth-child(4n) { animation-delay: -.36s; }
+
+@keyframes elyric-visualizer-pulse {
+    from { transform: scaleY(.22); opacity: .42; }
+    to { transform: scaleY(1); opacity: 1; }
 }
 
 .elyric-player-button[data-elyric-tooltip]::after {
@@ -928,7 +1015,8 @@
     transform: translate(50%, 0);
 }
 
-.elyric-player-settings-panel {
+.elyric-player-settings-panel,
+.elyric-player-media-panel {
     position: fixed;
     z-index: 1310;
     right: clamp(1rem, 3vw, 3rem);
@@ -950,7 +1038,8 @@
     pointer-events: auto;
 }
 
-.elyric-player-settings-panel[hidden] {
+.elyric-player-settings-panel[hidden],
+.elyric-player-media-panel[hidden] {
     display: none !important;
 }
 
@@ -989,15 +1078,114 @@
     white-space: normal;
 }
 
-.elyric-player-settings-panel .elyric-theme-select,
-.elyric-player-settings-panel .elyric-layout-select {
+.elyric-player-segmented {
+    display: flex;
     width: 100%;
-    max-width: none;
     box-sizing: border-box;
-    padding: .58rem 2rem .58rem .7rem;
-    border-radius: .72rem;
+    padding: .2rem;
+    border: 1px solid rgba(255, 255, 255, .12);
+    border-radius: .78rem;
+    background: rgba(255, 255, 255, .055);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.elyric-player-segmented::-webkit-scrollbar {
+    display: none;
+}
+
+.elyric-player-segment {
+    min-width: max-content;
+    flex: 1 0 auto;
+    padding: .5rem .62rem;
+    border: 0;
+    border-radius: .58rem;
     color: inherit;
-    background-color: rgba(255, 255, 255, .09);
+    background: transparent;
+    font: inherit;
+    font-size: .69rem;
+    cursor: pointer;
+}
+
+.elyric-player-segment[data-elyric-active="true"] {
+    color: #16200e;
+    background: color-mix(in srgb, var(--theme-primary-color, #86d41f) 76%, #fff);
+    box-shadow: 0 .3rem .9rem color-mix(in srgb, var(--theme-primary-color, #86d41f) 18%, transparent);
+}
+
+.elyric-player-segment:disabled {
+    cursor: not-allowed;
+    opacity: .45;
+}
+
+.elyric-player-media-panel {
+    top: clamp(4.5rem, 8vh, 6rem);
+    right: clamp(1rem, 3vw, 3rem);
+    bottom: clamp(5.6rem, 11vh, 7.5rem);
+    width: min(36rem, calc(100vw - 2rem));
+    max-height: none;
+}
+
+.elyric-player-media-body {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .7rem;
+}
+
+.elyric-player-media-section {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    gap: .38rem .75rem;
+    padding: .78rem;
+    border-radius: .82rem;
+    background: rgba(255, 255, 255, .055);
+}
+
+.elyric-player-media-section:first-child {
+    grid-column: 1 / -1;
+}
+
+.elyric-player-media-section h3 {
+    grid-column: 1 / -1;
+    margin: 0 0 .22rem;
+    color: color-mix(in srgb, var(--theme-primary-color, #86d41f) 78%, #fff);
+    font-size: .8rem;
+}
+
+.elyric-player-media-row {
+    min-width: 0;
+}
+
+.elyric-player-media-row-wide {
+    grid-column: 1 / -1;
+}
+
+.elyric-player-media-label,
+.elyric-player-media-value {
+    display: block;
+}
+
+.elyric-player-media-label {
+    margin-bottom: .12rem;
+    color: rgba(255, 255, 255, .42);
+    font-size: .6rem;
+}
+
+.elyric-player-media-value {
+    color: rgba(255, 255, 255, .86);
+    font-size: .7rem;
+    line-height: 1.38;
+    overflow-wrap: anywhere;
+}
+
+.elyric-player-media-empty {
+    grid-column: 1 / -1;
+    padding: .8rem;
+    border-radius: .72rem;
+    color: rgba(255, 255, 255, .54);
+    background: rgba(255, 255, 255, .055);
+    font-size: .7rem;
 }
 
 .elyric-player-settings-help {
@@ -1089,6 +1277,7 @@
 .elyric-player-shell[data-elyric-player-layout="vinyl"] .elyric-player-button,
 .elyric-player-shell[data-elyric-player-layout="vinyl"] .elyric-player-artist,
 .elyric-player-shell[data-elyric-player-layout="vinyl"] .elyric-player-album,
+.elyric-player-shell[data-elyric-player-layout="vinyl"] .elyric-player-format,
 .elyric-player-shell[data-elyric-player-layout="vinyl"] .elyric-player-progress,
 .elyric-player-shell[data-elyric-player-layout="vinyl"] .elyric-player-topbar-title {
     color: #343638;
@@ -1154,13 +1343,26 @@
 .elyric-player-shell[data-elyric-player-layout="lyrics"] .elyric-player-button,
 .elyric-player-shell[data-elyric-player-layout="lyrics"] .elyric-player-artist,
 .elyric-player-shell[data-elyric-player-layout="lyrics"] .elyric-player-album,
+.elyric-player-shell[data-elyric-player-layout="lyrics"] .elyric-player-format,
 .elyric-player-shell[data-elyric-player-layout="lyrics"] .elyric-player-progress,
 .elyric-player-shell[data-elyric-player-layout="lyrics"] .elyric-player-topbar-title {
     color: #343638;
 }
 
+.elyric-player-shell[data-elyric-player-layout="vinyl"] .elyric-player-button-back,
+.elyric-player-shell[data-elyric-player-layout="vinyl"] .elyric-player-button-cast,
+.elyric-player-shell[data-elyric-player-layout="lyrics"] .elyric-player-button-back,
+.elyric-player-shell[data-elyric-player-layout="lyrics"] .elyric-player-button-cast {
+    border-color: rgba(82, 132, 36, .28);
+    color: #294014;
+    background: rgba(126, 198, 58, .17);
+    box-shadow: 0 .35rem 1rem rgba(83, 131, 42, .1);
+}
+
 .elyric-player-settings-panel[data-elyric-player-layout="vinyl"],
-.elyric-player-settings-panel[data-elyric-player-layout="lyrics"] {
+.elyric-player-settings-panel[data-elyric-player-layout="lyrics"],
+.elyric-player-media-panel[data-elyric-player-layout="vinyl"],
+.elyric-player-media-panel[data-elyric-player-layout="lyrics"] {
     border-color: rgba(39, 42, 44, .12);
     color: #303235;
     background: rgba(250, 250, 247, .9);
@@ -1170,24 +1372,35 @@
 .elyric-player-settings-panel[data-elyric-player-layout="vinyl"] .elyric-player-settings-help,
 .elyric-player-settings-panel[data-elyric-player-layout="lyrics"] .elyric-player-settings-help,
 .elyric-player-settings-panel[data-elyric-player-layout="vinyl"] .elyric-player-settings-note-muted,
-.elyric-player-settings-panel[data-elyric-player-layout="lyrics"] .elyric-player-settings-note-muted {
+.elyric-player-settings-panel[data-elyric-player-layout="lyrics"] .elyric-player-settings-note-muted,
+.elyric-player-media-panel[data-elyric-player-layout="vinyl"] .elyric-player-media-label,
+.elyric-player-media-panel[data-elyric-player-layout="lyrics"] .elyric-player-media-label,
+.elyric-player-media-panel[data-elyric-player-layout="vinyl"] .elyric-player-media-empty,
+.elyric-player-media-panel[data-elyric-player-layout="lyrics"] .elyric-player-media-empty {
     color: rgba(42, 44, 46, .5);
 }
 
 .elyric-player-settings-panel[data-elyric-player-layout="vinyl"] .elyric-player-settings-note,
 .elyric-player-settings-panel[data-elyric-player-layout="lyrics"] .elyric-player-settings-note,
 .elyric-player-settings-panel[data-elyric-player-layout="vinyl"] .elyric-player-settings-close,
-.elyric-player-settings-panel[data-elyric-player-layout="lyrics"] .elyric-player-settings-close {
+.elyric-player-settings-panel[data-elyric-player-layout="lyrics"] .elyric-player-settings-close,
+.elyric-player-media-panel[data-elyric-player-layout="vinyl"] .elyric-player-settings-close,
+.elyric-player-media-panel[data-elyric-player-layout="lyrics"] .elyric-player-settings-close,
+.elyric-player-media-panel[data-elyric-player-layout="vinyl"] .elyric-player-media-section,
+.elyric-player-media-panel[data-elyric-player-layout="lyrics"] .elyric-player-media-section {
     background: rgba(42, 44, 46, .07);
 }
 
-.elyric-player-settings-panel[data-elyric-player-layout="vinyl"] .elyric-theme-select,
-.elyric-player-settings-panel[data-elyric-player-layout="vinyl"] .elyric-layout-select,
-.elyric-player-settings-panel[data-elyric-player-layout="lyrics"] .elyric-theme-select,
-.elyric-player-settings-panel[data-elyric-player-layout="lyrics"] .elyric-layout-select {
+.elyric-player-settings-panel[data-elyric-player-layout="vinyl"] .elyric-player-segmented,
+.elyric-player-settings-panel[data-elyric-player-layout="lyrics"] .elyric-player-segmented {
     border-color: rgba(42, 44, 46, .15);
     color: #303235;
     background-color: rgba(42, 44, 46, .06);
+}
+
+.elyric-player-media-panel[data-elyric-player-layout="vinyl"] .elyric-player-media-value,
+.elyric-player-media-panel[data-elyric-player-layout="lyrics"] .elyric-player-media-value {
+    color: rgba(42, 44, 46, .86);
 }
 
 /* Remove Emby's paint containment so its lyric and queue sections can sit above the body-level shell. */
@@ -1220,6 +1433,11 @@
     margin: 0 !important;
     background: transparent !important;
     overflow: hidden !important;
+    display: flex !important;
+}
+
+.elyric-player-active-page .osdContentSection[data-contentsection="lyrics"].hide {
+    display: flex !important;
 }
 
 .elyric-player-active-page[data-elyric-player-layout="lyrics"] .osdContentSection[data-contentsection="lyrics"] {
@@ -1283,10 +1501,12 @@
     position: fixed !important;
     z-index: 1295 !important;
     top: clamp(4.5rem, 8vh, 6rem) !important;
-    right: clamp(1.5rem, 4vw, 4.5rem) !important;
+    right: auto !important;
     bottom: clamp(6.4rem, 12vh, 8rem) !important;
-    left: auto !important;
+    left: clamp(1.5rem, 4vw, 4.5rem) !important;
     width: min(32rem, 43vw) !important;
+    max-width: calc(100vw - 3rem) !important;
+    max-height: calc(100dvh - 10.9rem) !important;
     height: auto !important;
     box-sizing: border-box;
     padding: 3.5rem .85rem 1rem !important;
@@ -1297,8 +1517,17 @@
     box-shadow: 0 1.5rem 5rem rgba(0, 0, 0, .36);
     overflow-x: hidden !important;
     overflow-y: auto !important;
+    overscroll-behavior: contain;
     -webkit-backdrop-filter: blur(1.8rem) saturate(120%);
     backdrop-filter: blur(1.8rem) saturate(120%);
+}
+
+.elyric-player-active-page[data-elyric-queue-open="false"] .osdContentSection[data-contentsection="playqueue"] {
+    display: none !important;
+}
+
+.elyric-player-active-page[data-elyric-queue-open="true"] .osdContentSection[data-contentsection="playqueue"] {
+    display: flex !important;
 }
 
 .elyric-player-active-page .osdContentSection[data-contentsection="playqueue"]::before {
@@ -1330,6 +1559,11 @@
     box-shadow: 0 1.5rem 5rem rgba(80, 73, 66, .18);
 }
 
+.elyric-player-active-page[data-elyric-player-layout="lyrics"] .osdContentSection[data-contentsection="playqueue"] {
+    right: clamp(1.5rem, 4vw, 4.5rem) !important;
+    left: auto !important;
+}
+
 .elyric-player-active-page[data-elyric-player-layout="vinyl"] .osdContentSection[data-contentsection="playqueue"] .listItem,
 .elyric-player-active-page[data-elyric-player-layout="lyrics"] .osdContentSection[data-contentsection="playqueue"] .listItem {
     background: rgba(43, 45, 47, .045);
@@ -1340,20 +1574,26 @@
     .elyric-player-button[data-elyric-tooltip]::after {
         transition: none !important;
     }
+
+    .elyric-player-visualizer span {
+        animation: none !important;
+        transform: scaleY(.35);
+    }
 }
 
 @media (max-width: 760px) {
     .elyric-player-shell.elyric-theme-picker,
     .elyric-player-shell.elyric-theme-picker[data-elyric-player-layout] {
         grid-template-columns: minmax(0, 1fr) auto !important;
-        grid-template-rows: 2.7rem auto minmax(0, 1fr) auto auto auto !important;
+        grid-template-rows: 2.7rem auto minmax(0, 1fr) auto auto auto .8rem !important;
         grid-template-areas:
             "topbar topbar"
             "identity metadata"
             "empty empty"
             "transport transport"
             "progress progress"
-            "tools volume" !important;
+            "tools volume"
+            "visualizer visualizer" !important;
         gap: .3rem .5rem;
         padding: max(.65rem, env(safe-area-inset-top, 0px)) .7rem max(.65rem, env(safe-area-inset-bottom, 0px));
     }
@@ -1415,11 +1655,29 @@
         display: none;
     }
 
-    .elyric-player-settings-panel {
+    .elyric-player-settings-panel,
+    .elyric-player-media-panel {
         right: .65rem;
         bottom: 5.4rem;
         width: calc(100vw - 1.3rem);
         max-height: 62vh;
+    }
+
+    .elyric-player-media-panel {
+        top: 4rem;
+        bottom: 5.4rem;
+    }
+
+    .elyric-player-media-body {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .elyric-player-media-section {
+        grid-column: 1;
+    }
+
+    .elyric-player-progress {
+        width: 100%;
     }
 
     .elyric-player-active-page .osdContentSection[data-contentsection="lyrics"],
@@ -1442,6 +1700,8 @@
         bottom: 5.3rem !important;
         left: .65rem !important;
         width: auto !important;
+        max-width: calc(100vw - 1.3rem) !important;
+        max-height: calc(100dvh - 9.3rem) !important;
     }
 }
 /* ELYRIC_ENHANCE_END:4.9.5.0 */

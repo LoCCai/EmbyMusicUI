@@ -92,6 +92,9 @@ class FakeNode {
         if (!this.listeners[type]) this.listeners[type] = [];
         this.listeners[type].push(listener);
     }
+    removeEventListener(type, listener) {
+        this.listeners[type] = (this.listeners[type] || []).filter((value) => value !== listener);
+    }
     dispatchEvent(event) {
         (this.listeners[event.type] || []).forEach((listener) => listener.call(this, event));
         return true;
@@ -181,6 +184,7 @@ const localStorage = {
 
 let serverConfigurationRequests = 0;
 let connectionManagerRequests = 0;
+let mediaItemRequests = 0;
 const requestedConfigurationPaths = [];
 const ApiClient = {
     getUrl(pathValue) {
@@ -205,6 +209,59 @@ const ApiClient = {
             otherLinesBlurPixels: 1.2,
             showSecondLine: false,
             showThirdAndLaterLines: false
+        });
+    },
+    getCurrentUserId() {
+        return "test-user";
+    },
+    getItem(userId, itemId) {
+        mediaItemRequests += 1;
+        assert.strictEqual(userId, "test-user");
+        assert.strictEqual(itemId, "metadata-test");
+        return Promise.resolve({
+            Id: itemId,
+            Name: "测试歌曲",
+            Path: "/music/测试歌曲.wav",
+            DateCreated: "2024-09-17T01:05:00Z",
+            MediaSources: [{
+                Path: "/music/测试歌曲.wav",
+                Container: "wav",
+                Size: 146381210,
+                MediaStreams: [
+                    {
+                        Type: "Audio",
+                        DisplayTitle: "PCM_S16LE 6 ch",
+                        Codec: "pcm_s16le",
+                        Channels: 6,
+                        BitRate: 4233600,
+                        SampleRate: 44100,
+                        BitDepth: 16,
+                        IsDefault: false
+                    },
+                    {
+                        Type: "Video",
+                        Codec: "mjpeg",
+                        Profile: "Baseline",
+                        Level: -99,
+                        Width: 600,
+                        Height: 654,
+                        RealFrameRate: 90000,
+                        ColorSpace: "bt470bg",
+                        BitDepth: 8,
+                        PixelFormat: "yuvj444p",
+                        RefFrames: 1,
+                        IsDefault: false
+                    },
+                    {
+                        Type: "Subtitle",
+                        DisplayTitle: "(TEXT)",
+                        Title: "Lyrics",
+                        Codec: "text",
+                        IsDefault: false,
+                        IsExternal: false
+                    }
+                ]
+            }]
         });
     }
 };
@@ -397,13 +454,16 @@ function createLyricElement(index) {
         "the custom back button should find Emby's body-level playback header");
     assert.strictEqual(renderer.__elyricPlayerButtons.cast.disabled, false,
         "the custom cast button should proxy Emby's body-level cast control");
-    const themeSelect = document.body.querySelector(".elyric-theme-select");
-    assert(themeSelect, "theme picker should be attached to the playback page overlay");
-    assert.strictEqual(themeSelect.value, "apple");
-    assert.strictEqual(themeSelect.disabled, false);
+    const themeButtons = renderer.__elyricThemeButtons;
+    assert.strictEqual(themeButtons.length, 5,
+        "all lyric styles should be exposed as direct segmented buttons");
+    assert.strictEqual(themeButtons.find((button) => button.getAttribute("data-elyric-choice") === "apple")
+        .getAttribute("aria-pressed"), "true");
+    assert(themeButtons.every((button) => button.disabled === false));
+    assert.strictEqual(document.body.querySelector(".elyric-theme-select"), null,
+        "the V3 settings should not require a dropdown");
     assert.strictEqual(renderer.__elyricThemeControl.parentNode, document.body,
         "the visual overlay should use document.body to avoid playback host clipping");
-    assert.strictEqual(themeSelect.children.length, 5, "all built-in themes should be selectable");
     const settingsPanel = renderer.__elyricSettingsPanel;
     assert(settingsPanel, "the full player should expose its own settings drawer");
     assert.strictEqual(settingsPanel.parentNode, document.body,
@@ -416,10 +476,17 @@ function createLyricElement(index) {
         "opening settings must not duplicate the drawer");
     settingsPanel.querySelector(".elyric-player-settings-close").click();
     assert.strictEqual(settingsPanel.getAttribute("hidden"), "hidden");
-    const layoutSelect = document.body.querySelector(".elyric-layout-select");
-    assert(layoutSelect, "the full player should expose an explicit interface selector");
-    assert.strictEqual(layoutSelect.value, "album");
-    assert.strictEqual(layoutSelect.children.length, 3);
+    const layoutButtons = renderer.__elyricLayoutButtons;
+    assert.strictEqual(layoutButtons.length, 3,
+        "the three player layouts should be presented in one segmented row");
+    assert.strictEqual(layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "album")
+        .getAttribute("aria-pressed"), "true");
+    assert.strictEqual(document.body.querySelector(".elyric-layout-select"), null);
+    assert.strictEqual(renderer.__elyricPlayerButtons.lyrics, undefined,
+        "lyrics are always visible, so V3 must not expose a redundant lyrics button");
+    assert.strictEqual(renderer.__elyricVisualizer.children.length, 12,
+        "the player should mount one lightweight playback visualizer");
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-playback-active"), "false");
     const artworkRotationButton = renderer.__elyricArtworkRotationButton;
     assert(artworkRotationButton, "the full player should expose an artwork rotation toggle");
     assert.strictEqual(artworkRotationButton.disabled, true,
@@ -427,8 +494,7 @@ function createLyricElement(index) {
     assert.strictEqual(artworkRotationButton.getAttribute("aria-pressed"), "true",
         "circular artwork rotation should default to enabled");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-artwork-rotate"), "true");
-    layoutSelect.value = "vinyl";
-    layoutSelect.dispatchEvent({ type: "change", stopPropagation() {} });
+    layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "vinyl").click();
     assert.strictEqual(document.body.getAttribute("data-elyric-player-layout"), "vinyl");
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-player-layout"), "vinyl");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-player-layout"), "vinyl");
@@ -439,15 +505,12 @@ function createLyricElement(index) {
     assert.strictEqual(artworkRotationButton.getAttribute("aria-pressed"), "false");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-artwork-rotate"), "false");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.artwork-rotation"), "false");
-    layoutSelect.value = "lyrics";
-    layoutSelect.dispatchEvent({ type: "change", stopPropagation() {} });
+    layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "lyrics").click();
     assert.strictEqual(artworkRotationButton.disabled, false,
         "the lyrics-first circular layout should also allow artwork rotation control");
-    layoutSelect.value = "vinyl";
-    layoutSelect.dispatchEvent({ type: "change", stopPropagation() {} });
+    layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "vinyl").click();
 
-    themeSelect.value = "focus";
-    themeSelect.dispatchEvent({ type: "change", stopPropagation() {} });
+    themeButtons.find((button) => button.getAttribute("data-elyric-choice") === "focus").click();
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), "focus");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.theme"), "focus");
 
@@ -458,7 +521,7 @@ function createLyricElement(index) {
     hiddenRenderer.onTimeUpdate(0, 20000000);
     assert(!hiddenRenderer.__elyricThemeControl,
         "a detached renderer must not create or take over the global visual overlay");
-    assert.strictEqual(document.body.querySelector(".elyric-theme-select"), themeSelect,
+    assert.strictEqual(document.body.querySelector(".elyric-theme-choice"), themeButtons[0],
         "an invisible old renderer must not replace the active picker");
     hiddenRenderer.destroy();
 
@@ -486,6 +549,22 @@ function createLyricElement(index) {
     );
     assert.strictEqual(renderer.__elyricPlayerBackground.getAttribute("src"),
         "/emby/Items/metadata-test/Images/Primary");
+    const mediaPanel = renderer.__elyricMediaPanel;
+    assert.strictEqual(mediaPanel.parentNode, document.body,
+        "media details should use a dedicated body-level drawer");
+    assert.strictEqual(mediaPanel.getAttribute("hidden"), "hidden");
+    renderer.__elyricMediaButton.click();
+    await flushPromises();
+    assert.strictEqual(mediaItemRequests, 1,
+        "opening media details should request the full authenticated Emby item exactly once");
+    assert.strictEqual(mediaPanel.getAttribute("hidden"), null);
+    [
+        "/music/测试歌曲.wav", "WAV", "139.6 MB", "PCM_S16LE 6 ch", "PCM_S16LE",
+        "6 ch", "4.23 Mbps", "44,100 Hz", "16 bit", "MJPEG", "600×654", "90,000",
+        "yuvj444p", "(TEXT)", "Lyrics", "TEXT"
+    ].forEach((value) => assert(mediaPanel.textContent.includes(value), `media drawer should include ${value}`));
+    assert.strictEqual(renderer.__elyricPlayerFormat.textContent,
+        "WAV · PCM_S16LE · 44.1 kHz · 16 bit · 6 ch");
     assert(!createdTags.includes("canvas") && !createdTags.includes("svg"),
         "the lyric adapter must never create waveform or curve elements");
     renderer.__elyricPlayerButtons.next.click();
@@ -503,6 +582,8 @@ function createLyricElement(index) {
     assert.strictEqual(nativeClicks.playPause, 1, "custom play/pause should delegate to Emby's native transport");
     assert.strictEqual(renderer.__elyricPlayerButtons.playPause.getAttribute("data-elyric-playing"), "true",
         "pointer-down playback should update the custom control optimistically");
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-playback-active"), "true",
+        "playback state should drive both artwork and visualizer animation");
     assert.strictEqual(renderer.__elyricPlayerButtons.playPause.textContent, "Ⅱ");
     assert.strictEqual(nativeClicks.stop, 1);
     assert.strictEqual(nativeClicks.mute, 1);
@@ -514,10 +595,36 @@ function createLyricElement(index) {
     assert(document.body.classList.contains("elyric-player-active-page"));
     assert.strictEqual(settingsPanel.getAttribute("hidden"), "hidden",
         "opening queue should close the settings drawer without leaving the enhanced player");
-    renderer.__elyricPlayerButtons.lyrics.click();
+    assert.strictEqual(mediaPanel.getAttribute("hidden"), "hidden",
+        "opening queue should also close media details");
+    const nativeQueuePanel = new FakeNode("div");
+    nativeQueuePanel.classList.add("osdPlayQueue");
+    nativeQueuePanel.setAttribute("data-contentsection", "playqueue");
+    const nativeQueueItem = new FakeNode("div");
+    nativeQueuePanel.appendChild(nativeQueueItem);
+    playbackPage.appendChild(nativeQueuePanel);
+    document.body.dispatchEvent({ type: "pointerdown", target: nativeQueueItem });
+    assert.strictEqual(renderer.__elyricPlayerButtons.queue.getAttribute("aria-pressed"), "true",
+        "interacting with queue contents must keep the drawer open");
+    document.body.dispatchEvent({ type: "pointerdown", target: playbackPage });
+    assert.strictEqual(renderer.__elyricPlayerButtons.queue.getAttribute("aria-pressed"), "false",
+        "clicking anywhere outside the queue should dismiss it");
+    renderer.__elyricPlayerButtons.queue.click();
+    assert.strictEqual(nativeClicks.queue, 2,
+        "the dismissed queue should reopen through Emby's native queue data source");
+    renderer.__elyricPlayerButtons.queue.click();
     renderer.itemsContainer.classList.remove("hide");
     renderer.onTimeUpdate(0, 20000000);
-    assert.strictEqual(nativeClicks.lyrics, 1, "custom lyrics should return through Emby's native content switch");
+    assert.strictEqual(nativeClicks.lyrics, 0,
+        "closing V3 queue should not require a visible or synthetic native lyrics click");
+    assert.strictEqual(renderer.__elyricPlayerButtons.queue.getAttribute("aria-pressed"), "false");
+    assert.strictEqual(document.body.getAttribute("data-elyric-queue-open"), "false",
+        "clicking the queue button again should hide the queue while always-on lyrics remain visible");
+    nativeControls.playPause.setAttribute("aria-label", "播放");
+    renderer.__elyricOptimisticPlayingUntil = 0;
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-playback-active"), "false",
+        "a confirmed pause should stop artwork rotation and the playback visualizer");
     renderer.__elyricProgressSlider.value = "500";
     renderer.__elyricProgressSlider.dispatchEvent({ type: "input", stopPropagation() {} });
     assert.strictEqual(renderer.__elyricPlayerPosition.textContent, "0:01");
@@ -548,6 +655,18 @@ function createLyricElement(index) {
     const coveringPage = new FakeNode("div");
     renderer.__elyricSettingsButton.click();
     assert.strictEqual(settingsPanel.getAttribute("hidden"), null);
+    const castDialog = new FakeNode("div");
+    castDialog.classList.add("dialogContainer");
+    const castDialogContent = new FakeNode("div");
+    castDialog.appendChild(castDialogContent);
+    document.body.appendChild(castDialog);
+    document.frontElement = castDialogContent;
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("hidden"), null,
+        "an Emby cast dialog may cover playback without restoring the native player interface");
+    assert(document.body.classList.contains("elyric-player-active-page"));
+    document.frontElement = null;
+    document.body.removeChild(castDialog);
     document.body.appendChild(coveringPage);
     document.frontElement = coveringPage;
     renderer.onTimeUpdate(0, 20000000);
@@ -579,6 +698,9 @@ function createLyricElement(index) {
     const staleSettingsPanel = new FakeNode("div");
     staleSettingsPanel.classList.add("elyric-player-settings-panel");
     reopenedPlaybackPage.appendChild(staleSettingsPanel);
+    const staleMediaPanel = new FakeNode("div");
+    staleMediaPanel.classList.add("elyric-player-media-panel");
+    reopenedPlaybackPage.appendChild(staleMediaPanel);
     reopenedPlaybackPage.appendChild(renderer.itemsContainer);
     renderer.onTimeUpdate(0, 20000000);
     assert.strictEqual(renderer.__elyricThemeControl.parentNode, document.body,
@@ -589,7 +711,9 @@ function createLyricElement(index) {
         "the picker should become visible again on the active playback page");
     assert.strictEqual(staleControl.parentNode, null, "reopening playback should remove stale duplicate controls");
     assert.strictEqual(staleSettingsPanel.parentNode, null, "reopening playback should remove stale settings drawers");
+    assert.strictEqual(staleMediaPanel.parentNode, null, "reopening playback should remove stale media drawers");
     assert.strictEqual(document.body.querySelectorAll(".elyric-player-settings-panel").length, 1);
+    assert.strictEqual(document.body.querySelectorAll(".elyric-player-media-panel").length, 1);
 
     clockNow = 400;
     renderer.onTimeUpdate(4000000, 20000000);
@@ -614,6 +738,20 @@ function createLyricElement(index) {
         "the native queue should be restyled inside the enhanced player");
     assert(adapterCss.includes(".elyric-player-settings-panel"),
         "the enhanced player should provide a themed settings drawer");
+    assert(adapterCss.includes(".elyric-player-media-panel"),
+        "the enhanced player should provide a detailed media drawer");
+    assert(adapterCss.includes(".elyric-player-segmented"),
+        "theme and layout switching should use direct segmented controls");
+    assert(adapterCss.includes(".elyric-player-visualizer"),
+        "the playback page should provide a lightweight animated rhythm row");
+    assert(adapterCss.includes("data-elyric-playback-active=\"true\""),
+        "playback animations must only run while Emby reports active playback");
+    assert(adapterCss.includes('.osdContentSection[data-contentsection="lyrics"].hide'),
+        "opening Emby's queue must not hide the always-on lyric region");
+    assert(adapterCss.includes('data-elyric-queue-open="false"'),
+        "the queue button should be able to close its panel without restoring a lyric toggle");
+    assert(adapterCss.includes("max-height: calc(100dvh"),
+        "the queue drawer must stay within the full-player viewport on long queues and mobile browsers");
     assert(adapterCss.includes(".videoOsdBottom-maincontrols"),
         "the native OSD control layer should be visually suppressed behind custom controls");
     assert(adapterCss.includes(".videoOsdHeader"),
@@ -648,11 +786,15 @@ function createLyricElement(index) {
     renderer.onTimeUpdate(20000000, 20000000);
     assert(visible.item.classList.contains("elyric-line-past"));
     const themeControl = renderer.__elyricThemeControl;
+    const queueDismissHandler = renderer.__elyricQueueDismissHandler;
     renderer.destroy();
     assert.strictEqual(frames.size, 0, "destroy should cancel any pending animation frame");
     assert.strictEqual(renderer.__elyricClock, null);
     assert.strictEqual(themeControl.parentNode, null, "destroy should remove theme controls");
     assert.strictEqual(settingsPanel.parentNode, null, "destroy should remove the separate settings drawer");
+    assert.strictEqual(mediaPanel.parentNode, null, "destroy should remove the separate media drawer");
+    assert(!(document.body.listeners.pointerdown || []).includes(queueDismissHandler),
+        "destroy should release the global click-outside queue handler");
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), null);
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-show-second"), null);
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-player-layout"), null);
@@ -805,8 +947,8 @@ function createLyricElement(index) {
     assert.strictEqual(lockedConfigurationRequests, 1);
     assert.strictEqual(lockedRenderer.itemsContainer.getAttribute("data-elyric-theme"), "minimal",
         "a locked server default should override the browser's stored theme");
-    assert.strictEqual(lockedRenderer.__elyricThemeSelect.disabled, true,
-        "the theme picker should be disabled when user overrides are forbidden");
+    assert(lockedRenderer.__elyricThemeButtons.every((button) => button.disabled === true),
+        "every theme segment should be disabled when user overrides are forbidden");
     assert.strictEqual(lockedRenderer.itemsContainer.style.getPropertyValue("--elyric-font-size"), "180%",
         "frontend validation should cap server values even after C# validation");
     assert.strictEqual(lockedRenderer.itemsContainer.style.getPropertyValue("--elyric-line-height"), "1.25");
@@ -817,8 +959,9 @@ function createLyricElement(index) {
     assert.strictEqual(lockedRenderer.itemsContainer.style.getPropertyValue("--elyric-current-scale"), "1.25");
     assert.strictEqual(lockedRenderer.itemsContainer.style.getPropertyValue("--elyric-other-lines-opacity"), "0.1");
     assert.strictEqual(lockedRenderer.itemsContainer.style.getPropertyValue("--elyric-other-lines-blur"), "4px");
-    lockedRenderer.__elyricThemeSelect.value = "gradient";
-    lockedRenderer.__elyricThemeSelect.dispatchEvent({ type: "change", stopPropagation() {} });
+    lockedRenderer.__elyricThemeButtons
+        .find((button) => button.getAttribute("data-elyric-choice") === "gradient")
+        .click();
     assert.strictEqual(lockedRenderer.itemsContainer.getAttribute("data-elyric-theme"), "minimal",
         "a disabled picker must not bypass the server lock through a synthetic change");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.theme"), "focus",
@@ -886,7 +1029,7 @@ function createLyricElement(index) {
     await flushPromises();
     assert.strictEqual(fallbackItems.length, 1, "a missing C# plugin must not block lyric loading");
     assert.strictEqual(fallbackRenderer.itemsContainer.getAttribute("data-elyric-theme"), "classic");
-    assert.strictEqual(fallbackRenderer.__elyricThemeSelect.disabled, false);
+    assert(fallbackRenderer.__elyricThemeButtons.every((button) => button.disabled === false));
     fallbackRenderer.destroy();
 
     console.log("adapter parsing, plugin defaults, fallback, locks, open endings, safety, themes, navigation and timing: ok");
