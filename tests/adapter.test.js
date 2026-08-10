@@ -579,14 +579,27 @@ function createLyricElement(index) {
     assert(settingsPanel, "the full player should expose its own settings drawer");
     assert.strictEqual(settingsPanel.parentNode, document.body,
         "the settings drawer should sit above the native lyric stacking layer");
+    assert.strictEqual(renderer.__elyricOverlayScrim.parentNode, document.body,
+        "settings and media details should share a document-level modal scrim");
     assert.strictEqual(settingsPanel.getAttribute("hidden"), "hidden");
     renderer.__elyricSettingsButton.click();
     assert.strictEqual(settingsPanel.getAttribute("hidden"), null);
+    assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), null,
+        "opening settings should place a click-blocking scrim above oversized lyrics");
     assert.strictEqual(renderer.__elyricSettingsButton.getAttribute("aria-expanded"), "true");
     assert.strictEqual(document.body.querySelectorAll(".elyric-player-settings-panel").length, 1,
         "opening settings must not duplicate the drawer");
+    playbackPage.classList.add("hide");
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), "hidden",
+        "leaving the player must hide the document-level scrim even when a drawer was open");
+    playbackPage.classList.remove("hide");
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), null,
+        "returning to the player should restore the open drawer and its scrim together");
     settingsPanel.querySelector(".elyric-player-settings-close").click();
     assert.strictEqual(settingsPanel.getAttribute("hidden"), "hidden");
+    assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), "hidden");
     const layoutButtons = renderer.__elyricLayoutButtons;
     assert.strictEqual(layoutButtons.length, 5,
         "the four safe presets and the custom player layout should be presented together");
@@ -622,7 +635,7 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricVisualizerAnalysisInputs.response.value, "80");
     assert.strictEqual(renderer.__elyricVisualizerAnalysisInputs.smoothing.value, "25");
     assert.strictEqual(renderer.__elyricVisualizerAnalysisInputs.density.value, "56");
-    assert.strictEqual(renderer.__elyricVisualizerAnalysisInputs.bassBoost.value, "135");
+    assert.strictEqual(renderer.__elyricVisualizerAnalysisInputs.bassBoost.value, "100");
     assert.strictEqual(renderer.__elyricPlayerTuningInputs.backgroundBlur.value, "44",
         "missing local values must use balanced defaults instead of coercing null to zero");
     assert.strictEqual(renderer.__elyricPlayerTuningInputs.artworkX.value, "76");
@@ -646,12 +659,28 @@ function createLyricElement(index) {
     assert(liveFrequencyReads > 0, "live spectrum frames should read analyser frequency bins");
     assert.strictEqual(audioDestinationConnections, 0,
         "the analyser source should never connect to the AudioContext destination");
+    renderer.__elyricVisualizerAnalysisInputs.bassBoost.value = "0";
+    renderer.__elyricVisualizerEnergy = null;
+    renderer.__elyricVisualizerAnalysisInputs.bassBoost
+        .dispatchEvent({ type: "input", stopPropagation() {} });
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(renderer.__elyricVisualizerBassBoost, 0,
+        "zero low-frequency weight must not be replaced by the default value");
+    assert(renderer.__elyricVisualizerEnergy[0] < renderer.__elyricVisualizerEnergy.at(-1),
+        "zero low-frequency weight should attenuate bass instead of oversampling the first bins");
     const liveAudioContext = renderer.__elyricVisualizerAudioContext;
     renderer.__elyricVisualizerStyleButtons
         .find((button) => button.getAttribute("data-elyric-choice") === "waveform")
         .click();
     renderer.onTimeUpdate(0, 20000000);
     assert(liveWaveformReads > 0, "the waveform style should read live time-domain samples");
+    const particleArcCalls = renderer.__elyricVisualizerContext.arcCalls;
+    renderer.__elyricVisualizerStyleButtons
+        .find((button) => button.getAttribute("data-elyric-choice") === "balls")
+        .click();
+    renderer.onTimeUpdate(0, 20000000);
+    assert(renderer.__elyricVisualizerContext.arcCalls > particleArcCalls,
+        "the particle style should paint audio-reactive primary and reflected particles");
     renderer.__elyricVisualizerStyleButtons
         .find((button) => button.getAttribute("data-elyric-choice") === "curve")
         .click();
@@ -681,6 +710,12 @@ function createLyricElement(index) {
     renderer.__elyricBackgroundButtons
         .find((button) => button.getAttribute("data-elyric-choice") === "white")
         .click();
+    assert.strictEqual(renderer.__elyricAlignmentButtons.length, 3,
+        "lyric alignment should expose only the explicit left, center and right anchors");
+    renderer.__elyricAlignmentButtons
+        .find((button) => button.getAttribute("data-elyric-choice") === "right")
+        .click();
+    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-alignment"), "right");
     renderer.__elyricAlignmentButtons
         .find((button) => button.getAttribute("data-elyric-choice") === "center")
         .click();
@@ -1043,6 +1078,9 @@ function createLyricElement(index) {
     assert(adapter.includes("captureStream") && adapter.includes("createMediaStreamSource")
         && adapter.includes("getByteFrequencyData") && adapter.includes("getByteTimeDomainData"),
     "the visualizer should analyse the active Emby media stream before using its fallback envelope");
+    assert(adapter.includes("bandAverage * .76 + bandPeak * .24")
+        && adapter.includes("Math.pow((i + 1) / count, 1.12)"),
+    "frequency styles should average perceptual bands instead of repeatedly sampling bass bins");
     assert(!adapter.includes("connect(audioContext.destination)"),
         "passive spectrum analysis must not reroute Emby's audio output");
     assert(adapter.includes("var LYRIC_FOLLOW_IDLE_MS = 10000"),
@@ -1066,6 +1104,19 @@ function createLyricElement(index) {
         "the queue button should be able to close its panel without restoring a lyric toggle");
     assert(adapterCss.includes("max-height: calc(100dvh"),
         "the queue drawer must stay within the full-player viewport on long queues and mobile browsers");
+    assert(adapterCss.includes("--elyric-custom-artwork-safe-size")
+        && adapterCss.includes("--elyric-custom-metadata-safe-width")
+        && adapterCss.includes("--elyric-custom-lyrics-safe-width")
+        && adapterCss.includes("--elyric-custom-lyrics-safe-top"),
+    "custom composition should clamp artwork, metadata and lyrics to viewport safety zones");
+    assert(adapterCss.includes("width: min(var(--elyric-visualizer-width, 92vw), calc(100dvw - 1.4rem))"),
+        "mobile visualizer width should respect the user's saved width without overflowing the viewport");
+    assert(adapterCss.includes("position: sticky") && adapterCss.includes("var(--elyric-surface-solid)"),
+        "the native queue should retain a readable sticky heading in every theme");
+    assert(adapterCss.includes(".elyric-player-overlay-scrim") && adapterCss.includes("z-index: 1410"),
+        "modal surfaces should remain clickable above any oversized lyric composition");
+    assert(adapterCss.includes('[data-elyric-alignment="right"]'),
+        "lyrics should support an explicit right text anchor without moving their container");
     assert(adapterCss.includes(".videoOsdBottom-maincontrols"),
         "the native OSD control layer should be visually suppressed behind custom controls");
     assert(adapterCss.includes(".videoOsdHeader"),

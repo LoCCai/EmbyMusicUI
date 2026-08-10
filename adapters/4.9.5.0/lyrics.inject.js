@@ -67,7 +67,7 @@
         { id: "fall", label: "峰值回落" },
         { id: "curve", label: "流线" },
         { id: "line", label: "折线" },
-        { id: "balls", label: "粒子" },
+        { id: "balls", label: "粒子矩阵" },
         { id: "pulse", label: "呼吸" }
     ];
     var VISUALIZER_ANALYSIS_DEFINITIONS = [
@@ -94,7 +94,7 @@
         {
             id: "bassBoost", property: "__elyricVisualizerBassBoost",
             storageKey: VISUALIZER_BASS_BOOST_STORAGE_KEY,
-            minimum: 50, maximum: 220, step: 5, fallback: 135, valueUnit: "%"
+            minimum: 0, maximum: 200, step: 5, fallback: 100, valueUnit: "%"
         }
     ];
     var VISUALIZER_RANGES = [
@@ -114,8 +114,9 @@
         { id: "rainbow", label: "彩虹" }
     ];
     var LYRIC_ALIGNMENTS = [
-        { id: "left", label: "居左" },
-        { id: "center", label: "居中" }
+        { id: "left", label: "左对齐" },
+        { id: "center", label: "居中" },
+        { id: "right", label: "右对齐" }
     ];
     var PLAYER_TUNING_DEFINITIONS = [
         {
@@ -129,8 +130,8 @@
             ratio: true, valueUnit: "%"
         },
         {
-            id: "artworkScale", label: "唱片尺寸", storageKey: "emby-lyric-enhance.artwork-scale",
-            minimum: 35, maximum: 180, step: 1, fallback: 100, cssProperty: "--elyric-artwork-scale",
+            id: "artworkScale", label: "唱片内部缩放", storageKey: "emby-lyric-enhance.artwork-scale",
+            minimum: 35, maximum: 140, step: 1, fallback: 100, cssProperty: "--elyric-artwork-scale",
             ratio: true, valueUnit: "%"
         },
         {
@@ -1431,6 +1432,9 @@
         open = !!open;
         if (open) {
             setMediaPanelOpen(renderer, false);
+            if (renderer.__elyricQueueOpen) {
+                setQueueOpen(renderer, false, true);
+            }
         }
         renderer.__elyricSettingsOpen = open;
         setAttributeIfChanged(
@@ -1452,12 +1456,16 @@
         if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
             setAttributeIfChanged(document.body, "data-elyric-settings-open", open ? "true" : "false");
         }
+        syncPlayerOverlayScrim(renderer);
     }
 
     function setMediaPanelOpen(renderer, open) {
         open = !!open;
         if (open) {
             setSettingsPanelOpen(renderer, false);
+            if (renderer.__elyricQueueOpen) {
+                setQueueOpen(renderer, false, true);
+            }
         }
         renderer.__elyricMediaOpen = open;
         if (renderer.__elyricMediaPanel) {
@@ -1476,6 +1484,20 @@
         }
         if (open) {
             refreshMediaInformation(renderer);
+        }
+        syncPlayerOverlayScrim(renderer);
+    }
+
+    function syncPlayerOverlayScrim(renderer, pageVisible) {
+        var scrim = renderer && renderer.__elyricOverlayScrim;
+        if (!scrim) {
+            return;
+        }
+        if (false !== pageVisible
+            && (renderer.__elyricSettingsOpen || renderer.__elyricMediaOpen)) {
+            removeAttributeIfPresent(scrim, "hidden");
+        } else {
+            setAttributeIfChanged(scrim, "hidden", "hidden");
         }
     }
 
@@ -2014,7 +2036,9 @@
             analyser.fftSize = 2048;
             analyser.minDecibels = -92;
             analyser.maxDecibels = -12;
-            analyser.smoothingTimeConstant = (renderer.__elyricVisualizerSmoothing || 25) / 100;
+            analyser.smoothingTimeConstant = (null != renderer.__elyricVisualizerSmoothing
+                ? renderer.__elyricVisualizerSmoothing
+                : 25) / 100;
             source.connect(analyser);
             renderer.__elyricVisualizerMediaElement = mediaElement;
             renderer.__elyricVisualizerMediaStream = stream;
@@ -2066,7 +2090,9 @@
             }
             var sensitivity = (renderer.__elyricVisualizerSensitivity || 125) / 100;
             var response = (renderer.__elyricVisualizerResponse || 80) / 100;
-            var bassBoost = (renderer.__elyricVisualizerBassBoost || 135) / 100;
+            var bassBoost = (null != renderer.__elyricVisualizerBassBoost
+                ? renderer.__elyricVisualizerBassBoost
+                : 100) / 100;
             var maximumBin = Math.max(
                 1,
                 Math.min(
@@ -2076,13 +2102,29 @@
             );
             for (i = 0; i < count; i++) {
                 var normalizedX = i / (count - 1);
-                var binIndex = Math.min(
-                    maximumBin,
-                    Math.round(Math.pow(normalizedX, 1.72) * maximumBin)
+                var bandStart = Math.max(
+                    1,
+                    Math.min(maximumBin, Math.floor(Math.pow(i / count, 1.12) * maximumBin))
                 );
-                var raw = renderer.__elyricVisualizerFrequencyData[binIndex] / 255;
-                var lowFrequencyGain = 1 + (bassBoost - 1) * Math.pow(1 - normalizedX, 2.35);
-                var target = Math.min(1.18, raw * sensitivity * lowFrequencyGain * amplitude);
+                var bandEnd = Math.max(
+                    bandStart + 1,
+                    Math.min(maximumBin + 1, Math.ceil(Math.pow((i + 1) / count, 1.12) * maximumBin))
+                );
+                var bandTotal = 0;
+                var bandPeak = 0;
+                for (var bandIndex = bandStart; bandIndex < bandEnd; bandIndex++) {
+                    var bandValue = renderer.__elyricVisualizerFrequencyData[bandIndex] || 0;
+                    bandTotal += bandValue;
+                    bandPeak = Math.max(bandPeak, bandValue);
+                }
+                var bandAverage = bandTotal / Math.max(1, bandEnd - bandStart);
+                var raw = (bandAverage * .76 + bandPeak * .24) / 255;
+                var lowFrequencyGain = 1 + (bassBoost - 1) * Math.pow(1 - normalizedX, 1.85);
+                var perceptualTilt = .82 + Math.pow(normalizedX, .7) * .42;
+                var target = Math.min(
+                    1.18,
+                    raw * sensitivity * lowFrequencyGain * perceptualTilt * amplitude
+                );
                 var previous = renderer.__elyricVisualizerEnergy[i] || 0;
                 var rate = target > previous
                     ? .35 + response * .6
@@ -2197,16 +2239,47 @@
             }
             context.stroke();
         } else if ("balls" === styleId) {
-            count = Math.max(24, Math.round(density * .8));
+            count = Math.max(24, Math.round(density * .58));
             var ballSamples = visualizerSamples(renderer, count, time, amplitude, false);
+            context.shadowColor = renderer.__elyricVisualizerColors
+                && renderer.__elyricVisualizerColors[0]
+                ? renderer.__elyricVisualizerColors[0]
+                : "#a8e063";
             for (i = 0; i < count; i++) {
                 x = i / (count - 1);
                 value = ballSamples[i];
-                var radius = Math.max(2, Math.min(height * .065, 2 + value * height * .025));
-                context.beginPath();
-                context.arc(x * width, baseline - value * height * .64, radius, 0, Math.PI * 2);
-                context.fill();
+                var radius = Math.max(1.7, Math.min(3.6, height * .075, width / count * .31));
+                var particleGap = radius * 2.65;
+                var particleRows = Math.max(1, Math.round(value * height * .42 / particleGap));
+                context.shadowBlur = radius * (1.2 + value * 2.1);
+                for (var particleRow = 0; particleRow <= particleRows; particleRow++) {
+                    var particleAlpha = Math.max(.2, .92 - particleRow / Math.max(2, particleRows + 1) * .62);
+                    context.globalAlpha = particleAlpha;
+                    context.beginPath();
+                    context.arc(
+                        x * width,
+                        baseline - particleRow * particleGap,
+                        radius,
+                        0,
+                        Math.PI * 2
+                    );
+                    context.fill();
+                    if (particleRow) {
+                        context.globalAlpha = particleAlpha * .62;
+                        context.beginPath();
+                        context.arc(
+                            x * width,
+                            baseline + particleRow * particleGap,
+                            Math.max(1.1, radius * .72),
+                            0,
+                            Math.PI * 2
+                        );
+                        context.fill();
+                    }
+                }
             }
+            context.shadowBlur = 0;
+            context.globalAlpha = .92;
         } else if ("pulse" === styleId) {
             count = Math.max(24, Math.round(density * .7));
             var pulseSamples = visualizerSamples(renderer, count, time, amplitude, false);
@@ -3472,6 +3545,16 @@
         followButton.addEventListener("pointerdown", stopControlEvent);
         control.appendChild(followButton);
 
+        var overlayScrim = document.createElement("div");
+        overlayScrim.className = "elyric-player-overlay-scrim";
+        overlayScrim.setAttribute("aria-hidden", "true");
+        overlayScrim.setAttribute("hidden", "hidden");
+        overlayScrim.addEventListener("click", function (event) {
+            stopControlEvent(event);
+            setSettingsPanelOpen(renderer, false);
+            setMediaPanelOpen(renderer, false);
+        });
+
         var settingsPanel = document.createElement("div");
         settingsPanel.className = "elyric-player-settings-panel";
         settingsPanel.setAttribute("role", "dialog");
@@ -3780,6 +3863,7 @@
         renderer.__elyricArtworkRotationButton = artworkRotationButton;
         renderer.__elyricArtworkRotationSettingsButtons = rotationChoices.buttons;
         renderer.__elyricSettingsButton = settingsButton;
+        renderer.__elyricOverlayScrim = overlayScrim;
         renderer.__elyricSettingsPanel = settingsPanel;
         renderer.__elyricPreferenceStatus = preferenceStatus;
         renderer.__elyricSettingsOpen = false;
@@ -3814,10 +3898,22 @@
         renderer.__elyricPlayerTuningInputs = tuningInputs;
         renderer.__elyricPlayerTuningValues = tuningValues;
         renderer.__elyricLyricFollowButton = followButton;
+        var overlayKeyHandler = function (event) {
+            if (event && "Escape" === event.key
+                && (renderer.__elyricSettingsOpen || renderer.__elyricMediaOpen)) {
+                setSettingsPanelOpen(renderer, false);
+                setMediaPanelOpen(renderer, false);
+            }
+        };
+        if (document.addEventListener) {
+            document.addEventListener("keydown", overlayKeyHandler);
+            renderer.__elyricOverlayKeyHandler = overlayKeyHandler;
+        }
         installQueueDismissHandler(renderer);
         installLyricFollowTracking(renderer);
         var settingsHost = getThemeControlHost(renderer);
         if (settingsHost && settingsHost.appendChild) {
+            settingsHost.appendChild(overlayScrim);
             settingsHost.appendChild(settingsPanel);
             settingsHost.appendChild(mediaPanel);
         }
@@ -3957,7 +4053,8 @@
         if (!control) {
             return;
         }
-        if (isThemeContextVisible(renderer)) {
+        var pageVisible = isThemeContextVisible(renderer);
+        if (pageVisible) {
             removeAttributeIfPresent(control, "hidden");
             setAttributeIfChanged(control, "aria-hidden", "false");
             syncSettingsPanelVisibility(renderer, true);
@@ -3970,6 +4067,7 @@
             setAttributeIfChanged(control, "aria-hidden", "true");
             syncPlayerPageState(renderer, false);
         }
+        syncPlayerOverlayScrim(renderer, pageVisible);
         syncVisualizerAnimation(renderer);
     }
 
@@ -4142,6 +4240,12 @@
         if (renderer.__elyricMediaPanel && renderer.__elyricMediaPanel.parentNode) {
             renderer.__elyricMediaPanel.parentNode.removeChild(renderer.__elyricMediaPanel);
         }
+        if (renderer.__elyricOverlayScrim && renderer.__elyricOverlayScrim.parentNode) {
+            renderer.__elyricOverlayScrim.parentNode.removeChild(renderer.__elyricOverlayScrim);
+        }
+        if (renderer.__elyricOverlayKeyHandler && document.removeEventListener) {
+            document.removeEventListener("keydown", renderer.__elyricOverlayKeyHandler);
+        }
         if (renderer.__elyricQueueDismissHost
             && renderer.__elyricQueueDismissHost.removeEventListener
             && renderer.__elyricQueueDismissHandler) {
@@ -4205,6 +4309,8 @@
         renderer.__elyricArtworkRotation = null;
         renderer.__elyricSettingsButton = null;
         renderer.__elyricSettingsPanel = null;
+        renderer.__elyricOverlayScrim = null;
+        renderer.__elyricOverlayKeyHandler = null;
         renderer.__elyricPreferenceStatus = null;
         renderer.__elyricSettingsOpen = false;
         renderer.__elyricMediaButton = null;
