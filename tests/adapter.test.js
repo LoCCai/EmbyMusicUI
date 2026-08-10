@@ -1306,6 +1306,27 @@ function createLyricElement(index) {
         && adapterCss.includes("bottom: max(8.25rem")
         && adapterCss.includes("bottom: max(10.45rem"),
         "mobile controls should provide explicit 44px targets across a full-width, non-overlapping tool row");
+    assert(adapterCss.includes("/* V3.9: balanced desktop canvases and scalable 2K/4K compositions. */")
+        && adapterCss.includes("@media (min-width: 1920px) and (min-height: 1000px)")
+        && adapterCss.includes("width: min(82vw, 180rem)")
+        && adapterCss.includes("font-size: clamp(1.5rem, 1.25vw, 2.5rem)"),
+        "2K and 4K playback canvases should scale controls, progress and lyric typography together");
+    assert(adapterCss.includes('data-elyric-player-layout="center"] .elyric-player-identity')
+        && adapterCss.includes("width: min(29vw, 56vh, 72rem)")
+        && adapterCss.includes("top: 40vh")
+        && adapterCss.includes("height: min(58vh, 68rem)"),
+        "the desktop poster preset should distribute artwork, metadata and lyrics through the usable height");
+    [
+        "width: min(56vw, 92vh)",
+        "width: min(42vw, 66vh)",
+        "width: clamp(24rem, 30vh, 48rem)",
+        "width: min(44vw, 58vh, 78rem)",
+        "width: min(40vw, 60vh, 76rem)",
+        "width: min(82vw, 150rem)",
+        "width: min(43vw, 64vh, 82rem)",
+        "width: clamp(28rem, 24vw, 64rem)"
+    ].forEach((sizeRule) => assert(adapterCss.includes(sizeRule),
+        `${sizeRule} should keep every supplied composition proportional on a large desktop`));
     assert(adapterCss.includes('data-elyric-player-layout="center"] .elyric-player-metadata')
         && adapterCss.includes("border-left: .22rem solid #1ed760")
         && adapterCss.includes('data-elyric-player-layout="stack"] .elyric-player-artwork-stage')
