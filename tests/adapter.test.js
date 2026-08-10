@@ -138,6 +138,7 @@ class FakeNode {
         return this.isConnected ? [{}] : [];
     }
     getBoundingClientRect() {
+        if (this.boundingRect) return this.boundingRect;
         return this.isConnected
             ? { left: 0, right: 100, top: 0, bottom: 100 }
             : { left: 0, right: 0, top: 0, bottom: 0 };
@@ -400,7 +401,21 @@ class FakeAudioContext {
 }
 global.window = {
     devicePixelRatio: 1,
-    matchMedia() { return { matches: true }; }
+    innerWidth: 1440,
+    innerHeight: 900,
+    listeners: {},
+    matchMedia() { return { matches: true }; },
+    addEventListener(type, listener) {
+        if (!this.listeners[type]) this.listeners[type] = [];
+        this.listeners[type].push(listener);
+    },
+    removeEventListener(type, listener) {
+        this.listeners[type] = (this.listeners[type] || []).filter((value) => value !== listener);
+    },
+    dispatchEvent(event) {
+        (this.listeners[event.type] || []).forEach((listener) => listener.call(this, event));
+        return true;
+    }
 };
 function requestAnimationFrame(callback) {
     const id = nextFrameId++;
@@ -686,8 +701,8 @@ function createLyricElement(index) {
         "the coverflow reference should use a real five-card DOM stage");
     assert.strictEqual(renderer.__elyricVisualizerRangeButtons.length, 3);
     assert.strictEqual(renderer.__elyricVisualizerColorModeButtons.length, 4);
-    assert.strictEqual(renderer.__elyricBackgroundButtons.length, 3);
-    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-style"), "spectrum");
+    assert.strictEqual(renderer.__elyricBackgroundButtons.length, 4);
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-style"), "line");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-range"), "wide");
     assert.strictEqual(renderer.__elyricVisualizerWidthInput.value, "62");
     assert.strictEqual(renderer.__elyricVisualizerHeightInput.value, "8");
@@ -699,10 +714,10 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricVisualizerAnalysisInputs.bassBoost.value, "100");
     assert.strictEqual(renderer.__elyricPlayerTuningInputs.backgroundBlur.value, "44",
         "missing local values must use balanced defaults instead of coercing null to zero");
-    assert.strictEqual(renderer.__elyricPlayerTuningInputs.artworkX.value, "76");
-    assert.strictEqual(renderer.__elyricPlayerTuningInputs.artworkSize.value, "30");
-    assert.strictEqual(renderer.__elyricPlayerTuningInputs.metadataWidth.value, "30");
-    assert.strictEqual(renderer.__elyricPlayerTuningInputs.lyricsHeight.value, "54");
+    assert.strictEqual(renderer.__elyricPlayerTuningInputs.artworkX.value, "18");
+    assert.strictEqual(renderer.__elyricPlayerTuningInputs.artworkSize.value, "46");
+    assert.strictEqual(renderer.__elyricPlayerTuningInputs.metadataWidth.value, "42");
+    assert.strictEqual(renderer.__elyricPlayerTuningInputs.lyricsHeight.value, "48");
     assert(settingsPanel.querySelector(".elyric-player-settings-action"),
         "the custom composition workspace should expose a one-click reset action");
     assert(settingsPanel.textContent.includes("显示注音 / 翻译")
@@ -852,8 +867,12 @@ function createLyricElement(index) {
     assert.strictEqual(artworkRotationButton.disabled, false,
         "the lyrics-first circular layout should also allow artwork rotation control");
     layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "stack").click();
+    assert.strictEqual(renderer.__elyricPlayerThemeLibrarySelect.value, "builtin:stack",
+        "the theme library should follow built-in theme buttons");
     layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "custom").click();
     assert.strictEqual(document.body.getAttribute("data-elyric-player-layout"), "custom");
+    assert.strictEqual(renderer.__elyricPlayerThemeLibrarySelect.value, "builtin:stack",
+        "an unsaved custom draft should retain its built-in composition basis");
 
     themeButtons.find((button) => button.getAttribute("data-elyric-choice") === "focus").click();
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), "focus");
@@ -874,9 +893,62 @@ function createLyricElement(index) {
     assert.strictEqual(syncedPlayerPreferences.visualizerResponse, 95);
     assert.strictEqual(syncedPlayerPreferences.visualizerSmoothing, 15);
     assert.strictEqual(syncedPlayerPreferences.visualizerDensity, 80);
-    assert.strictEqual(syncedPlayerPreferences.tuning.backgroundBlur, 32);
-    assert.strictEqual(syncedPlayerPreferences.tuning.artworkX, 82);
-    assert.strictEqual(syncedPlayerPreferences.tuning.lyricsWidth, 52);
+    assert.strictEqual(syncedPlayerPreferences.tuning.backgroundBlur, 44,
+        "selecting a built-in theme should apply its complete parameter set");
+    assert.strictEqual(syncedPlayerPreferences.tuning.artworkX, 24);
+    assert.strictEqual(syncedPlayerPreferences.tuning.lyricsWidth, 44);
+
+    const themeLibrarySelect = renderer.__elyricPlayerThemeLibrarySelect;
+    const themeNameInput = renderer.__elyricPlayerThemeNameInput;
+    themeNameInput.value = "按钮弹卡主题";
+    settingsPanel.querySelector(".elyric-theme-new").click();
+    let storedPlayerThemes = JSON.parse(
+        storedValues.get("emby-lyric-enhance.player-themes.v1")
+    );
+    assert.strictEqual(storedPlayerThemes.length, 1,
+        "the current parameter composition should be saveable as a user theme");
+    const firstUserThemeId = storedPlayerThemes[0].id;
+    assert.strictEqual(themeLibrarySelect.value, `user:${firstUserThemeId}`);
+    assert.strictEqual(document.body.getAttribute("data-elyric-player-layout"), "custom");
+    renderer.__elyricPlayerThemeChoiceButtons.mediaSurface
+        .find((button) => button.getAttribute("data-elyric-choice") === "floating").click();
+    renderer.__elyricMediaFieldButtons
+        .find((button) => button.getAttribute("data-elyric-choice") === "image").click();
+    renderer.__elyricPlayerThemeSaveButton.click();
+    storedPlayerThemes = JSON.parse(storedValues.get("emby-lyric-enhance.player-themes.v1"));
+    assert.strictEqual(storedPlayerThemes[0].choices.mediaSurface, "floating",
+        "the information card background style should be part of a saved theme");
+    assert.strictEqual(storedPlayerThemes[0].mediaFields.image, true,
+        "the information range should be part of a saved theme");
+    themeNameInput.value = "大屏锚定主题";
+    renderer.__elyricPlayerThemeRenameButton.click();
+    assert.strictEqual(JSON.parse(storedValues.get("emby-lyric-enhance.player-themes.v1"))[0].name,
+        "大屏锚定主题");
+    settingsPanel.querySelector(".elyric-theme-duplicate").click();
+    storedPlayerThemes = JSON.parse(storedValues.get("emby-lyric-enhance.player-themes.v1"));
+    assert.strictEqual(storedPlayerThemes.length, 2, "user themes should be duplicable");
+    assert.strictEqual(storedPlayerThemes[1].name, "大屏锚定主题 副本",
+        "a duplicated theme should be distinguishable in the theme library");
+    const duplicateUserThemeId = storedPlayerThemes[1].id;
+    assert.strictEqual(themeLibrarySelect.value, `user:${duplicateUserThemeId}`);
+    await new Promise((resolve) => setTimeout(resolve, 380));
+    const syncedThemeLibrary = JSON.parse(
+        lastDisplayPreferences["emby-lyric-enhance.player-preferences.v2"]
+    );
+    assert.strictEqual(syncedThemeLibrary.playerThemes.length, 2,
+        "the user theme library should sync through Emby preferences");
+    assert.strictEqual(syncedThemeLibrary.activePlayerThemeId, duplicateUserThemeId,
+        "the active user theme should sync with its library");
+    renderer.__elyricPlayerThemeDeleteButton.click();
+    themeLibrarySelect.value = `user:${firstUserThemeId}`;
+    themeLibrarySelect.dispatchEvent({ type: "change", stopPropagation() {} });
+    renderer.__elyricPlayerThemeDeleteButton.click();
+    assert.deepStrictEqual(JSON.parse(storedValues.get("emby-lyric-enhance.player-themes.v1")), [],
+        "deleted user themes should be removed from persistent storage");
+    assert.strictEqual(themeNameInput.value, "",
+        "switching back to an immutable built-in theme should clear a stale user-theme name");
+    layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "custom").click();
+    await new Promise((resolve) => setTimeout(resolve, 380));
 
     const hiddenRenderer = new LyricsRenderer();
     hiddenRenderer.itemsContainer = new FakeNode("div");
@@ -922,6 +994,13 @@ function createLyricElement(index) {
     assert.strictEqual(mediaPanel.getAttribute("aria-modal"), "true",
         "media details should expose modal semantics to assistive technology");
     assert.strictEqual(mediaPanel.getAttribute("hidden"), "hidden");
+    renderer.__elyricMediaButton.boundingRect = {
+        left: 1180, right: 1224, top: 790, bottom: 834, width: 44, height: 44
+    };
+    mediaPanel.boundingRect = {
+        left: 0, right: 490, top: 0, bottom: 520, width: 490, height: 520
+    };
+    mediaPanel.scrollHeight = 520;
     renderer.__elyricMediaButton.click();
     assert.strictEqual(document.activeElement, mediaPanel.querySelector(".elyric-player-settings-close"),
         "opening media details should move keyboard focus into the dialog");
@@ -929,11 +1008,29 @@ function createLyricElement(index) {
     assert.strictEqual(mediaItemRequests, 1,
         "opening media details should request the full authenticated Emby item exactly once");
     assert.strictEqual(mediaPanel.getAttribute("hidden"), null);
+    assert.strictEqual(mediaPanel.getAttribute("data-elyric-anchor-mode"), "button",
+        "desktop media details must be positioned from the launcher button");
+    assert.strictEqual(mediaPanel.getAttribute("data-elyric-anchor-placement"), "above");
+    assert.strictEqual(mediaPanel.style.getPropertyValue("left"), "934px");
+    assert.strictEqual(mediaPanel.style.getPropertyValue("top"), "258px");
+    assert.strictEqual(mediaPanel.style.getPropertyValue("max-height"), "762px");
+    assert.strictEqual(mediaPanel.style.getPropertyValue("--elyric-media-anchor-tip-x"), "268px");
     [
         "/music/测试歌曲.wav", "WAV", "139.6 MB", "PCM_S16LE 6 ch", "PCM_S16LE",
-        "6 ch", "4.23 Mbps", "44,100 Hz", "16 bit", "MJPEG", "600×654", "90,000",
-        "yuvj444p", "(TEXT)", "Lyrics", "TEXT"
+        "6 ch", "4.23 Mbps", "44,100 Hz", "16 bit"
     ].forEach((value) => assert(mediaPanel.textContent.includes(value), `media drawer should include ${value}`));
+    ["MJPEG", "600×654", "(TEXT)", "Lyrics"].forEach((value) => {
+        assert(!mediaPanel.textContent.includes(value), `${value} should respect the default information range`);
+    });
+    ["image", "lyrics"].forEach((fieldId) => renderer.__elyricMediaFieldButtons
+        .find((button) => button.getAttribute("data-elyric-choice") === fieldId).click());
+    ["MJPEG", "600×654", "90,000", "yuvj444p", "(TEXT)", "Lyrics", "TEXT"]
+        .forEach((value) => assert(mediaPanel.textContent.includes(value),
+            `${value} should appear when its information group is enabled`));
+    renderer.__elyricMediaFieldButtons
+        .find((button) => button.getAttribute("data-elyric-choice") === "file").click();
+    assert(!mediaPanel.textContent.includes("/music/测试歌曲.wav"),
+        "each media information group should be independently hideable");
     let escapeDefaultPrevented = false;
     let escapePropagationStopped = false;
     document.dispatchEvent({
@@ -948,6 +1045,19 @@ function createLyricElement(index) {
         "Escape should restore focus to the media launcher");
     assert(escapeDefaultPrevented && escapePropagationStopped,
         "closing an overlay with Escape must not also trigger Emby's page-level shortcut");
+    window.innerWidth = 390;
+    window.innerHeight = 844;
+    renderer.__elyricMediaButton.click();
+    assert.strictEqual(mediaPanel.getAttribute("data-elyric-anchor-mode"), "drawer",
+        "portrait phones should use the safe bottom drawer instead of a desktop fixed position");
+    ["left", "top", "right", "bottom", "max-height", "--elyric-media-anchor-tip-x"]
+        .forEach((propertyName) => assert.strictEqual(
+            mediaPanel.style.getPropertyValue(propertyName), "",
+            `${propertyName} should be cleared when the information card becomes a phone drawer`
+        ));
+    renderer.__elyricMediaButton.click();
+    window.innerWidth = 1440;
+    window.innerHeight = 900;
     assert.strictEqual(renderer.__elyricPlayerFormat.textContent,
         "WAV · PCM_S16LE · 44.1 kHz · 16 bit · 6 ch");
     assert.strictEqual(createdTags.filter((tag) => tag === "canvas").length, 1,
@@ -1443,9 +1553,9 @@ function createLyricElement(index) {
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-color-mode"), "dual");
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-background-mode"), "blur");
     assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-alignment"), "left");
-    assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.backgroundBlur.value, "32");
-    assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.artworkX.value, "82");
-    assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.lyricsWidth.value, "52");
+    assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.backgroundBlur.value, "44");
+    assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.artworkX.value, "24");
+    assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.lyricsWidth.value, "44");
     secondRenderer.sourceEvents = [];
     const emptyItems = await secondRenderer.getItemsInternal();
     await flushPromises();

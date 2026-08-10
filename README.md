@@ -12,7 +12,8 @@ Current adapter: **Emby Server 4.9.5.0**
 - Parses enhanced LRC `<mm:ss.xx>` word timing and recomputes state after playback, seek forward, or seek backward
 - Smooths word timing between Emby's native callbacks with `requestAnimationFrame` instead of visibly stepping at roughly 400 ms intervals
 - Provides five built-in lyric themes that can be switched instantly on the playback page and remembered by the browser
-- Replaces the lyric playback page's visual layer with three remembered full-page layouts: album split, turntable, and lyrics first
+- Replaces the lyric playback page's visual layer with nine parametric full-page compositions and saveable user themes
+- Lets users position and style artwork, metadata, lyrics, visualizer, progress, volume, and media-information surfaces independently
 - Integrates metadata, artwork, seeking, volume/mute, stop, previous/play/next, shuffle, repeat, queue, annotation, and artwork-rotation controls
 - Offers an optional C# settings layer for administrator-controlled defaults and theme override policy
 - Preserves Emby's native line selection, seek action, and scrolling
@@ -57,7 +58,9 @@ See [`plugin/README_CN.md`](plugin/README_CN.md) for build, Docker installation,
 
 Opening the lyric view replaces the page's visual layer instead of stacking another dock over Emby's controls. It provides metadata, artwork ambience, seeking, volume/mute, stop, previous/play-pause/next, shuffle, repeat, play queue, annotation visibility, artwork rotation, and theme selection.
 
-The **Interface** selector switches between **Album split**, **Turntable**, and **Lyrics first**. Both circular layouts support a remembered **Rotate** toggle, while Album split keeps its square artwork stationary. The layout and rotation choices are stored under `emby-lyric-enhance.player-layout` and `emby-lyric-enhance.artwork-rotation`, then restored when the lyric view is reopened.
+The **Interface** selector provides nine built-in compositions backed by the same parameter model. Artwork supports independent inner/outer size and radius, including square-in-circle and circle-in-square treatments; artwork, metadata, lyrics, and the visualizer each have independent stage coordinates. Lyrics, progress, volume, surfaces, typography, spacing, blur, opacity, and theme colors can be adjusted without editing CSS.
+
+The theme library can save the current design as a user theme, then save, duplicate, rename, delete, and restore it through the current Emby account. Media-information groups and card styling are stored with the theme. On desktop and landscape screens the media card is anchored to the information button and automatically flips or clamps at viewport edges; portrait phones use a bottom safe-area drawer.
 
 The shell owns presentation and interaction while playback, seeking, queue state, and casting remain delegated to Emby's native playback session. It does not start a second audio engine. A custom button is disabled when its corresponding native action is unavailable.
 
