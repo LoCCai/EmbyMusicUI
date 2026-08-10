@@ -6014,4 +6014,97 @@
     }
 }
 
+/* V3.11: give the rose preset a balanced two-column desktop composition. */
+@media (min-width: 761px) and (min-height: 621px) {
+    .elyric-player-shell[data-elyric-player-layout="rose"] {
+        --elyric-rose-artwork-size: clamp(18rem, min(26vw, 38vh), 54rem);
+        --elyric-rose-artwork-half: clamp(9rem, min(13vw, 19vh), 27rem);
+        --elyric-rose-left-center: 24.5vw;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-identity {
+        top: 43%;
+        left: var(--elyric-rose-left-center);
+        width: var(--elyric-rose-artwork-size);
+        height: var(--elyric-rose-artwork-size);
+        transform: translate(-50%, -50%);
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-artwork-stage {
+        box-sizing: border-box;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-artwork {
+        width: 88% !important;
+        min-width: 88% !important;
+        height: 88% !important;
+        border-radius: 50% !important;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-metadata {
+        top: calc(43% + var(--elyric-rose-artwork-half) + clamp(1.25rem, 2.2vh, 2.25rem));
+        right: auto;
+        left: var(--elyric-rose-left-center);
+        width: min(42vw, 44rem);
+        text-align: center;
+        transform: translateX(-50%);
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-title {
+        font-size: clamp(1.55rem, 1.75vw, 4.5rem);
+        line-height: 1.06;
+        text-wrap: balance;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-artist {
+        font-size: clamp(1rem, .85vw, 2rem);
+        line-height: 1.25;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-album {
+        font-size: clamp(.82rem, .68vw, 1.55rem);
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-format {
+        max-width: min(38vw, 40rem);
+        align-self: center;
+        font-size: clamp(.72rem, .58vw, 1.3rem);
+    }
+
+    .elyric-player-active-page[data-elyric-player-layout="rose"]
+        .osdContentSection[data-contentsection="lyrics"] {
+        top: clamp(5.75rem, 9vh, 8rem) !important;
+        right: clamp(2rem, 4vw, 10rem) !important;
+        bottom: 9rem !important;
+        left: auto !important;
+        width: min(47vw, 112rem) !important;
+        height: auto !important;
+        max-height: none !important;
+        padding: clamp(1.4rem, 2vw, 3rem) !important;
+        border-radius: clamp(1.5rem, 1.8vw, 3rem);
+    }
+}
+
+@media (min-width: 1920px) and (min-height: 1000px) {
+    .elyric-player-shell[data-elyric-player-layout="rose"] {
+        --elyric-rose-left-center: 24vw;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-identity {
+        top: 38%;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-metadata {
+        top: calc(38% + var(--elyric-rose-artwork-half) + clamp(1.25rem, 2.2vh, 2.25rem));
+    }
+
+    .elyric-player-active-page[data-elyric-player-layout="rose"]
+        .osdContentSection[data-contentsection="lyrics"] {
+        top: 12vh !important;
+        bottom: auto !important;
+        height: min(62vh, 84rem) !important;
+        max-height: min(62vh, 84rem) !important;
+    }
+}
+
 /* ELYRIC_ENHANCE_END:4.9.5.0 */

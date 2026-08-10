@@ -1320,6 +1320,14 @@ function createLyricElement(index) {
         && adapterCss.includes("width: min(86vw, 34rem) !important")
         && adapterCss.includes("@media (min-width: 521px) and (max-width: 760px)"),
         "mobile presets should keep distinct artwork proportions and use the available seek width");
+    assert(adapterCss.includes("/* V3.11: give the rose preset a balanced two-column desktop composition. */")
+        && adapterCss.includes("--elyric-rose-artwork-size: clamp(18rem, min(26vw, 38vh), 54rem)")
+        && adapterCss.includes("--elyric-rose-left-center: 24.5vw")
+        && adapterCss.includes("top: calc(43% + var(--elyric-rose-artwork-half)")
+        && adapterCss.includes("width: min(47vw, 112rem) !important")
+        && adapterCss.includes("top: calc(38% + var(--elyric-rose-artwork-half)")
+        && adapterCss.includes("height: min(62vh, 84rem) !important"),
+        "rose desktop should center a larger artwork and metadata group opposite a balanced lyric sheet");
     assert(adapterCss.includes("/* V3.9: balanced desktop canvases and scalable 2K/4K compositions. */")
         && adapterCss.includes("@media (min-width: 1920px) and (min-height: 1000px)")
         && adapterCss.includes("width: min(82vw, 180rem)")
