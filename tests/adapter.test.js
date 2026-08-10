@@ -159,6 +159,7 @@ class FakeNode {
     }
     matches(selector) {
         if (selector === "audio" || selector === "video") return this.tagName === selector;
+        if (/^[a-z][a-z0-9-]*$/i.test(selector)) return this.tagName === selector.toLowerCase();
         if (/^\.[a-z0-9_-]+$/i.test(selector)) return this.classList.contains(selector.slice(1));
         if (selector === ".listItemBodyText") return this.classList.contains("listItemBodyText");
         if (selector === ".lyricsItem[data-index]") {
@@ -608,8 +609,12 @@ function createLyricElement(index) {
     assert.strictEqual(settingsPanel.getAttribute("hidden"), "hidden");
     assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), "hidden");
     const layoutButtons = renderer.__elyricLayoutButtons;
-    assert.strictEqual(layoutButtons.length, 5,
-        "the four safe presets and the custom player layout should be presented together");
+    assert.strictEqual(layoutButtons.length, 10,
+        "all nine supplied reference layouts and the custom composition should be selectable");
+    assert.deepStrictEqual(
+        layoutButtons.map((button) => button.getAttribute("data-elyric-choice")),
+        ["album", "center", "mobile", "mint", "deck", "stack", "coverflow", "lyrics", "rose", "custom"]
+    );
     assert.strictEqual(layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "album")
         .getAttribute("aria-pressed"), "true");
     assert.strictEqual(document.body.querySelector(".elyric-layout-select"), null);
@@ -629,7 +634,9 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricVisualizer.children[0].tagName, "canvas");
     assert(renderer.__elyricVisualizerContext.strokeCalls > 0,
         "the default spectrum shape should paint rounded center-balanced bars into the canvas");
-    assert.strictEqual(renderer.__elyricVisualizerStyleButtons.length, 8);
+    assert.strictEqual(renderer.__elyricVisualizerStyleButtons.length, 9);
+    assert.strictEqual(renderer.__elyricCoverflowArtworks.length, 5,
+        "the coverflow reference should use a real five-card DOM stage");
     assert.strictEqual(renderer.__elyricVisualizerRangeButtons.length, 3);
     assert.strictEqual(renderer.__elyricVisualizerColorModeButtons.length, 4);
     assert.strictEqual(renderer.__elyricBackgroundButtons.length, 3);
@@ -681,6 +688,13 @@ function createLyricElement(index) {
         .click();
     renderer.onTimeUpdate(0, 20000000);
     assert(liveWaveformReads > 0, "the waveform style should read live time-domain samples");
+    const chromaStrokeCalls = renderer.__elyricVisualizerContext.strokeCalls;
+    renderer.__elyricVisualizerStyleButtons
+        .find((button) => button.getAttribute("data-elyric-choice") === "chroma")
+        .click();
+    renderer.onTimeUpdate(0, 20000000);
+    assert(renderer.__elyricVisualizerContext.strokeCalls > chromaStrokeCalls,
+        "the chromatic mirrored reference should paint live dual-sided energy bars");
     const particleArcCalls = renderer.__elyricVisualizerContext.arcCalls;
     renderer.__elyricVisualizerStyleButtons
         .find((button) => button.getAttribute("data-elyric-choice") === "balls")
@@ -772,6 +786,12 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-player-layout"), "center");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-player-layout"), "center");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.player-layout"), "center");
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-background-mode"), "blur");
+    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-alignment"), "left");
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-style"), "curve");
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-color-mode"), "solid");
+    assert.strictEqual(renderer.__elyricVisualizerColorInputs[0].value, "#1ED760",
+        "selecting a supplied reference should apply its coordinated visual defaults");
     assert.strictEqual(artworkRotationButton.disabled, false,
         "the turntable layout should allow artwork rotation control");
     artworkRotationButton.click();
@@ -831,8 +851,8 @@ function createLyricElement(index) {
     assert(words[0].classList.contains("elyric-word-active"));
     assert(words[1].classList.contains("elyric-word-pending"));
     assert(visible.body.textContent.includes("<img src=x onerror=bad>translation"));
-    assert.strictEqual(createdTags.filter((tag) => tag === "img").length, 2,
-        "only dedicated artwork/background elements may be images; lyric HTML must remain text");
+    assert.strictEqual(createdTags.filter((tag) => tag === "img").length, 7,
+        "only dedicated artwork, background and coverflow elements may be images; lyric HTML must remain text");
     assert.strictEqual(renderer.__elyricPlayerTitle.textContent, "测试歌曲");
     assert.strictEqual(renderer.__elyricPlayerArtist.textContent, "歌手甲 · 歌手乙");
     assert.strictEqual(renderer.__elyricPlayerAlbum.textContent, "测试专辑");
@@ -843,6 +863,9 @@ function createLyricElement(index) {
     );
     assert.strictEqual(renderer.__elyricPlayerBackground.getAttribute("src"),
         "/emby/Items/metadata-test/Images/Primary");
+    assert(renderer.__elyricCoverflowArtworks.every((image) =>
+        image.getAttribute("src") === "/emby/Items/metadata-test/Images/Primary"),
+    "all spatial coverflow cards should stay synchronized with authenticated Emby artwork");
     const mediaPanel = renderer.__elyricMediaPanel;
     assert.strictEqual(mediaPanel.parentNode, document.body,
         "media details should use a dedicated body-level drawer");
@@ -905,8 +928,27 @@ function createLyricElement(index) {
     nativeQueuePanel.classList.add("osdPlayQueue");
     nativeQueuePanel.setAttribute("data-contentsection", "playqueue");
     const nativeQueueItem = new FakeNode("div");
+    nativeQueueItem.classList.add("listItem");
+    const nativeQueueArtwork = new FakeNode("img");
+    nativeQueueArtwork.setAttribute("src", "/emby/Items/queue-next/Images/Primary");
+    const nativeQueueTitle = new FakeNode("div");
+    nativeQueueTitle.classList.add("listItemBodyText");
+    nativeQueueTitle.appendChild(new FakeNode(null, "Queue next"));
+    nativeQueueItem.appendChild(nativeQueueArtwork);
+    nativeQueueItem.appendChild(nativeQueueTitle);
     nativeQueuePanel.appendChild(nativeQueueItem);
     playbackPage.appendChild(nativeQueuePanel);
+    layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "coverflow").click();
+    renderer.__elyricCoverflowPreviewAt = 0;
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(
+        renderer.__elyricCoverflowArtworks[0].getAttribute("src"),
+        "/emby/Items/queue-next/Images/Primary",
+        "coverflow side cards should bind to native Emby queue artwork when it is available"
+    );
+    assert.strictEqual(renderer.__elyricCoverflowCaptions[0].textContent, "Queue next");
+    layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "stack").click();
+    layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "custom").click();
     document.body.dispatchEvent({ type: "pointerdown", target: nativeQueueItem });
     assert.strictEqual(renderer.__elyricPlayerButtons.queue.getAttribute("aria-pressed"), "true",
         "interacting with queue contents must keep the drawer open");
@@ -1059,6 +1101,17 @@ function createLyricElement(index) {
     ["classic", "focus", "gradient", "apple", "minimal"].forEach((themeId) => {
         assert(adapterCss.includes(`[data-elyric-theme="${themeId}"]`), `${themeId} theme CSS should exist`);
     });
+    ["album", "center", "mobile", "mint", "deck", "stack", "coverflow", "lyrics", "rose"].forEach(
+        (layoutId) => {
+            assert(adapter.includes(`id: "${layoutId}"`), `${layoutId} reference layout should be selectable`);
+            assert(adapterCss.includes(`data-elyric-player-layout="${layoutId}"`),
+                `${layoutId} reference layout should have dedicated CSS`);
+        }
+    );
+    assert(adapter.includes("PLAYER_LAYOUT_PRESET_DEFAULTS"),
+        "reference layouts should carry coordinated background, lyric and visualizer defaults");
+    assert(adapterCss.includes(".elyric-player-coverflow-card"),
+        "the spatial coverflow reference should use an implemented card family");
     assert(adapterCss.includes(".elyric-player-shell"));
     assert(adapterCss.includes(".elyric-player-active-page"));
     assert(adapterCss.includes("contain: none !important"),
@@ -1079,7 +1132,7 @@ function createLyricElement(index) {
         "spectrum width and height must be independently adjustable");
     assert(adapterCss.includes("data-elyric-playback-active=\"true\""),
         "playback animations must only run while Emby reports active playback");
-    ["spectrum", "mirror", "waveform", "fall", "curve", "line", "balls", "pulse"].forEach((styleId) => {
+    ["spectrum", "mirror", "waveform", "fall", "curve", "line", "chroma", "balls", "pulse"].forEach((styleId) => {
         assert(adapter.includes(`id: "${styleId}"`), `${styleId} visualizer shape should be available`);
     });
     assert(adapter.includes("captureStream") && adapter.includes("createMediaStreamSource")
@@ -1201,7 +1254,8 @@ function createLyricElement(index) {
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-artwork-rotate"), "false",
         "the artwork rotation choice should be restored from browser storage");
     assert.strictEqual(secondRenderer.__elyricArtworkRotationButton.disabled, false);
-    assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-style"), "curve");
+    assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-style"), "line",
+        "the last selected reference preset should restore its paired visualizer style");
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-range"), "custom");
     assert.strictEqual(secondRenderer.__elyricVisualizerWidthInput.value, "83");
     assert.strictEqual(secondRenderer.__elyricVisualizerHeightInput.value, "16");
@@ -1209,9 +1263,9 @@ function createLyricElement(index) {
     assert.strictEqual(secondRenderer.__elyricVisualizerAnalysisInputs.response.value, "95");
     assert.strictEqual(secondRenderer.__elyricVisualizerAnalysisInputs.smoothing.value, "15");
     assert.strictEqual(secondRenderer.__elyricVisualizerAnalysisInputs.density.value, "80");
-    assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-color-mode"), "multi");
-    assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-background-mode"), "white");
-    assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-alignment"), "center");
+    assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-color-mode"), "dual");
+    assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-background-mode"), "blur");
+    assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-alignment"), "left");
     assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.backgroundBlur.value, "32");
     assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.artworkX.value, "82");
     assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.lyricsWidth.value, "52");

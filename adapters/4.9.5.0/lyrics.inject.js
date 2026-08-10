@@ -47,12 +47,55 @@
         seek: [".videoOsdPositionSlider"]
     };
     var PLAYER_LAYOUTS = [
-        { id: "album", label: "歌词居左" },
-        { id: "center", label: "歌词居中" },
-        { id: "lyrics", label: "大唱片" },
-        { id: "stack", label: "上下布局" },
+        { id: "album", label: "编辑唱片" },
+        { id: "center", label: "Spotify 海报" },
+        { id: "mobile", label: "移动唱机" },
+        { id: "mint", label: "薄荷拟物" },
+        { id: "deck", label: "实体唱盘" },
+        { id: "stack", label: "专辑列表" },
+        { id: "coverflow", label: "封面流" },
+        { id: "lyrics", label: "唱片歌词" },
+        { id: "rose", label: "粉色拟态" },
         { id: "custom", label: "自定义" }
     ];
+    var PLAYER_LAYOUT_PRESET_DEFAULTS = {
+        album: {
+            backgroundMode: "white", lyricAlignment: "left", visualizerStyle: "line",
+            visualizerColorMode: "dual", visualizerColors: ["#d74642", "#111111", "#767676"]
+        },
+        center: {
+            backgroundMode: "blur", lyricAlignment: "left", visualizerStyle: "curve",
+            visualizerColorMode: "solid", visualizerColors: ["#1ed760", "#75f59e", "#d8ffe4"]
+        },
+        mobile: {
+            backgroundMode: "blur", lyricAlignment: "center", visualizerStyle: "waveform",
+            visualizerColorMode: "dual", visualizerColors: ["#ffffff", "#b9f782", "#6ed9ff"]
+        },
+        mint: {
+            backgroundMode: "white", lyricAlignment: "center", visualizerStyle: "spectrum",
+            visualizerColorMode: "solid", visualizerColors: ["#617d76", "#91aaa3", "#d9ebe6"]
+        },
+        deck: {
+            backgroundMode: "white", lyricAlignment: "center", visualizerStyle: "balls",
+            visualizerColorMode: "dual", visualizerColors: ["#7b80e8", "#b6b8ff", "#40444b"]
+        },
+        stack: {
+            backgroundMode: "blur", lyricAlignment: "left", visualizerStyle: "line",
+            visualizerColorMode: "dual", visualizerColors: ["#ff525d", "#ffffff", "#ff9ca2"]
+        },
+        coverflow: {
+            backgroundMode: "blur", lyricAlignment: "center", visualizerStyle: "chroma",
+            visualizerColorMode: "multi", visualizerColors: ["#ffb13b", "#ff5c52", "#f6e28f"]
+        },
+        lyrics: {
+            backgroundMode: "blur", lyricAlignment: "left", visualizerStyle: "waveform",
+            visualizerColorMode: "dual", visualizerColors: ["#ffffff", "#dbe4dd", "#92bd9f"]
+        },
+        rose: {
+            backgroundMode: "white", lyricAlignment: "left", visualizerStyle: "balls",
+            visualizerColorMode: "solid", visualizerColors: ["#ff2f72", "#ff87ad", "#ffd1df"]
+        }
+    };
     var THEMES = [
         { id: "classic", label: "经典累积" },
         { id: "focus", label: "单字聚焦" },
@@ -67,6 +110,7 @@
         { id: "fall", label: "峰值回落" },
         { id: "curve", label: "流线" },
         { id: "line", label: "折线" },
+        { id: "chroma", label: "彩色镜像" },
         { id: "balls", label: "粒子矩阵" },
         { id: "pulse", label: "呼吸" }
     ];
@@ -1566,6 +1610,20 @@
         }
     }
 
+    function applyPlayerLayoutPresetDefaults(renderer, layoutId) {
+        var preset = PLAYER_LAYOUT_PRESET_DEFAULTS[layoutId];
+        if (!preset) {
+            return;
+        }
+        setBackgroundMode(renderer, preset.backgroundMode, true);
+        setLyricAlignment(renderer, preset.lyricAlignment, true);
+        setVisualizerStyle(renderer, preset.visualizerStyle, true);
+        setVisualizerColorMode(renderer, preset.visualizerColorMode, true);
+        preset.visualizerColors.forEach(function (color, index) {
+            setVisualizerColor(renderer, index, color, true);
+        });
+    }
+
     function applyPlayerLayout(renderer, layoutId, persist) {
         layoutId = isKnownPlayerLayout(layoutId) ? layoutId : "album";
         renderer.__elyricPlayerLayout = layoutId;
@@ -1578,8 +1636,13 @@
         }
         syncSegmentedButtons(renderer.__elyricLayoutButtons, layoutId);
         if (persist) {
+            applyPlayerLayoutPresetDefaults(renderer, layoutId);
             storePlayerLayout(layoutId);
             scheduleUserPlayerPreferencesSave(renderer);
+        }
+        if ("coverflow" === layoutId) {
+            renderer.__elyricCoverflowPreviewAt = 0;
+            syncPlayerCoverflowPreview(renderer, true);
         }
         syncArtworkRotationAvailability(renderer);
         syncPlayerPageState(renderer, isThemeContextVisible(renderer));
@@ -2238,6 +2301,30 @@
                 }
             }
             context.stroke();
+        } else if ("chroma" === styleId) {
+            count = Math.max(32, Math.round(density * .82));
+            var chromaSamples = visualizerSamples(renderer, count, time, amplitude, false);
+            var chromaSlot = width / count;
+            context.lineCap = "round";
+            for (i = 0; i < count; i++) {
+                x = (i + .5) / count;
+                value = chromaSamples[i];
+                var chromaHeight = Math.max(2, value * height * .82);
+                var chromaX = i * chromaSlot + chromaSlot / 2;
+                context.globalAlpha = .2 + value * .28;
+                context.lineWidth = Math.max(2.2, Math.min(9, chromaSlot * .74));
+                context.beginPath();
+                context.moveTo(chromaX, baseline - chromaHeight * .62);
+                context.lineTo(chromaX, baseline + chromaHeight * .62);
+                context.stroke();
+                context.globalAlpha = .82;
+                context.lineWidth = Math.max(1.4, Math.min(5.5, chromaSlot * .4));
+                context.beginPath();
+                context.moveTo(chromaX, baseline - chromaHeight * .42);
+                context.lineTo(chromaX, baseline + chromaHeight * .42);
+                context.stroke();
+            }
+            context.globalAlpha = .92;
         } else if ("balls" === styleId) {
             count = Math.max(24, Math.round(density * .58));
             var ballSamples = visualizerSamples(renderer, count, time, amplitude, false);
@@ -2975,23 +3062,77 @@
         replaceElementText(renderer.__elyricPlayerAlbum, item && item.Album || "");
 
         var artworkUrl = playerArtworkUrl(renderer, item);
-        [renderer.__elyricPlayerArtwork, renderer.__elyricPlayerBackground].forEach(function (imageElement) {
-            if (!imageElement) {
-                return;
-            }
-            if (artworkUrl) {
-                imageElement.setAttribute("src", artworkUrl);
-                imageElement.setAttribute("alt", "");
-                imageElement.removeAttribute("hidden");
-            } else {
-                imageElement.removeAttribute("src");
-                imageElement.setAttribute("hidden", "hidden");
-            }
+        [renderer.__elyricPlayerArtwork, renderer.__elyricPlayerBackground]
+            .concat(renderer.__elyricCoverflowArtworks || [])
+            .forEach(function (imageElement) {
+                if (!imageElement) {
+                    return;
+                }
+                if (artworkUrl) {
+                    imageElement.setAttribute("src", artworkUrl);
+                    imageElement.setAttribute("alt", "");
+                    imageElement.removeAttribute("hidden");
+                } else {
+                    imageElement.removeAttribute("src");
+                    imageElement.setAttribute("hidden", "hidden");
+                }
+            });
+        (renderer.__elyricCoverflowCaptions || []).forEach(function (caption, index) {
+            replaceElementText(
+                caption,
+                2 === index
+                    ? item && (item.Name || item.OriginalTitle) || "正在播放"
+                    : playerArtistText(item)
+            );
         });
+        renderer.__elyricCoverflowPreviewAt = 0;
+        syncPlayerCoverflowPreview(renderer, true);
         renderMediaInformation(renderer, item);
         if (renderer.__elyricMediaOpen) {
             refreshMediaInformation(renderer);
         }
+    }
+
+    function syncPlayerCoverflowPreview(renderer, force) {
+        if (!renderer.__elyricCoverflowArtworks
+            || "coverflow" !== renderer.__elyricPlayerLayout) {
+            return;
+        }
+        var now = Date.now();
+        if (!force && renderer.__elyricCoverflowPreviewAt
+            && now < renderer.__elyricCoverflowPreviewAt) {
+            return;
+        }
+        renderer.__elyricCoverflowPreviewAt = now + 2000;
+        var root = renderer.__elyricPlayerPage || findPlayerPage(renderer)
+            || ("undefined" !== typeof document ? document.body : null);
+        if (!root || !root.querySelector) {
+            return;
+        }
+        var queue = root.querySelector('.osdContentSection[data-contentsection="playqueue"]')
+            || root.querySelector(".osdPlayQueue");
+        if (!queue || !queue.querySelectorAll) {
+            return;
+        }
+        var rows = queue.querySelectorAll(".listItem");
+        var sideIndexes = [0, 1, -1, 2, 3];
+        sideIndexes.forEach(function (rowIndex, cardIndex) {
+            if (rowIndex < 0 || !rows[rowIndex]) {
+                return;
+            }
+            var row = rows[rowIndex];
+            var sourceImage = row.querySelector && row.querySelector("img");
+            var sourceText = row.querySelector && row.querySelector(".listItemBodyText");
+            var sourceUrl = sourceImage && (sourceImage.getAttribute("src")
+                || sourceImage.getAttribute("data-src"));
+            if (sourceUrl) {
+                renderer.__elyricCoverflowArtworks[cardIndex].setAttribute("src", sourceUrl);
+                renderer.__elyricCoverflowArtworks[cardIndex].removeAttribute("hidden");
+            }
+            if (sourceText && sourceText.textContent) {
+                replaceElementText(renderer.__elyricCoverflowCaptions[cardIndex], sourceText.textContent);
+            }
+        });
     }
 
     function updatePlayerTransportState(renderer) {
@@ -3046,6 +3187,7 @@
             return;
         }
         updatePlayerMetadata(renderer);
+        syncPlayerCoverflowPreview(renderer, false);
         updatePlayerTransportState(renderer);
         updateVolumeControl(renderer);
         if (renderer.__elyricScrubbing) {
@@ -3366,6 +3508,29 @@
         identity.appendChild(artworkStage);
         control.appendChild(identity);
 
+        var coverflow = document.createElement("div");
+        coverflow.className = "elyric-player-coverflow";
+        coverflow.setAttribute("aria-hidden", "true");
+        var coverflowArtworks = [];
+        var coverflowCaptions = [];
+        for (var coverflowIndex = 0; coverflowIndex < 5; coverflowIndex++) {
+            var coverflowCard = document.createElement("div");
+            coverflowCard.className = "elyric-player-coverflow-card";
+            coverflowCard.setAttribute("data-elyric-coverflow-index", String(coverflowIndex));
+            var coverflowArtwork = document.createElement("img");
+            coverflowArtwork.className = "elyric-player-coverflow-artwork";
+            coverflowArtwork.setAttribute("alt", "");
+            coverflowArtwork.setAttribute("hidden", "hidden");
+            var coverflowCaption = document.createElement("span");
+            coverflowCaption.className = "elyric-player-coverflow-caption";
+            coverflowCard.appendChild(coverflowArtwork);
+            coverflowCard.appendChild(coverflowCaption);
+            coverflow.appendChild(coverflowCard);
+            coverflowArtworks.push(coverflowArtwork);
+            coverflowCaptions.push(coverflowCaption);
+        }
+        control.appendChild(coverflow);
+
         var metadata = document.createElement("div");
         metadata.className = "elyric-player-metadata";
         var title = document.createElement("div");
@@ -3621,7 +3786,7 @@
         layoutSection.appendChild(layoutChoices.element);
         var layoutHelp = document.createElement("small");
         layoutHelp.className = "elyric-player-settings-help";
-        layoutHelp.appendChild(document.createTextNode("四套预设遵循安全区；自定义布局允许分别移动唱片、歌曲信息和歌词。"));
+        layoutHelp.appendChild(document.createTextNode("九套参考预设都遵循安全区，并会同步建议的背景、歌词锚点与律动配色；自定义布局仍可分别移动唱片、歌曲信息和歌词。"));
         layoutSection.appendChild(layoutHelp);
 
         var compositionSection = createSettingsSection(
@@ -3849,6 +4014,9 @@
         renderer.__elyricPlayerBackground = background;
         renderer.__elyricPlayerArtworkStage = artworkStage;
         renderer.__elyricPlayerArtwork = artwork;
+        renderer.__elyricPlayerCoverflow = coverflow;
+        renderer.__elyricCoverflowArtworks = coverflowArtworks;
+        renderer.__elyricCoverflowCaptions = coverflowCaptions;
         renderer.__elyricPlayerTitle = title;
         renderer.__elyricPlayerArtist = artist;
         renderer.__elyricPlayerAlbum = album;
@@ -4294,6 +4462,10 @@
         renderer.__elyricPlayerBackground = null;
         renderer.__elyricPlayerArtworkStage = null;
         renderer.__elyricPlayerArtwork = null;
+        renderer.__elyricPlayerCoverflow = null;
+        renderer.__elyricCoverflowArtworks = null;
+        renderer.__elyricCoverflowCaptions = null;
+        renderer.__elyricCoverflowPreviewAt = 0;
         renderer.__elyricPlayerTitle = null;
         renderer.__elyricPlayerArtist = null;
         renderer.__elyricPlayerAlbum = null;
