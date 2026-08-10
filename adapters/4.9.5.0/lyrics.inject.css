@@ -2216,4 +2216,840 @@
         max-height: 70vh;
     }
 }
+/* V3.2: account-synced, physically balanced and responsive player surface. */
+.elyric-player-shell.elyric-theme-picker,
+.elyric-player-shell.elyric-theme-picker[data-elyric-player-layout] {
+    --elyric-background-blur: 44px;
+    --elyric-background-dim: .64;
+    --elyric-artwork-scale: 1;
+    --elyric-artwork-x: 76vw;
+    --elyric-artwork-y: 40vh;
+    --elyric-metadata-x: 64vw;
+    --elyric-metadata-y: 11vh;
+    --elyric-lyrics-width: 46vw;
+    --elyric-lyrics-x: 7vw;
+    --elyric-lyrics-y: 18vh;
+    --elyric-visualizer-width: 62vw;
+    --elyric-visualizer-height: 8vh;
+    grid-template: none;
+    padding: 0;
+    color: #f7f8fa;
+    background: #080a0e;
+    font-family: Inter, "SF Pro Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+}
+
+.elyric-player-shell[data-elyric-background-mode="blur"]::before {
+    background:
+        linear-gradient(90deg,
+            rgb(6 8 11 / calc(var(--elyric-background-dim) + .08)) 0%,
+            rgb(7 9 13 / var(--elyric-background-dim)) 46%,
+            rgb(7 9 13 / calc(var(--elyric-background-dim) + .06)) 100%),
+        radial-gradient(circle at 72% 36%,
+            color-mix(in srgb, var(--theme-primary-color, #8ed34f) 15%, transparent),
+            transparent 44%);
+    -webkit-backdrop-filter: blur(var(--elyric-background-blur)) saturate(118%);
+    backdrop-filter: blur(var(--elyric-background-blur)) saturate(118%);
+}
+
+.elyric-player-shell[data-elyric-background-mode="blur"] .elyric-player-background {
+    inset: -6rem;
+    width: calc(100% + 12rem);
+    height: calc(100% + 12rem);
+    opacity: .52;
+    filter: blur(var(--elyric-background-blur)) saturate(132%);
+    transform: scale(1.08);
+}
+
+.elyric-player-topbar {
+    position: fixed;
+    z-index: 8;
+    top: max(1.1rem, env(safe-area-inset-top, 0px));
+    right: clamp(1.2rem, 3vw, 3rem);
+    left: clamp(1.2rem, 3vw, 3rem);
+    height: 2.65rem;
+    gap: .7rem;
+}
+
+.elyric-player-topbar-title {
+    color: rgba(255, 255, 255, .58);
+    font-size: .67rem;
+    font-weight: 720;
+    letter-spacing: .14em;
+}
+
+.elyric-player-button-back,
+.elyric-player-button-cast {
+    height: 2.35rem;
+    min-width: 2.35rem;
+    border-color: rgba(255, 255, 255, .1);
+    border-radius: .75rem;
+    background: rgba(255, 255, 255, .055);
+    box-shadow: inset 0 1px rgba(255, 255, 255, .06);
+    -webkit-backdrop-filter: blur(1rem);
+    backdrop-filter: blur(1rem);
+}
+
+.elyric-player-button-back {
+    font-size: 1.35rem;
+}
+
+.elyric-player-button-cast {
+    font-size: .7rem;
+}
+
+.elyric-player-shell[data-elyric-player-layout="album"] .elyric-player-identity {
+    position: fixed;
+    top: 22vh;
+    right: 7vw;
+    width: min(31vw, 29rem);
+    height: min(51vh, 29rem);
+}
+
+.elyric-player-shell[data-elyric-player-layout="album"] .elyric-player-metadata {
+    position: fixed;
+    top: 10.5vh;
+    right: 7vw;
+    left: auto;
+    width: min(31vw, 29rem);
+    text-align: center;
+}
+
+.elyric-player-shell[data-elyric-player-layout] .elyric-player-artwork-stage {
+    width: min(100%, 29rem);
+    transform: scale(var(--elyric-artwork-scale));
+    transform-origin: center;
+    transition: transform .25s ease, width .25s ease;
+}
+
+.elyric-player-shell[data-elyric-player-layout] .elyric-player-artwork-stage::after {
+    position: absolute;
+    z-index: 3;
+    width: 7.5%;
+    aspect-ratio: 1;
+    border: 1px solid rgba(255, 255, 255, .28);
+    border-radius: 50%;
+    background: rgba(5, 7, 9, .72);
+    box-shadow: inset 0 0 0 .18rem rgba(255, 255, 255, .08);
+    content: "";
+    pointer-events: none;
+}
+
+.elyric-player-title {
+    color: #f8f9fb;
+    font-size: clamp(1.02rem, 1.35vw, 1.28rem);
+    font-weight: 720;
+    letter-spacing: -.018em;
+}
+
+.elyric-player-artist {
+    margin-top: .28rem;
+    color: rgba(247, 248, 250, .66);
+    font-size: .78rem;
+    font-weight: 520;
+}
+
+.elyric-player-album {
+    margin-top: .16rem;
+    color: rgba(247, 248, 250, .42);
+    font-size: .68rem;
+}
+
+.elyric-player-format {
+    display: inline-flex;
+    margin-top: .5rem;
+    padding: .24rem .45rem;
+    border: 1px solid rgba(255, 255, 255, .09);
+    border-radius: .42rem;
+    color: color-mix(in srgb, var(--theme-primary-color, #a8e063) 72%, #fff);
+    background: rgba(255, 255, 255, .04);
+    font-size: .61rem;
+    font-weight: 680;
+    letter-spacing: .015em;
+}
+
+.elyric-player-transport {
+    position: fixed;
+    z-index: 7;
+    bottom: max(1.15rem, env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    gap: .42rem;
+    transform: translateX(-50%);
+}
+
+.elyric-player-transport .elyric-player-button {
+    min-width: 2.65rem;
+    width: 2.65rem;
+    height: 2.65rem;
+    border: 0;
+    border-radius: 50%;
+    color: rgba(255, 255, 255, .82);
+    background: transparent;
+    font-size: .96rem;
+}
+
+.elyric-player-button-playPause,
+.elyric-player-transport .elyric-player-button-playPause {
+    width: 3.6rem;
+    height: 3.6rem;
+    border: 0;
+    border-radius: 50%;
+    color: #102006;
+    background: color-mix(in srgb, var(--theme-primary-color, #a8e063) 88%, #fff);
+    box-shadow: 0 .65rem 2.1rem color-mix(in srgb, var(--theme-primary-color, #a8e063) 22%, transparent);
+    font-size: 1.08rem;
+}
+
+.elyric-player-transport .elyric-player-button:hover:not(:disabled),
+.elyric-player-transport .elyric-player-button:focus-visible {
+    border-color: transparent;
+    background: rgba(255, 255, 255, .1);
+}
+
+.elyric-player-transport .elyric-player-button-playPause:hover:not(:disabled),
+.elyric-player-transport .elyric-player-button-playPause:focus-visible {
+    color: #0b1604;
+    background: color-mix(in srgb, var(--theme-primary-color, #a8e063) 76%, #fff);
+}
+
+.elyric-player-progress {
+    position: fixed;
+    z-index: 7;
+    bottom: max(5.05rem, calc(env(safe-area-inset-bottom, 0px) + 4rem));
+    left: 50%;
+    width: min(78vw, 72rem);
+    max-width: none;
+    grid-template-columns: 3rem minmax(8rem, 1fr) 3rem;
+    gap: .8rem;
+    color: rgba(255, 255, 255, .5);
+    transform: translateX(-50%);
+}
+
+.elyric-player-progress-slider::-webkit-slider-runnable-track,
+.elyric-player-volume-slider::-webkit-slider-runnable-track {
+    height: .2rem;
+    background: linear-gradient(90deg,
+        var(--elyric-highlight-color, var(--theme-primary-color, #a8e063)) 0 var(--elyric-player-progress, var(--elyric-player-volume, 0%)),
+        rgba(255, 255, 255, .16) var(--elyric-player-progress, var(--elyric-player-volume, 0%)) 100%);
+}
+
+.elyric-player-progress-slider::-webkit-slider-thumb,
+.elyric-player-volume-slider::-webkit-slider-thumb {
+    width: .72rem;
+    height: .72rem;
+    margin-top: -.26rem;
+    box-shadow: 0 0 0 .18rem rgba(255, 255, 255, .1);
+}
+
+.elyric-player-volume {
+    position: fixed;
+    z-index: 7;
+    right: clamp(1.2rem, 3vw, 3rem);
+    bottom: max(1.48rem, env(safe-area-inset-bottom, 0px));
+    width: min(14rem, 22vw);
+    min-width: 9rem;
+    gap: .35rem;
+}
+
+.elyric-player-tools {
+    position: fixed;
+    z-index: 7;
+    bottom: max(1.42rem, env(safe-area-inset-bottom, 0px));
+    left: clamp(1.2rem, 3vw, 3rem);
+    max-width: calc(50vw - 8.5rem);
+    gap: .12rem;
+}
+
+.elyric-player-tools .elyric-player-button,
+.elyric-player-volume .elyric-player-button {
+    min-width: 2.25rem;
+    height: 2.25rem;
+    padding: 0 .58rem;
+    border: 0;
+    border-radius: .68rem;
+    color: rgba(255, 255, 255, .68);
+    background: transparent;
+    font-size: .72rem;
+}
+
+.elyric-player-tools .elyric-player-button:hover:not(:disabled),
+.elyric-player-tools .elyric-player-button:focus-visible,
+.elyric-player-tools .elyric-player-button[data-elyric-active="true"],
+.elyric-player-volume .elyric-player-button:hover:not(:disabled) {
+    border-color: transparent;
+    color: #fff;
+    background: rgba(255, 255, 255, .09);
+}
+
+.elyric-player-shell.elyric-theme-picker .elyric-player-visualizer {
+    position: fixed;
+    z-index: 2;
+    inset: auto auto max(6.25rem, calc(env(safe-area-inset-bottom, 0px) + 5.4rem)) 50%;
+    width: min(var(--elyric-visualizer-width), calc(100vw - 3rem));
+    height: min(var(--elyric-visualizer-height), 5.5rem);
+    min-height: 2.4rem;
+    max-height: 5.5rem;
+    opacity: .58;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+}
+
+.elyric-player-shell[data-elyric-playback-active="false"] .elyric-player-visualizer {
+    opacity: .2;
+}
+
+.elyric-player-active-page[data-elyric-player-layout="album"] .osdContentSection[data-contentsection="lyrics"] {
+    top: 16vh !important;
+    right: auto !important;
+    bottom: 11.5rem !important;
+    left: 6vw !important;
+    width: min(48vw, 50rem) !important;
+}
+
+.elyric-player-active-page .osdLyricsItemsContainer .lyricsItem {
+    margin-bottom: clamp(.68rem, 1.4vh, 1.05rem) !important;
+}
+
+.elyric-player-active-page .osdLyricsItemsContainer {
+    font-size: clamp(1.28rem, 1.65vw, 1.72rem);
+}
+
+.elyric-player-active-page .osdLyricsItemsContainer .elyric-line-future .listItemBodyText,
+.elyric-player-active-page .osdLyricsItemsContainer .elyric-line-past .listItemBodyText {
+    opacity: var(--elyric-other-lines-opacity, .3);
+}
+
+.elyric-player-shell[data-elyric-player-layout="custom"] .elyric-player-identity {
+    position: fixed;
+    top: var(--elyric-artwork-y);
+    left: var(--elyric-artwork-x);
+    width: min(30vw, 29rem);
+    height: min(52vh, 29rem);
+    transform: translate(-50%, -50%);
+}
+
+.elyric-player-shell[data-elyric-player-layout="custom"] .elyric-player-metadata {
+    position: fixed;
+    top: var(--elyric-metadata-y);
+    left: var(--elyric-metadata-x);
+    width: min(32vw, 32rem);
+    text-align: left;
+}
+
+.elyric-player-active-page[data-elyric-player-layout="custom"] .osdContentSection[data-contentsection="lyrics"] {
+    top: var(--elyric-lyrics-y) !important;
+    right: auto !important;
+    bottom: 11.5rem !important;
+    left: var(--elyric-lyrics-x) !important;
+    width: min(var(--elyric-lyrics-width), calc(100vw - var(--elyric-lyrics-x) - 2rem)) !important;
+    transform: none;
+}
+
+.elyric-player-settings-panel,
+.elyric-player-media-panel {
+    position: fixed;
+    z-index: 1280;
+    top: max(4.6rem, calc(env(safe-area-inset-top, 0px) + 3.6rem));
+    right: clamp(.8rem, 2vw, 1.5rem);
+    bottom: max(.8rem, env(safe-area-inset-bottom, 0px));
+    width: min(52rem, calc(100vw - 2rem));
+    max-height: none;
+    box-sizing: border-box;
+    padding: 1rem 1.1rem 1.2rem;
+    border: 1px solid rgba(255, 255, 255, .1);
+    border-radius: 1.2rem;
+    background: rgb(14 17 22 / .93);
+    box-shadow: 0 1.5rem 5rem rgba(0, 0, 0, .42);
+    -webkit-backdrop-filter: blur(2rem) saturate(130%);
+    backdrop-filter: blur(2rem) saturate(130%);
+    scrollbar-width: thin;
+}
+
+.elyric-player-settings-panel {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    gap: 0 1.35rem;
+    overflow: auto;
+}
+
+.elyric-player-settings-panel[hidden],
+.elyric-player-media-panel[hidden] {
+    display: none !important;
+}
+
+.elyric-player-settings-header {
+    position: sticky;
+    z-index: 3;
+    top: -1rem;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-column: 1 / -1;
+    min-height: 3.2rem;
+    box-sizing: border-box;
+    align-items: center;
+    gap: .8rem;
+    margin: -1rem -1.1rem 0;
+    padding: .8rem 1.1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, .08);
+    background: rgb(14 17 22 / .94);
+    -webkit-backdrop-filter: blur(1.5rem);
+    backdrop-filter: blur(1.5rem);
+}
+
+.elyric-player-preference-status {
+    overflow: hidden;
+    color: rgba(255, 255, 255, .42);
+    font-size: .66rem;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.elyric-player-preference-status[data-elyric-state="synced"] {
+    color: color-mix(in srgb, var(--theme-primary-color, #a8e063) 72%, #fff);
+}
+
+.elyric-player-settings-close {
+    width: 2rem;
+    height: 2rem;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, .075);
+}
+
+.elyric-player-settings-section {
+    display: grid;
+    align-content: start;
+    gap: .62rem;
+    padding: 1rem .1rem 1.05rem;
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, .075);
+    border-radius: 0;
+    background: transparent;
+}
+
+.elyric-player-settings-section:nth-of-type(-n+2) {
+    border-top: 0;
+}
+
+.elyric-player-settings-section-title {
+    color: rgba(255, 255, 255, .9);
+    font-size: .76rem;
+    font-weight: 720;
+    letter-spacing: .01em;
+}
+
+.elyric-composition-settings {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-column: 1 / -1;
+    column-gap: .9rem;
+}
+
+.elyric-composition-settings .elyric-player-settings-section-title,
+.elyric-composition-settings .elyric-player-settings-help {
+    grid-column: 1 / -1;
+}
+
+.elyric-player-segmented {
+    gap: .18rem;
+    padding: .18rem;
+    border: 1px solid rgba(255, 255, 255, .07);
+    border-radius: .72rem;
+    background: rgba(255, 255, 255, .035);
+}
+
+.elyric-player-segment {
+    min-height: 2rem;
+    border: 0;
+    border-radius: .54rem;
+    color: rgba(255, 255, 255, .6);
+    background: transparent;
+    font-size: .67rem;
+    font-weight: 620;
+}
+
+.elyric-player-segment[data-elyric-active="true"],
+.elyric-player-segment[aria-pressed="true"] {
+    color: #102006;
+    background: color-mix(in srgb, var(--theme-primary-color, #a8e063) 84%, #fff);
+    box-shadow: 0 .2rem .7rem color-mix(in srgb, var(--theme-primary-color, #a8e063) 16%, transparent);
+}
+
+.elyric-player-range-header {
+    color: rgba(255, 255, 255, .58);
+    font-size: .65rem;
+}
+
+.elyric-player-range-header output {
+    color: color-mix(in srgb, var(--theme-primary-color, #a8e063) 72%, #fff);
+}
+
+.elyric-player-settings-help,
+.elyric-player-settings-note,
+.elyric-player-settings-note-muted {
+    color: rgba(255, 255, 255, .36);
+    font-size: .62rem;
+    line-height: 1.5;
+}
+
+.elyric-player-settings-note {
+    grid-column: 1 / -1;
+    margin-top: .3rem;
+    border-color: rgba(255, 255, 255, .07);
+    background: rgba(255, 255, 255, .025);
+}
+
+.elyric-player-media-panel {
+    width: min(43rem, calc(100vw - 2rem));
+    overflow: auto;
+}
+
+.elyric-player-media-body {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 1.2rem;
+}
+
+.elyric-player-media-section {
+    padding: 1rem .1rem;
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, .075);
+    border-radius: 0;
+    background: transparent;
+}
+
+.elyric-player-media-section:first-child {
+    grid-column: 1 / -1;
+    border-top: 0;
+}
+
+.elyric-player-active-page .osdContentSection[data-contentsection="playqueue"] {
+    top: max(4.6rem, calc(env(safe-area-inset-top, 0px) + 3.6rem)) !important;
+    bottom: max(.8rem, env(safe-area-inset-bottom, 0px)) !important;
+    left: clamp(.8rem, 2vw, 1.5rem) !important;
+    width: min(29rem, calc(100vw - 2rem)) !important;
+    max-width: min(29rem, calc(100vw - 2rem)) !important;
+    max-height: none !important;
+    padding: .7rem !important;
+    border-radius: 1.2rem !important;
+    background: rgb(14 17 22 / .94) !important;
+    -webkit-backdrop-filter: blur(2rem) saturate(130%);
+    backdrop-filter: blur(2rem) saturate(130%);
+}
+
+.elyric-player-active-page .osdContentSection[data-contentsection="playqueue"] .listItem {
+    min-height: 3.3rem;
+    margin: 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, .07);
+    border-radius: 0 !important;
+    background: transparent !important;
+}
+
+@media (max-width: 1080px) and (min-width: 761px) {
+    .elyric-player-shell[data-elyric-player-layout="album"] .elyric-player-identity {
+        right: 4vw;
+        width: 34vw;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="album"] .elyric-player-metadata {
+        right: 4vw;
+        width: 34vw;
+    }
+
+    .elyric-player-active-page[data-elyric-player-layout="album"] .osdContentSection[data-contentsection="lyrics"] {
+        left: 4vw !important;
+        width: 54vw !important;
+    }
+
+    .elyric-player-tools {
+        left: 1rem;
+    }
+
+    .elyric-player-volume {
+        right: 1rem;
+        width: 11rem;
+    }
+
+    .elyric-player-button-info,
+    .elyric-player-button-secondline,
+    .elyric-player-button-rotation {
+        padding: 0 .4rem !important;
+        font-size: .65rem !important;
+    }
+}
+
+@media (max-width: 760px) {
+    .elyric-player-active-page[data-elyric-settings-open="true"] .osdContentSection[data-contentsection="lyrics"],
+    .elyric-player-active-page[data-elyric-media-open="true"] .osdContentSection[data-contentsection="lyrics"] {
+        visibility: hidden !important;
+        opacity: 0 !important;
+    }
+
+    .elyric-player-shell.elyric-theme-picker,
+    .elyric-player-shell.elyric-theme-picker[data-elyric-player-layout] {
+        overflow: hidden;
+    }
+
+    .elyric-player-topbar {
+        top: max(.55rem, env(safe-area-inset-top, 0px));
+        right: .65rem;
+        left: .65rem;
+        height: 2.45rem;
+    }
+
+    .elyric-player-topbar-title {
+        font-size: .6rem;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout] .elyric-player-identity,
+    .elyric-player-shell[data-elyric-player-layout="lyrics"] .elyric-player-identity,
+    .elyric-player-shell[data-elyric-player-layout="stack"] .elyric-player-identity,
+    .elyric-player-shell[data-elyric-player-layout="custom"] .elyric-player-identity {
+        position: fixed;
+        top: max(3.65rem, calc(env(safe-area-inset-top, 0px) + 3rem));
+        left: .78rem;
+        width: 4.8rem;
+        height: 4.8rem;
+        transform: none;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout] .elyric-player-artwork-stage {
+        width: 4.8rem;
+        transform: none;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout] .elyric-player-metadata,
+    .elyric-player-shell[data-elyric-player-layout="custom"] .elyric-player-metadata {
+        position: fixed;
+        top: max(3.72rem, calc(env(safe-area-inset-top, 0px) + 3.05rem));
+        right: .75rem;
+        left: 6.15rem;
+        width: auto;
+        text-align: left;
+        transform: none;
+    }
+
+    .elyric-player-title {
+        font-size: 1rem;
+    }
+
+    .elyric-player-artist {
+        margin-top: .2rem;
+        font-size: .72rem;
+    }
+
+    .elyric-player-album {
+        font-size: .62rem;
+    }
+
+    .elyric-player-format {
+        max-width: 100%;
+        margin-top: .28rem;
+        overflow: hidden;
+        font-size: .54rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .elyric-player-active-page[data-elyric-player-layout] .osdContentSection[data-contentsection="lyrics"],
+    .elyric-player-active-page[data-elyric-player-layout="custom"] .osdContentSection[data-contentsection="lyrics"] {
+        top: max(9.3rem, calc(env(safe-area-inset-top, 0px) + 8.6rem)) !important;
+        right: .7rem !important;
+        bottom: max(10.4rem, calc(env(safe-area-inset-bottom, 0px) + 9.6rem)) !important;
+        left: .7rem !important;
+        width: auto !important;
+        max-width: none !important;
+        transform: none;
+    }
+
+    .elyric-player-active-page .osdLyricsItemsContainer .lyricsItem {
+        margin-bottom: .62rem !important;
+    }
+
+    .elyric-player-active-page .osdLyricsItemsContainer {
+        font-size: clamp(1rem, 4.5vw, 1.22rem);
+    }
+
+    .elyric-player-active-page .osdLyricsItemsContainer .listItemBodyText {
+        max-width: 100%;
+        line-height: max(1.18, var(--elyric-line-height, 1.25));
+    }
+
+    .elyric-player-shell.elyric-theme-picker .elyric-player-visualizer {
+        inset: auto auto max(8.45rem, calc(env(safe-area-inset-bottom, 0px) + 7.65rem)) 50%;
+        width: calc(100vw - 1.4rem);
+        height: 2.75rem;
+        min-height: 2.4rem;
+        opacity: .4;
+    }
+
+    .elyric-player-progress {
+        right: .78rem;
+        bottom: max(5.9rem, calc(env(safe-area-inset-bottom, 0px) + 5.05rem));
+        left: .78rem;
+        width: auto;
+        grid-template-columns: 2.55rem minmax(4rem, 1fr) 2.55rem;
+        gap: .48rem;
+        font-size: .63rem;
+        transform: none;
+    }
+
+    .elyric-player-transport {
+        bottom: max(1.05rem, calc(env(safe-area-inset-bottom, 0px) + .25rem));
+    }
+
+    .elyric-player-transport .elyric-player-button {
+        width: 2.45rem;
+        min-width: 2.45rem;
+        height: 2.45rem;
+    }
+
+    .elyric-player-transport .elyric-player-button-playPause {
+        width: 3.4rem;
+        height: 3.4rem;
+    }
+
+    .elyric-player-volume {
+        display: none;
+    }
+
+    .elyric-player-tools {
+        position: static;
+        max-width: none;
+    }
+
+    .elyric-player-tools .elyric-player-button {
+        position: fixed;
+        z-index: 8;
+        bottom: max(1.22rem, calc(env(safe-area-inset-bottom, 0px) + .42rem));
+        width: 2.35rem;
+        min-width: 2.35rem;
+        height: 2.35rem;
+        padding: 0;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, .055);
+        font-size: .7rem;
+    }
+
+    .elyric-player-button-shuffle { left: .68rem; }
+    .elyric-player-button-repeat { left: 3.25rem; }
+    .elyric-player-button-queue { right: 5.82rem; }
+    .elyric-player-button-info { right: 3.25rem; }
+    .elyric-player-button-settings { right: .68rem; }
+
+    .elyric-player-button-stop,
+    .elyric-player-button-secondline,
+    .elyric-player-button-rotation {
+        display: none !important;
+    }
+
+    .elyric-player-tools .elyric-player-button::after {
+        display: none !important;
+    }
+
+    .elyric-player-settings-panel,
+    .elyric-player-media-panel {
+        top: max(.45rem, env(safe-area-inset-top, 0px));
+        right: .42rem;
+        bottom: max(.42rem, env(safe-area-inset-bottom, 0px));
+        left: .42rem;
+        width: auto;
+        max-height: none;
+        padding: .8rem .85rem 1rem;
+        border-radius: 1rem;
+    }
+
+    .elyric-player-settings-panel {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0;
+    }
+
+    .elyric-player-settings-header {
+        top: -.8rem;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        margin: -.8rem -.85rem 0;
+        padding: .68rem .85rem;
+    }
+
+    .elyric-player-preference-status {
+        font-size: .58rem;
+    }
+
+    .elyric-player-settings-section,
+    .elyric-player-settings-section:nth-of-type(-n+2) {
+        grid-column: 1;
+        padding: .92rem 0;
+        border-top: 1px solid rgba(255, 255, 255, .075);
+    }
+
+    .elyric-player-settings-section:first-of-type {
+        border-top: 0;
+    }
+
+    .elyric-composition-settings {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: .8rem;
+    }
+
+    .elyric-player-media-body {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .elyric-player-media-section,
+    .elyric-player-media-section:first-child {
+        grid-column: 1;
+    }
+
+    .elyric-player-active-page .osdContentSection[data-contentsection="playqueue"] {
+        top: max(.42rem, env(safe-area-inset-top, 0px)) !important;
+        right: .42rem !important;
+        bottom: max(.42rem, env(safe-area-inset-bottom, 0px)) !important;
+        left: .42rem !important;
+        width: auto !important;
+        max-width: none !important;
+        max-height: none !important;
+        border-radius: 1rem !important;
+    }
+}
+
+@media (max-height: 620px) and (min-width: 761px) {
+    .elyric-player-shell[data-elyric-player-layout] .elyric-player-identity {
+        top: 16vh;
+        width: min(26vw, 19rem);
+        height: min(46vh, 19rem);
+    }
+
+    .elyric-player-shell[data-elyric-player-layout] .elyric-player-metadata {
+        top: 8vh;
+    }
+
+    .elyric-player-active-page[data-elyric-player-layout] .osdContentSection[data-contentsection="lyrics"] {
+        top: 14vh !important;
+        bottom: 8.7rem !important;
+    }
+
+    .elyric-player-shell.elyric-theme-picker .elyric-player-visualizer {
+        bottom: 5.4rem;
+        height: 2.8rem;
+    }
+
+    .elyric-player-progress {
+        bottom: 4rem;
+    }
+
+    .elyric-player-transport,
+    .elyric-player-tools,
+    .elyric-player-volume {
+        bottom: .45rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .elyric-player-shell[data-elyric-player-layout] .elyric-player-artwork-stage,
+    .elyric-player-button,
+    .elyric-player-segment {
+        transition-duration: .01ms !important;
+    }
+}
+
 /* ELYRIC_ENHANCE_END:4.9.5.0 */

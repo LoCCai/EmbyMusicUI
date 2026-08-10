@@ -61,6 +61,19 @@ assert(adapterJs.includes('"undefined" !== typeof _connectionmanager'),
     "the injected Emby 4.9.5 adapter should use the host lyrics module connection manager");
 assert(adapterJs.includes("_connectionmanager.default.getApiClient(renderer.currentItem)"),
     "the public configuration request should use the authenticated client for the current media item");
+assert(adapterJs.includes("getDisplayPreferences") && adapterJs.includes("updateDisplayPreferences"),
+    "player preferences should use Emby's authenticated per-user display preference store");
+assert(adapterJs.includes("apiClient.getDisplayPreferences(userId)")
+    && adapterJs.includes("apiClient.updatePartialDisplayPreferences(partialPreferences, userId)")
+    && adapterJs.includes("apiClient.updateDisplayPreferences(displayPreferences, userId)"),
+"the adapter should follow Emby 4.9.5's user-first preference API contract with a legacy full-save fallback");
+assert(!adapterJs.includes('PLAYER_PREFERENCES_ID = "emby-lyric-enhance-player"'),
+    "the adapter must not pass a Jellyfin-style display-preference id to Emby's one-argument reader");
+assert(adapterJs.includes("emby-lyric-enhance.player-preferences.v2"),
+    "the account-synced player preference payload should use a versioned custom preference key");
+assert(adapterCss.includes("data-elyric-settings-open=\"true\"")
+    && adapterCss.includes("@media (max-width: 760px)"),
+    "the mobile player should hide the lyric layer while full-screen settings are open");
 assert(serviceSource.includes(`/EmbyLyricEnhance/PublicConfiguration`));
 assert(serviceSource.includes("\"GET\""), "public display defaults should be read-only");
 assert(!serviceSource.includes("POST") && !serviceSource.includes("PUT") && !serviceSource.includes("DELETE"),

@@ -50,13 +50,14 @@ class FakeCanvasContext {
     constructor() {
         this.fillRectCalls = 0;
         this.arcCalls = 0;
+        this.strokeCalls = 0;
     }
     setTransform() {}
     clearRect() {}
     beginPath() {}
     moveTo() {}
     lineTo() {}
-    stroke() {}
+    stroke() { this.strokeCalls += 1; }
     fill() {}
     fillRect() { this.fillRectCalls += 1; }
     arc() { this.arcCalls += 1; }
@@ -209,6 +210,11 @@ const localStorage = {
 let serverConfigurationRequests = 0;
 let connectionManagerRequests = 0;
 let mediaItemRequests = 0;
+let displayPreferencesRequests = 0;
+let displayPreferencesUpdates = 0;
+let partialDisplayPreferencesUpdates = 0;
+let lastDisplayPreferences = null;
+const userDisplayPreferences = {};
 const requestedConfigurationPaths = [];
 const ApiClient = {
     getUrl(pathValue) {
@@ -237,6 +243,30 @@ const ApiClient = {
     },
     getCurrentUserId() {
         return "test-user";
+    },
+    getDisplayPreferences(userId) {
+        displayPreferencesRequests += 1;
+        assert.strictEqual(userId, "test-user");
+        return Promise.resolve(userDisplayPreferences);
+    },
+    isMinServerVersion(version) {
+        assert.strictEqual(version, "4.9.0.23");
+        return true;
+    },
+    updatePartialDisplayPreferences(preferences, userId) {
+        displayPreferencesUpdates += 1;
+        partialDisplayPreferencesUpdates += 1;
+        assert.strictEqual(userId, "test-user");
+        lastDisplayPreferences = preferences;
+        Object.assign(userDisplayPreferences, preferences);
+        return Promise.resolve();
+    },
+    updateDisplayPreferences(preferences, userId) {
+        displayPreferencesUpdates += 1;
+        assert.strictEqual(userId, "test-user");
+        lastDisplayPreferences = preferences;
+        Object.assign(userDisplayPreferences, preferences);
+        return Promise.resolve();
     },
     getItem(userId, itemId) {
         mediaItemRequests += 1;
@@ -515,8 +545,8 @@ function createLyricElement(index) {
     settingsPanel.querySelector(".elyric-player-settings-close").click();
     assert.strictEqual(settingsPanel.getAttribute("hidden"), "hidden");
     const layoutButtons = renderer.__elyricLayoutButtons;
-    assert.strictEqual(layoutButtons.length, 4,
-        "the four player layouts should be presented in one segmented row");
+    assert.strictEqual(layoutButtons.length, 5,
+        "the four safe presets and the custom player layout should be presented together");
     assert.strictEqual(layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "album")
         .getAttribute("aria-pressed"), "true");
     assert.strictEqual(document.body.querySelector(".elyric-layout-select"), null);
@@ -525,17 +555,17 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricVisualizer.children.length, 1,
         "the player should mount one horizontal canvas visualizer");
     assert.strictEqual(renderer.__elyricVisualizer.children[0].tagName, "canvas");
-    assert(renderer.__elyricVisualizerContext.fillRectCalls > 0,
-        "the default spectrum shape should paint bars into the canvas");
+    assert(renderer.__elyricVisualizerContext.strokeCalls > 0,
+        "the default spectrum shape should paint rounded center-balanced bars into the canvas");
     assert.strictEqual(renderer.__elyricVisualizerStyleButtons.length, 5);
     assert.strictEqual(renderer.__elyricVisualizerRangeButtons.length, 3);
     assert.strictEqual(renderer.__elyricVisualizerColorModeButtons.length, 4);
     assert.strictEqual(renderer.__elyricBackgroundButtons.length, 3);
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-style"), "spectrum");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-range"), "wide");
-    assert.strictEqual(renderer.__elyricVisualizerWidthInput.value, "72");
-    assert.strictEqual(renderer.__elyricVisualizerHeightInput.value, "13");
-    assert.strictEqual(renderer.__elyricVisualizerAmplitudeInput.value, "100");
+    assert.strictEqual(renderer.__elyricVisualizerWidthInput.value, "62");
+    assert.strictEqual(renderer.__elyricVisualizerHeightInput.value, "8");
+    assert.strictEqual(renderer.__elyricVisualizerAmplitudeInput.value, "70");
     renderer.__elyricVisualizerStyleButtons
         .find((button) => button.getAttribute("data-elyric-choice") === "curve")
         .click();
@@ -544,9 +574,9 @@ function createLyricElement(index) {
         .click();
     renderer.__elyricVisualizerWidthInput.value = "83";
     renderer.__elyricVisualizerWidthInput.dispatchEvent({ type: "input", stopPropagation() {} });
-    renderer.__elyricVisualizerHeightInput.value = "22";
+    renderer.__elyricVisualizerHeightInput.value = "16";
     renderer.__elyricVisualizerHeightInput.dispatchEvent({ type: "input", stopPropagation() {} });
-    renderer.__elyricVisualizerAmplitudeInput.value = "155";
+    renderer.__elyricVisualizerAmplitudeInput.value = "130";
     renderer.__elyricVisualizerAmplitudeInput.dispatchEvent({ type: "input", stopPropagation() {} });
     renderer.__elyricVisualizerColorModeButtons
         .find((button) => button.getAttribute("data-elyric-choice") === "multi")
@@ -564,6 +594,12 @@ function createLyricElement(index) {
         .click();
     renderer.__elyricLyricScaleInput.value = "125";
     renderer.__elyricLyricScaleInput.dispatchEvent({ type: "input", stopPropagation() {} });
+    renderer.__elyricPlayerTuningInputs.backgroundBlur.value = "32";
+    renderer.__elyricPlayerTuningInputs.backgroundBlur.dispatchEvent({ type: "input", stopPropagation() {} });
+    renderer.__elyricPlayerTuningInputs.artworkX.value = "82";
+    renderer.__elyricPlayerTuningInputs.artworkX.dispatchEvent({ type: "input", stopPropagation() {} });
+    renderer.__elyricPlayerTuningInputs.lyricsWidth.value = "52";
+    renderer.__elyricPlayerTuningInputs.lyricsWidth.dispatchEvent({ type: "input", stopPropagation() {} });
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-style"), "curve");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-range"), "custom");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-color-mode"), "multi");
@@ -571,23 +607,26 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-alignment"), "center");
     assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-font-size"), "125%");
     assert.strictEqual(renderer.__elyricVisualizerWidthValue.textContent, "83%");
-    assert.strictEqual(renderer.__elyricVisualizerHeightValue.textContent, "22%");
-    assert.strictEqual(renderer.__elyricVisualizerAmplitudeValue.textContent, "155%");
+    assert.strictEqual(renderer.__elyricVisualizerHeightValue.textContent, "16%");
+    assert.strictEqual(renderer.__elyricVisualizerAmplitudeValue.textContent, "130%");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-style"), "curve");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-range"), "custom");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-width"), "83");
-    assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-height"), "22");
-    assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-amplitude"), "155");
+    assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-height"), "16");
+    assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-amplitude"), "130");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-color-mode"), "multi");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-color-1"), "#123456");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.background-mode"), "white");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.lyric-alignment"), "center");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.lyric-scale"), "125");
+    assert.strictEqual(storedValues.get("emby-lyric-enhance.background-blur"), "32");
+    assert.strictEqual(storedValues.get("emby-lyric-enhance.artwork-x"), "82");
+    assert.strictEqual(storedValues.get("emby-lyric-enhance.lyrics-width"), "52");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-playback-active"), "false");
     const artworkRotationButton = renderer.__elyricArtworkRotationButton;
     assert(artworkRotationButton, "the full player should expose an artwork rotation toggle");
     assert.strictEqual(artworkRotationButton.disabled, false,
-        "all four record-based layouts should allow artwork rotation");
+        "all record-based layouts should allow artwork rotation");
     assert.strictEqual(artworkRotationButton.getAttribute("aria-pressed"), "true",
         "circular artwork rotation should default to enabled");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-artwork-rotate"), "true");
@@ -606,10 +645,28 @@ function createLyricElement(index) {
     assert.strictEqual(artworkRotationButton.disabled, false,
         "the lyrics-first circular layout should also allow artwork rotation control");
     layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "stack").click();
+    layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "custom").click();
+    assert.strictEqual(document.body.getAttribute("data-elyric-player-layout"), "custom");
 
     themeButtons.find((button) => button.getAttribute("data-elyric-choice") === "focus").click();
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), "focus");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.theme"), "focus");
+    await new Promise((resolve) => setTimeout(resolve, 380));
+    assert.strictEqual(displayPreferencesRequests, 1,
+        "the authenticated Emby display preferences should be read once per player instance");
+    assert(displayPreferencesUpdates >= 1,
+        "local player choices should migrate to the current Emby user profile");
+    assert(partialDisplayPreferencesUpdates >= 1,
+        "Emby 4.9.5 should save only the custom player key through its partial preference API");
+    const syncedPlayerPreferences = JSON.parse(
+        lastDisplayPreferences["emby-lyric-enhance.player-preferences.v2"]
+    );
+    assert.strictEqual(syncedPlayerPreferences.layout, "custom");
+    assert.strictEqual(syncedPlayerPreferences.theme, "focus");
+    assert.strictEqual(syncedPlayerPreferences.visualizerHeight, 16);
+    assert.strictEqual(syncedPlayerPreferences.tuning.backgroundBlur, 32);
+    assert.strictEqual(syncedPlayerPreferences.tuning.artworkX, 82);
+    assert.strictEqual(syncedPlayerPreferences.tuning.lyricsWidth, 52);
 
     const hiddenRenderer = new LyricsRenderer();
     hiddenRenderer.itemsContainer = new FakeNode("div");
@@ -945,19 +1002,22 @@ function createLyricElement(index) {
         "the locally selected lyric size should remain independent from refreshed server defaults");
     assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-theme"), "focus",
         "the selected theme should be restored from browser storage");
-    assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-player-layout"), "stack",
-        "the selected full-player interface should be restored from browser storage");
+    assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-player-layout"), "custom",
+        "the selected full-player interface should be restored from Emby user preferences");
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-artwork-rotate"), "false",
         "the artwork rotation choice should be restored from browser storage");
     assert.strictEqual(secondRenderer.__elyricArtworkRotationButton.disabled, false);
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-style"), "curve");
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-range"), "custom");
     assert.strictEqual(secondRenderer.__elyricVisualizerWidthInput.value, "83");
-    assert.strictEqual(secondRenderer.__elyricVisualizerHeightInput.value, "22");
-    assert.strictEqual(secondRenderer.__elyricVisualizerAmplitudeInput.value, "155");
+    assert.strictEqual(secondRenderer.__elyricVisualizerHeightInput.value, "16");
+    assert.strictEqual(secondRenderer.__elyricVisualizerAmplitudeInput.value, "130");
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-color-mode"), "multi");
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-background-mode"), "white");
     assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-alignment"), "center");
+    assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.backgroundBlur.value, "32");
+    assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.artworkX.value, "82");
+    assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.lyricsWidth.value, "52");
     secondRenderer.destroy();
 
     const openEndedRenderer = new LyricsRenderer();
