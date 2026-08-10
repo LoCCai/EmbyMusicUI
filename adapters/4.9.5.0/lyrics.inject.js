@@ -1472,6 +1472,83 @@
         }
     }
 
+    function getPlayerOverlayFocusableElements(panel) {
+        if (!panel || !panel.querySelectorAll) {
+            return [];
+        }
+        var elements = [];
+        ["button", "input", "select", "textarea", "a", "[tabindex]"].forEach(function (selector) {
+            var matches = panel.querySelectorAll(selector);
+            for (var index = 0; index < matches.length; index++) {
+                if (elements.indexOf(matches[index]) < 0) {
+                    elements.push(matches[index]);
+                }
+            }
+        });
+        return elements.filter(function (element) {
+            if (!element || element.disabled
+                || "-1" === (element.getAttribute && element.getAttribute("tabindex"))
+                || null !== (element.getAttribute && element.getAttribute("hidden"))
+                || "true" === (element.getAttribute && element.getAttribute("aria-hidden"))) {
+                return false;
+            }
+            if ("a" === element.tagName
+                && null === element.getAttribute("href")
+                && null === element.getAttribute("tabindex")) {
+                return false;
+            }
+            return !element.getClientRects || element.getClientRects().length > 0;
+        });
+    }
+
+    function focusPlayerOverlay(panel) {
+        var focusable = getPlayerOverlayFocusableElements(panel);
+        var target = focusable[0] || panel;
+        if (target && target.focus) {
+            target.focus();
+        }
+    }
+
+    function restorePlayerOverlayFocus(panel, button) {
+        if (!button || !button.focus) {
+            return;
+        }
+        var activeElement = document.activeElement;
+        if (!activeElement
+            || activeElement === document.body
+            || (panel && panel.contains && panel.contains(activeElement))) {
+            button.focus();
+        }
+    }
+
+    function trapPlayerOverlayFocus(panel, event) {
+        if (!panel || !event || "Tab" !== event.key) {
+            return false;
+        }
+        var focusable = getPlayerOverlayFocusableElements(panel);
+        if (!focusable.length) {
+            return false;
+        }
+        var first = focusable[0];
+        var last = focusable[focusable.length - 1];
+        var activeElement = document.activeElement;
+        var shouldWrapBackward = !!event.shiftKey
+            && (activeElement === first || !(panel.contains && panel.contains(activeElement)));
+        var shouldWrapForward = !event.shiftKey
+            && (activeElement === last || !(panel.contains && panel.contains(activeElement)));
+        if (!shouldWrapBackward && !shouldWrapForward) {
+            return false;
+        }
+        if (event.preventDefault) {
+            event.preventDefault();
+        }
+        if (event.stopPropagation) {
+            event.stopPropagation();
+        }
+        (shouldWrapBackward ? last : first).focus();
+        return true;
+    }
+
     function setSettingsPanelOpen(renderer, open) {
         open = !!open;
         var wasOpen = !!renderer.__elyricSettingsOpen;
@@ -1502,8 +1579,12 @@
             setAttributeIfChanged(document.body, "data-elyric-settings-open", open ? "true" : "false");
         }
         syncPlayerOverlayScrim(renderer);
+        if (open && !wasOpen) {
+            focusPlayerOverlay(renderer.__elyricSettingsPanel);
+        }
         if (wasOpen && !open) {
             resumeLyricFollowing(renderer, false);
+            restorePlayerOverlayFocus(renderer.__elyricSettingsPanel, renderer.__elyricSettingsButton);
         }
     }
 
@@ -1535,8 +1616,12 @@
             refreshMediaInformation(renderer);
         }
         syncPlayerOverlayScrim(renderer);
+        if (open && !wasOpen) {
+            focusPlayerOverlay(renderer.__elyricMediaPanel);
+        }
         if (wasOpen && !open) {
             resumeLyricFollowing(renderer, false);
+            restorePlayerOverlayFocus(renderer.__elyricMediaPanel, renderer.__elyricMediaButton);
         }
     }
 
@@ -1588,6 +1673,36 @@
         return null;
     }
 
+    function syncLyricAvailability(renderer) {
+        var items = renderer.__elyricItems;
+        var hasLyrics = !!(items && items.length);
+        renderer.__elyricHasLyrics = hasLyrics;
+        setAttributeIfChanged(
+            renderer.itemsContainer,
+            "data-elyric-has-lyrics",
+            hasLyrics ? "true" : "false"
+        );
+        setAttributeIfChanged(
+            renderer.__elyricThemeControl,
+            "data-elyric-has-lyrics",
+            hasLyrics ? "true" : "false"
+        );
+        if (renderer.__elyricLyricsEmpty) {
+            if (hasLyrics) {
+                setAttributeIfChanged(renderer.__elyricLyricsEmpty, "hidden", "hidden");
+            } else {
+                removeAttributeIfPresent(renderer.__elyricLyricsEmpty, "hidden");
+            }
+        }
+        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
+            setAttributeIfChanged(
+                document.body,
+                "data-elyric-has-lyrics",
+                hasLyrics ? "true" : "false"
+            );
+        }
+    }
+
     function syncPlayerPageState(renderer, visible) {
         var body = document.body;
         if (!body || !body.classList) {
@@ -1604,6 +1719,11 @@
             setAttributeIfChanged(body, "data-elyric-alignment", renderer.__elyricLyricAlignment || "left");
             setAttributeIfChanged(body, "data-elyric-settings-open", renderer.__elyricSettingsOpen ? "true" : "false");
             setAttributeIfChanged(body, "data-elyric-media-open", renderer.__elyricMediaOpen ? "true" : "false");
+            setAttributeIfChanged(
+                body,
+                "data-elyric-has-lyrics",
+                false === renderer.__elyricHasLyrics ? "false" : "true"
+            );
         } else if (body.__elyricPlayerPageOwner === renderer) {
             body.__elyricPlayerPageOwner = null;
             if (body.classList.contains("elyric-player-active-page")) {
@@ -1615,6 +1735,7 @@
             removeAttributeIfPresent(body, "data-elyric-alignment");
             removeAttributeIfPresent(body, "data-elyric-settings-open");
             removeAttributeIfPresent(body, "data-elyric-media-open");
+            removeAttributeIfPresent(body, "data-elyric-has-lyrics");
         }
     }
 
@@ -3567,6 +3688,19 @@
         metadata.appendChild(format);
         control.appendChild(metadata);
 
+        var lyricsEmpty = document.createElement("div");
+        lyricsEmpty.className = "elyric-player-lyrics-empty";
+        lyricsEmpty.setAttribute("role", "status");
+        lyricsEmpty.setAttribute("aria-live", "polite");
+        lyricsEmpty.setAttribute("hidden", "hidden");
+        var lyricsEmptyTitle = document.createElement("strong");
+        lyricsEmptyTitle.appendChild(document.createTextNode("暂无同步歌词"));
+        var lyricsEmptyHint = document.createElement("span");
+        lyricsEmptyHint.appendChild(document.createTextNode("当前媒体没有提供歌词，播放控制仍可正常使用。"));
+        lyricsEmpty.appendChild(lyricsEmptyTitle);
+        lyricsEmpty.appendChild(lyricsEmptyHint);
+        control.appendChild(lyricsEmpty);
+
         var transport = document.createElement("div");
         transport.className = "elyric-player-transport";
         transport.appendChild(createPlayerButton(renderer, "previous", "上一首", "previous"));
@@ -3744,6 +3878,7 @@
         settingsPanel.className = "elyric-player-settings-panel";
         settingsPanel.setAttribute("role", "dialog");
         settingsPanel.setAttribute("aria-label", "播放器设置");
+        settingsPanel.setAttribute("aria-modal", "true");
         settingsPanel.setAttribute("hidden", "hidden");
 
         var settingsHeader = document.createElement("div");
@@ -3997,6 +4132,7 @@
         mediaPanel.className = "elyric-player-media-panel";
         mediaPanel.setAttribute("role", "dialog");
         mediaPanel.setAttribute("aria-label", "媒体信息");
+        mediaPanel.setAttribute("aria-modal", "true");
         mediaPanel.setAttribute("hidden", "hidden");
         var mediaHeader = document.createElement("div");
         mediaHeader.className = "elyric-player-settings-header";
@@ -4041,6 +4177,7 @@
         renderer.__elyricPlayerArtist = artist;
         renderer.__elyricPlayerAlbum = album;
         renderer.__elyricPlayerFormat = format;
+        renderer.__elyricLyricsEmpty = lyricsEmpty;
         renderer.__elyricProgressSlider = progressSlider;
         renderer.__elyricPlayerPosition = positionText;
         renderer.__elyricPlayerDuration = durationText;
@@ -4089,12 +4226,29 @@
         var overlayKeyHandler = function (event) {
             if (event && "Escape" === event.key
                 && (renderer.__elyricSettingsOpen || renderer.__elyricMediaOpen)) {
+                if (event.preventDefault) {
+                    event.preventDefault();
+                }
+                if (event.stopPropagation) {
+                    event.stopPropagation();
+                }
                 setSettingsPanelOpen(renderer, false);
                 setMediaPanelOpen(renderer, false);
+                return;
+            }
+            if (event && "Tab" === event.key) {
+                trapPlayerOverlayFocus(
+                    renderer.__elyricSettingsOpen
+                        ? renderer.__elyricSettingsPanel
+                        : renderer.__elyricMediaOpen
+                            ? renderer.__elyricMediaPanel
+                            : null,
+                    event
+                );
             }
         };
         if (document.addEventListener) {
-            document.addEventListener("keydown", overlayKeyHandler);
+            document.addEventListener("keydown", overlayKeyHandler, true);
             renderer.__elyricOverlayKeyHandler = overlayKeyHandler;
         }
         installQueueDismissHandler(renderer);
@@ -4366,6 +4520,7 @@
                 }
             });
         }
+        syncLyricAvailability(renderer);
         if (!visible) {
             syncThemeControlVisibility(renderer);
             return;
@@ -4435,7 +4590,7 @@
             renderer.__elyricOverlayScrim.parentNode.removeChild(renderer.__elyricOverlayScrim);
         }
         if (renderer.__elyricOverlayKeyHandler && document.removeEventListener) {
-            document.removeEventListener("keydown", renderer.__elyricOverlayKeyHandler);
+            document.removeEventListener("keydown", renderer.__elyricOverlayKeyHandler, true);
         }
         if (renderer.__elyricQueueDismissHost
             && renderer.__elyricQueueDismissHost.removeEventListener
@@ -4464,6 +4619,7 @@
         }
         if (renderer.itemsContainer && renderer.itemsContainer.removeAttribute) {
             renderer.itemsContainer.removeAttribute("data-elyric-player-layout");
+            renderer.itemsContainer.removeAttribute("data-elyric-has-lyrics");
         }
         renderer.__elyricThemeControl = null;
         renderer.__elyricThemeSelect = null;
@@ -4490,6 +4646,7 @@
         renderer.__elyricPlayerArtist = null;
         renderer.__elyricPlayerAlbum = null;
         renderer.__elyricPlayerFormat = null;
+        renderer.__elyricLyricsEmpty = null;
         renderer.__elyricPlayerItemSignature = null;
         renderer.__elyricProgressSlider = null;
         renderer.__elyricPlayerPosition = null;
@@ -4874,6 +5031,7 @@
             ensureObserver(renderer);
             ensureDisplayConfiguration(renderer);
             ensureThemeControl(renderer);
+            syncLyricAvailability(renderer);
             return renderer.__elyricItems;
         });
     };

@@ -123,6 +123,9 @@ class FakeNode {
     click() {
         this.dispatchEvent({ type: "click", target: this, currentTarget: this, stopPropagation() {} });
     }
+    focus() {
+        document.activeElement = this;
+    }
     get firstChild() {
         return this.children[0] || null;
     }
@@ -190,7 +193,20 @@ const createdTags = [];
 const document = {
     hidden: false,
     body: new FakeNode("body"),
+    activeElement: null,
     frontElement: null,
+    listeners: {},
+    addEventListener(type, listener) {
+        if (!this.listeners[type]) this.listeners[type] = [];
+        this.listeners[type].push(listener);
+    },
+    removeEventListener(type, listener) {
+        this.listeners[type] = (this.listeners[type] || []).filter((value) => value !== listener);
+    },
+    dispatchEvent(event) {
+        (this.listeners[event.type] || []).forEach((listener) => listener.call(this, event));
+        return true;
+    },
     elementFromPoint() {
         return this.frontElement || this.body;
     },
@@ -409,9 +425,10 @@ LyricsRenderer.prototype.onTimeUpdate = function () {};
 LyricsRenderer.prototype.destroy = function () {};
 
 const adapterPath = path.join(__dirname, "..", "adapters", "4.9.5.0", "lyrics.inject.js");
-const adapter = fs.readFileSync(adapterPath, "utf8");
+const normalizeLineEndings = (value) => value.replace(/\r\n?/g, "\n");
+const adapter = normalizeLineEndings(fs.readFileSync(adapterPath, "utf8"));
 const adapterCssPath = path.join(__dirname, "..", "adapters", "4.9.5.0", "lyrics.inject.css");
-const adapterCss = fs.readFileSync(adapterCssPath, "utf8");
+const adapterCss = normalizeLineEndings(fs.readFileSync(adapterCssPath, "utf8"));
 new Function(
     "LyricsRenderer",
     "document",
@@ -543,6 +560,12 @@ function createLyricElement(index) {
     assert.strictEqual(items[0].__elyric.sublines.length, 2);
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), "apple",
         "the server theme should apply when the browser has no saved override");
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-has-lyrics"), "true",
+        "the player shell should expose whether the current media has lyric events");
+    assert.strictEqual(document.body.getAttribute("data-elyric-has-lyrics"), "true");
+    assert.strictEqual(renderer.__elyricThemeControl.querySelector(".elyric-player-lyrics-empty")
+        .getAttribute("hidden"), "hidden",
+        "the no-lyrics status should stay hidden while synchronized lyrics are available");
     assert.strictEqual(serverConfigurationRequests, 1, "overlapping renderers should share one configuration request");
     assert.strictEqual(connectionManagerRequests, 1,
         "Emby 4.9.5 should resolve its authenticated API client through the module connection manager");
@@ -589,11 +612,15 @@ function createLyricElement(index) {
     assert(settingsPanel, "the full player should expose its own settings drawer");
     assert.strictEqual(settingsPanel.parentNode, document.body,
         "the settings drawer should sit above the native lyric stacking layer");
+    assert.strictEqual(settingsPanel.getAttribute("aria-modal"), "true",
+        "the settings drawer should expose modal semantics to assistive technology");
     assert.strictEqual(renderer.__elyricOverlayScrim.parentNode, document.body,
         "settings and media details should share a document-level modal scrim");
     assert.strictEqual(settingsPanel.getAttribute("hidden"), "hidden");
     renderer.__elyricSettingsButton.click();
     assert.strictEqual(settingsPanel.getAttribute("hidden"), null);
+    assert.strictEqual(document.activeElement, settingsPanel.querySelector(".elyric-player-settings-close"),
+        "opening settings should move keyboard focus into the dialog");
     assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), null,
         "opening settings should place a click-blocking scrim above oversized lyrics");
     assert.strictEqual(renderer.__elyricSettingsButton.getAttribute("aria-expanded"), "true");
@@ -623,6 +650,8 @@ function createLyricElement(index) {
     const panelCloseFollowCount = visible.item.scrollIntoViewCalls.length;
     settingsPanel.querySelector(".elyric-player-settings-close").click();
     assert.strictEqual(settingsPanel.getAttribute("hidden"), "hidden");
+    assert.strictEqual(document.activeElement, renderer.__elyricSettingsButton,
+        "closing settings should restore focus to its launcher");
     assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), "hidden");
     assert(visible.item.scrollIntoViewCalls.length > panelCloseFollowCount,
         "closing a sheet should recenter the active multilingual lyric after responsive layout changes");
@@ -890,8 +919,12 @@ function createLyricElement(index) {
     const mediaPanel = renderer.__elyricMediaPanel;
     assert.strictEqual(mediaPanel.parentNode, document.body,
         "media details should use a dedicated body-level drawer");
+    assert.strictEqual(mediaPanel.getAttribute("aria-modal"), "true",
+        "media details should expose modal semantics to assistive technology");
     assert.strictEqual(mediaPanel.getAttribute("hidden"), "hidden");
     renderer.__elyricMediaButton.click();
+    assert.strictEqual(document.activeElement, mediaPanel.querySelector(".elyric-player-settings-close"),
+        "opening media details should move keyboard focus into the dialog");
     await flushPromises();
     assert.strictEqual(mediaItemRequests, 1,
         "opening media details should request the full authenticated Emby item exactly once");
@@ -901,6 +934,20 @@ function createLyricElement(index) {
         "6 ch", "4.23 Mbps", "44,100 Hz", "16 bit", "MJPEG", "600×654", "90,000",
         "yuvj444p", "(TEXT)", "Lyrics", "TEXT"
     ].forEach((value) => assert(mediaPanel.textContent.includes(value), `media drawer should include ${value}`));
+    let escapeDefaultPrevented = false;
+    let escapePropagationStopped = false;
+    document.dispatchEvent({
+        type: "keydown",
+        key: "Escape",
+        preventDefault() { escapeDefaultPrevented = true; },
+        stopPropagation() { escapePropagationStopped = true; }
+    });
+    assert.strictEqual(mediaPanel.getAttribute("hidden"), "hidden",
+        "Escape should close the active media dialog");
+    assert.strictEqual(document.activeElement, renderer.__elyricMediaButton,
+        "Escape should restore focus to the media launcher");
+    assert(escapeDefaultPrevented && escapePropagationStopped,
+        "closing an overlay with Escape must not also trigger Emby's page-level shortcut");
     assert.strictEqual(renderer.__elyricPlayerFormat.textContent,
         "WAV · PCM_S16LE · 44.1 kHz · 16 bit · 6 ch");
     assert.strictEqual(createdTags.filter((tag) => tag === "canvas").length, 1,
@@ -972,10 +1019,10 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricCoverflowCaptions[0].textContent, "Queue next");
     layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "stack").click();
     layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "custom").click();
-    document.body.dispatchEvent({ type: "pointerdown", target: nativeQueueItem });
+    document.dispatchEvent({ type: "pointerdown", target: nativeQueueItem });
     assert.strictEqual(renderer.__elyricPlayerButtons.queue.getAttribute("aria-pressed"), "true",
         "interacting with queue contents must keep the drawer open");
-    document.body.dispatchEvent({ type: "pointerdown", target: playbackPage });
+    document.dispatchEvent({ type: "pointerdown", target: playbackPage });
     assert.strictEqual(renderer.__elyricPlayerButtons.queue.getAttribute("aria-pressed"), "false",
         "clicking anywhere outside the queue should dismiss it");
     renderer.__elyricPlayerButtons.queue.click();
@@ -1232,8 +1279,39 @@ function createLyricElement(index) {
         "lyrics should support an explicit right text anchor without moving their container");
     assert(adapterCss.includes("@media (min-width: 761px) and (max-height: 520px)")
         && adapterCss.includes('data-elyric-player-layout="coverflow"] .elyric-player-coverflow')
-        && adapterCss.includes('left: 52vw !important;'),
-        "short landscape coverflow should split artwork and lyrics into separate safe zones");
+        && adapterCss.includes('left: 52vw !important;')
+        && adapterCss.includes('data-elyric-player-layout="custom"] .elyric-player-identity')
+        && adapterCss.includes('bottom: max(10.4rem'),
+        "short landscape layouts should keep coverflow and custom compositions in separate safe zones");
+    assert(adapterCss.includes('data-elyric-player-layout="album"] .elyric-player-title')
+        && adapterCss.includes("font-size: clamp(3.25rem, 5vw, 6.5rem)")
+        && adapterCss.includes("-webkit-line-clamp: 2"),
+        "editorial preset titles should remain readable for long CJK names");
+    assert(adapterCss.includes('data-elyric-player-layout="album"] .elyric-player-identity')
+        && adapterCss.includes("width: min(74vw, 18rem)")
+        && adapterCss.includes("top: 55vh !important"),
+        "mobile editorial vinyl should keep its label and lyrics inside the viewport");
+    assert(adapterCss.includes('data-elyric-player-layout="lyrics"] .elyric-player-artwork')
+        && adapterCss.includes("min-width: 56%")
+        && adapterCss.includes("height: 56% !important"),
+        "mobile vinyl artwork should remain a square center label instead of collapsing into a pill");
+    assert(adapterCss.includes('data-elyric-player-layout="mint"] .osdContentSection[data-contentsection="lyrics"]')
+        && adapterCss.includes("height: clamp(4.5rem, 14vh, 8rem)"),
+        "the mint preset should reserve a readable lyric strip above the visualizer");
+    assert(adapterCss.includes("height: 2.75rem")
+        && adapterCss.includes("height: 7.85rem")
+        && adapterCss.includes("bottom: max(8.25rem")
+        && adapterCss.includes("bottom: max(10.45rem"),
+        "mobile controls should provide 44px touch targets on two non-overlapping rows");
+    assert(adapterCss.includes('data-elyric-player-layout="center"] .elyric-player-metadata')
+        && adapterCss.includes("border-left: .22rem solid #1ed760")
+        && adapterCss.includes('data-elyric-player-layout="stack"] .elyric-player-artwork-stage')
+        && adapterCss.includes("transform: rotate(-2deg)"),
+        "Spotify poster and album-list presets should retain distinct mobile compositions");
+    assert(adapterCss.includes('data-elyric-coverflow-index="2"] .elyric-player-coverflow-caption')
+        && adapterCss.includes('data-elyric-player-layout="rose"][data-elyric-has-lyrics="false"]')
+        && adapter.includes("syncLyricAvailability"),
+        "coverflow metadata and the rose no-lyrics state should avoid redundant empty cards");
     assert(adapterCss.includes(".videoOsdBottom-maincontrols"),
         "the native OSD control layer should be visually suppressed behind custom controls");
     assert(adapterCss.includes(".videoOsdHeader"),
@@ -1322,7 +1400,19 @@ function createLyricElement(index) {
     assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.backgroundBlur.value, "32");
     assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.artworkX.value, "82");
     assert.strictEqual(secondRenderer.__elyricPlayerTuningInputs.lyricsWidth.value, "52");
+    secondRenderer.sourceEvents = [];
+    const emptyItems = await secondRenderer.getItemsInternal();
+    await flushPromises();
+    assert.deepStrictEqual(emptyItems, []);
+    assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-has-lyrics"), "false");
+    assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-has-lyrics"), "false");
+    assert.strictEqual(document.body.getAttribute("data-elyric-has-lyrics"), "false");
+    assert.strictEqual(secondRenderer.__elyricThemeControl.querySelector(".elyric-player-lyrics-empty")
+        .getAttribute("hidden"), null,
+        "a track without lyric events should expose an intentional live status instead of an empty card");
     secondRenderer.destroy();
+    assert.strictEqual(document.body.getAttribute("data-elyric-has-lyrics"), null,
+        "leaving the player should remove the media-specific lyric availability state");
 
     const openEndedRenderer = new LyricsRenderer();
     const openEndedPlaybackPage = new FakeNode("div");
