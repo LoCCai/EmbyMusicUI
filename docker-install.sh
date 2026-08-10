@@ -16,6 +16,89 @@ fail() {
     exit 1
 }
 
+choose_container() {
+    running_containers=$(docker ps --format '{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}')
+    detected_containers=
+
+    while IFS='|' read -r detected_id detected_name detected_image detected_status; do
+        [ -n "$detected_id" ] || continue
+        case "$detected_id $detected_name $detected_image $detected_status" in
+            *[Ee][Mm][Bb][Yy]*)
+                detected_line="$detected_id|$detected_name|$detected_image|$detected_status"
+                if [ -n "$detected_containers" ]; then
+                    detected_containers="$detected_containers
+$detected_line"
+                else
+                    detected_containers=$detected_line
+                fi
+                ;;
+        esac
+    done <<EOF
+$running_containers
+EOF
+
+    manual_requested=0
+    if [ -n "$detected_containers" ]; then
+        say "自动发现可能的 Emby 容器："
+        detected_count=0
+        while IFS='|' read -r detected_id detected_name detected_image detected_status; do
+            [ -n "$detected_id" ] || continue
+            detected_count=$((detected_count + 1))
+            printf '  %d) %s\t%s\t%s\t[%.12s]\n' \
+                "$detected_count" "$detected_name" "$detected_image" "$detected_status" "$detected_id"
+        done <<EOF
+$detected_containers
+EOF
+
+        manual_choice=$((detected_count + 1))
+        printf '  %d) 没有我要的容器，手动输入\n' "$manual_choice"
+
+        while :; do
+            printf '\n请输入序号：'
+            IFS= read -r selected_choice || fail "没有读取到容器选择。"
+            selected_choice=$(printf '%s' "$selected_choice" | tr -d '[:space:]')
+            case "$selected_choice" in
+                ''|*[!0-9]*)
+                    say "请输入列表中的数字序号。"
+                    continue
+                    ;;
+            esac
+
+            if [ "$selected_choice" -eq "$manual_choice" ]; then
+                manual_requested=1
+                break
+            fi
+            if [ "$selected_choice" -lt 1 ] || [ "$selected_choice" -gt "$detected_count" ]; then
+                say "序号超出范围，请重新输入。"
+                continue
+            fi
+
+            selected_index=0
+            while IFS='|' read -r detected_id detected_name detected_image detected_status; do
+                [ -n "$detected_id" ] || continue
+                selected_index=$((selected_index + 1))
+                if [ "$selected_index" -eq "$selected_choice" ]; then
+                    container=$detected_name
+                    break
+                fi
+            done <<EOF
+$detected_containers
+EOF
+            [ -n "$container" ] && break
+        done
+    else
+        say "没有自动发现名称、镜像或状态中包含 emby 的运行容器。"
+        manual_requested=1
+    fi
+
+    if [ "$manual_requested" -eq 1 ]; then
+        say "当前正在运行的全部 Docker 容器："
+        docker ps --format '  {{.Names}}\t{{.Image}}\t{{.Status}}'
+        printf '\n请输入 Emby 容器名或容器 ID（不是镜像名）：'
+        IFS= read -r container || fail "没有读取到容器名。"
+    fi
+}
+
 recover_original_from_container_image() {
     image_id=$(docker inspect -f '{{.Image}}' "$container" 2>/dev/null || true)
     [ -n "$image_id" ] || fail "无法读取容器 $container 的不可变镜像 ID。"
@@ -71,10 +154,7 @@ container=${1:-}
 action=${2:-}
 
 if [ -z "$container" ]; then
-    say "当前正在运行的 Docker 容器："
-    docker ps --format '  {{.Names}}\t{{.Image}}\t{{.Status}}'
-    printf '\n请输入 Emby 容器名或容器 ID（不是镜像名）：'
-    IFS= read -r container
+    choose_container
 fi
 
 [ -n "$container" ] || fail "容器名不能为空。"

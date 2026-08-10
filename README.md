@@ -30,7 +30,7 @@ cd EmbyLyricEnhance
 sh docker-install.sh
 ```
 
-The script lists running containers and asks for the Emby **container name or container ID**, not the image name. Its menu can install, switch to the original files, re-enable the enhanced files, or show status.
+Without a container argument, the script searches the name, image, and status of running containers for `emby` (case-insensitive) and presents matching containers as a numbered list. The list always includes a manual-input option. If no match exists, it lists every running container and accepts an explicit **container name or container ID**, not an image name. Its next menu can install, switch to the original files, re-enable the enhanced files, or show status.
 
 Non-interactive commands are also available:
 

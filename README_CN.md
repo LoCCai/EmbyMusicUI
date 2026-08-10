@@ -30,11 +30,7 @@ cd EmbyLyricEnhance
 sh docker-install.sh
 ```
 
-脚本会列出正在运行的容器，并提示输入：
-
-```text
-Emby 容器名或容器 ID（不是镜像名）
-```
+不传容器参数时，脚本会先从运行中的容器名称、镜像和状态里自动检索 `emby`（不区分大小写），把候选项按编号列出。候选列表始终保留“没有我要的容器，手动输入”；如果完全没有自动匹配项，则直接列出全部运行中容器，并接受容器名或容器 ID（不是镜像名）。
 
 之后可以选择：
 
@@ -180,6 +176,7 @@ lyrics.css
 ```bash
 node tests/adapter.test.js
 node tests/plugin-integration.test.js
+node tests/docker-install.test.js
 ```
 
 或在 Windows 使用 `plugin\scripts\verify.ps1`，同时验证 C# 配置核心、API 契约、前后端字段同步、插件缺失回退、歌词合并、安全文本渲染、自有播放/音量控制转发与进度跳转、静音恢复、注音与封面旋转开关、三背景、五套界面、五种频谱形态、四种频谱色彩、五种歌词主题、账户偏好同步、本地迁移回退、自定义构图恢复、页面恢复、歌词行状态、累积高亮、快进/后退、暂停识别、动画帧插值与 800ms 超时停止。真实 `MediaBrowser.*` 包编译和 Emby 容器加载仍必须在线完成。

@@ -43,6 +43,7 @@ jobs:
           node tests/adapter.test.js
           node tests/plugin-integration.test.js
           node tests/plugin-config-page.test.js
+          node tests/docker-install.test.js
           node tests/docker-plugin-install.test.js
           node tests/container-manager.test.js
       - name: Check shell scripts
