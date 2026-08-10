@@ -1883,6 +1883,7 @@
     function findNativeControl(renderer, selectors) {
         var playerPage = renderer.__elyricPlayerPage || findPlayerPage(renderer);
         var roots = [playerPage, document.body || renderer.itemsContainer];
+        var fallback = null;
         for (var rootIndex = 0; rootIndex < roots.length; rootIndex++) {
             var root = roots[rootIndex];
             if (!root || !root.querySelectorAll || (rootIndex && root === roots[0])) {
@@ -1896,12 +1897,19 @@
                         || !renderer.__elyricThemeControl.contains
                         || !renderer.__elyricThemeControl.contains(element))
                         && isNativeControlCandidate(element)) {
-                        return element;
+                        fallback = fallback || element;
+                        if (!element.getBoundingClientRect) {
+                            return element;
+                        }
+                        var bounds = element.getBoundingClientRect();
+                        if (!bounds || (bounds.width > 0 && bounds.height > 0)) {
+                            return element;
+                        }
                     }
                 }
             }
         }
-        return null;
+        return fallback;
     }
 
     function triggerNativeClick(renderer, action) {

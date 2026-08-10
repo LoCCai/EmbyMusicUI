@@ -453,6 +453,11 @@ function createLyricElement(index) {
 
 (async () => {
     const nativeClicks = { back: 0, cast: 0, previous: 0, playPause: 0, stop: 0, next: 0, lyrics: 0, shuffle: 0, repeat: 0, queue: 0, mute: 0 };
+    let hiddenNativeQueueClicks = 0;
+    const hiddenNativeQueue = new FakeNode("button");
+    hiddenNativeQueue.classList.add("btnPlayQueue");
+    hiddenNativeQueue.getBoundingClientRect = () => ({ width: 0, height: 0 });
+    hiddenNativeQueue.addEventListener("click", () => { hiddenNativeQueueClicks += 1; });
     const nativeControls = {};
     const nativeDefinitions = [
         ["back", "headerBackButton"],
@@ -482,6 +487,9 @@ function createLyricElement(index) {
                 if (nativeControls.queue) nativeControls.queue.classList.remove("toggleButton-active");
             }
         });
+        if (action === "queue") {
+            button.getBoundingClientRect = () => ({ width: 42, height: 42 });
+        }
         nativeControls[action] = button;
         document.body.appendChild(button);
     });
@@ -509,6 +517,7 @@ function createLyricElement(index) {
     const playbackPage = new FakeNode("div");
     playbackPage.classList.add("view-videoosd-videoosd");
     document.body.appendChild(playbackPage);
+    playbackPage.appendChild(hiddenNativeQueue);
     Object.values(nativeControls).forEach((button) => playbackPage.appendChild(button));
     document.body.appendChild(nativeControls.back);
     document.body.appendChild(nativeControls.cast);
@@ -917,6 +926,8 @@ function createLyricElement(index) {
     assert.strictEqual(nativeClicks.back, 1);
     assert.strictEqual(nativeClicks.cast, 1);
     assert.strictEqual(nativeClicks.queue, 1, "custom queue should delegate to Emby's native queue view");
+    assert.strictEqual(hiddenNativeQueueClicks, 0,
+        "native control delegation should skip a zero-sized duplicate when a rendered control exists");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("hidden"), null,
         "hiding the lyric section for the queue must keep the page-level player shell visible");
     assert(document.body.classList.contains("elyric-player-active-page"));
@@ -1158,6 +1169,10 @@ function createLyricElement(index) {
         assert(adapterCss.includes(`data-elyric-background-mode="${backgroundId}"`),
             `${backgroundId} background should be independent from layout`);
     });
+    assert(adapterCss.includes(
+        '.elyric-player-shell.elyric-theme-picker[data-elyric-player-layout][data-elyric-background-mode="white"]'
+    ) && adapterCss.includes("--elyric-player-foreground: #111827"),
+    "the white background must override the high-specificity dark shell palette");
     assert(adapterCss.includes('.osdContentSection[data-contentsection="lyrics"].hide'),
         "opening Emby's queue must not hide the always-on lyric region");
     assert(adapterCss.includes('data-elyric-queue-open="false"'),
@@ -1179,8 +1194,15 @@ function createLyricElement(index) {
         && adapterCss.includes(".elyric-player-overlay-scrim {\n    position: fixed;")
         && adapterCss.includes("background: transparent;"),
         "settings should keep the player visible without a full-screen Gaussian blur");
+    assert(adapterCss.includes(".elyric-player-settings-panel .elyric-player-settings-header")
+        && adapterCss.includes("-webkit-backdrop-filter: none;"),
+        "the settings header should not reintroduce blur inside the opaque drawer");
     assert(adapterCss.includes('[data-elyric-alignment="right"]'),
         "lyrics should support an explicit right text anchor without moving their container");
+    assert(adapterCss.includes("@media (min-width: 761px) and (max-height: 520px)")
+        && adapterCss.includes('data-elyric-player-layout="coverflow"] .elyric-player-coverflow')
+        && adapterCss.includes('left: 52vw !important;'),
+        "short landscape coverflow should split artwork and lyrics into separate safe zones");
     assert(adapterCss.includes(".videoOsdBottom-maincontrols"),
         "the native OSD control layer should be visually suppressed behind custom controls");
     assert(adapterCss.includes(".videoOsdHeader"),
