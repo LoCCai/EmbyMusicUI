@@ -3760,9 +3760,9 @@
     position: fixed;
     z-index: 1390;
     inset: 0;
-    background: color-mix(in srgb, var(--elyric-surface-solid, #0d1117) 24%, transparent);
-    -webkit-backdrop-filter: blur(.55rem) saturate(92%);
-    backdrop-filter: blur(.55rem) saturate(92%);
+    background: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     cursor: default;
 }
 
@@ -3774,8 +3774,17 @@
 .elyric-player-media-panel {
     z-index: 1410;
     border-radius: 1.35rem;
-    background: color-mix(in srgb, var(--elyric-surface-solid) 92%, transparent);
     box-shadow: 0 1.8rem 6rem rgb(0 0 0 / .32), inset 0 1px rgb(255 255 255 / .06);
+}
+
+.elyric-player-settings-panel {
+    background: var(--elyric-surface-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+.elyric-player-media-panel {
+    background: color-mix(in srgb, var(--elyric-surface-solid) 92%, transparent);
     -webkit-backdrop-filter: blur(2rem) saturate(138%);
     backdrop-filter: blur(2rem) saturate(138%);
 }

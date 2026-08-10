@@ -4041,6 +4041,9 @@
                 && !(renderer.__elyricMediaPanel
                     && renderer.__elyricMediaPanel.contains
                     && renderer.__elyricMediaPanel.contains(front))
+                && !(renderer.__elyricOverlayScrim
+                    && renderer.__elyricOverlayScrim.contains
+                    && renderer.__elyricOverlayScrim.contains(front))
                 && !isPlaybackDialogOverlay(front)) {
                 return false;
             }

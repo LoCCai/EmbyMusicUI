@@ -589,6 +589,13 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricSettingsButton.getAttribute("aria-expanded"), "true");
     assert.strictEqual(document.body.querySelectorAll(".elyric-player-settings-panel").length, 1,
         "opening settings must not duplicate the drawer");
+    document.frontElement = renderer.__elyricOverlayScrim;
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(settingsPanel.getAttribute("hidden"), null,
+        "the player scrim must not be mistaken for a different page covering playback");
+    assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), null,
+        "visibility checks must not oscillate the open settings scrim");
+    document.frontElement = null;
     playbackPage.classList.add("hide");
     renderer.onTimeUpdate(0, 20000000);
     assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), "hidden",
@@ -1115,6 +1122,10 @@ function createLyricElement(index) {
         "the native queue should retain a readable sticky heading in every theme");
     assert(adapterCss.includes(".elyric-player-overlay-scrim") && adapterCss.includes("z-index: 1410"),
         "modal surfaces should remain clickable above any oversized lyric composition");
+    assert(adapterCss.includes(".elyric-player-settings-panel {\n    background: var(--elyric-surface-solid);")
+        && adapterCss.includes(".elyric-player-overlay-scrim {\n    position: fixed;")
+        && adapterCss.includes("background: transparent;"),
+        "settings should keep the player visible without a full-screen Gaussian blur");
     assert(adapterCss.includes('[data-elyric-alignment="right"]'),
         "lyrics should support an explicit right text anchor without moving their container");
     assert(adapterCss.includes(".videoOsdBottom-maincontrols"),
