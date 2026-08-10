@@ -5392,9 +5392,9 @@
 
     .elyric-player-button-back,
     .elyric-player-button-cast {
-        width: 2.75rem;
-        min-width: 2.75rem;
-        height: 2.75rem;
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
         padding: 0;
     }
 
@@ -5406,21 +5406,26 @@
         position: fixed;
         z-index: 8;
         right: .8rem;
-        bottom: max(4.15rem, calc(env(safe-area-inset-bottom, 0px) + 3.35rem));
+        bottom: max(5.1rem, calc(env(safe-area-inset-bottom, 0px) + 4.3rem));
         left: .8rem;
         display: flex;
+        width: auto !important;
+        min-width: 0;
         max-width: none;
+        box-sizing: border-box;
         align-items: center;
         justify-content: space-between;
+        justify-self: stretch;
         gap: clamp(.25rem, 2vw, .7rem);
         pointer-events: auto;
     }
 
     .elyric-player-tools .elyric-player-button {
         position: static;
-        width: 2.75rem;
-        min-width: 2.75rem;
-        height: 2.75rem;
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
+        flex: 0 0 44px;
     }
 
     .elyric-player-transport {
@@ -5428,9 +5433,9 @@
     }
 
     .elyric-player-transport .elyric-player-button {
-        width: 2.75rem;
-        min-width: 2.75rem;
-        height: 2.75rem;
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
     }
 
     .elyric-player-transport .elyric-player-button-playPause {

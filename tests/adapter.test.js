@@ -1298,11 +1298,14 @@ function createLyricElement(index) {
     assert(adapterCss.includes('data-elyric-player-layout="mint"] .osdContentSection[data-contentsection="lyrics"]')
         && adapterCss.includes("height: clamp(4.5rem, 14vh, 8rem)"),
         "the mint preset should reserve a readable lyric strip above the visualizer");
-    assert(adapterCss.includes("height: 2.75rem")
+    assert(adapterCss.includes("height: 44px")
+        && adapterCss.includes("flex: 0 0 44px")
+        && adapterCss.includes("width: auto !important")
+        && adapterCss.includes("bottom: max(5.1rem")
         && adapterCss.includes("height: 7.85rem")
         && adapterCss.includes("bottom: max(8.25rem")
         && adapterCss.includes("bottom: max(10.45rem"),
-        "mobile controls should provide 44px touch targets on two non-overlapping rows");
+        "mobile controls should provide explicit 44px targets across a full-width, non-overlapping tool row");
     assert(adapterCss.includes('data-elyric-player-layout="center"] .elyric-player-metadata')
         && adapterCss.includes("border-left: .22rem solid #1ed760")
         && adapterCss.includes('data-elyric-player-layout="stack"] .elyric-player-artwork-stage')
@@ -1410,6 +1413,25 @@ function createLyricElement(index) {
     assert.strictEqual(secondRenderer.__elyricThemeControl.querySelector(".elyric-player-lyrics-empty")
         .getAttribute("hidden"), null,
         "a track without lyric events should expose an intentional live status instead of an empty card");
+    secondRenderer.sourceEvents = [
+        { Id: "instrumental-title", Text: "古筝", StartPositionTicks: 0, EndPositionTicks: 10000000 },
+        { Id: "instrumental-placeholder", Text: "纯音乐，请欣赏", StartPositionTicks: 10000000, EndPositionTicks: 20000000 }
+    ];
+    const instrumentalItems = await secondRenderer.getItemsInternal();
+    await flushPromises();
+    assert.strictEqual(instrumentalItems.length, 2);
+    assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-has-lyrics"), "false",
+        "short instrumental placeholder text should use the no-lyrics presentation");
+    assert.strictEqual(secondRenderer.__elyricThemeControl.querySelector(".elyric-player-lyrics-empty")
+        .getAttribute("hidden"), null,
+        "instrumental placeholders should not leave an oversized empty lyric card");
+    secondRenderer.sourceEvents = [
+        { Id: "short-real-lyric", Text: "纯音乐的世界也有回声", StartPositionTicks: 0, EndPositionTicks: 10000000 }
+    ];
+    await secondRenderer.getItemsInternal();
+    await flushPromises();
+    assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-has-lyrics"), "true",
+        "real short lyrics containing the same words should not be mistaken for a placeholder");
     secondRenderer.destroy();
     assert.strictEqual(document.body.getAttribute("data-elyric-has-lyrics"), null,
         "leaving the player should remove the media-specific lyric availability state");

@@ -1673,9 +1673,39 @@
         return null;
     }
 
+    function hasMeaningfulLyricItems(items) {
+        if (!items || !items.length) {
+            return false;
+        }
+        var texts = [];
+        items.forEach(function (item) {
+            if (item && item.__elyric && item.__elyric.sublines) {
+                item.__elyric.sublines.forEach(function (line) {
+                    var lineText = String(line && line.text || "").trim();
+                    if (lineText) {
+                        texts.push(lineText);
+                    }
+                });
+                return;
+            }
+            var text = String(item && item.Text || "").trim();
+            if (text) {
+                texts.push(text);
+            }
+        });
+        if (!texts.length) {
+            return false;
+        }
+        var instrumentalPlaceholder = /^(?:纯音乐(?:[，,\s]*(?:请欣赏)?)?|暂无(?:同步)?歌词|没有歌词|无歌词|instrumental|no lyrics)[。.!！]?$/i;
+        var hasPlaceholder = texts.some(function (text) {
+            return instrumentalPlaceholder.test(text);
+        });
+        return !(texts.length <= 3 && hasPlaceholder);
+    }
+
     function syncLyricAvailability(renderer) {
         var items = renderer.__elyricItems;
-        var hasLyrics = !!(items && items.length);
+        var hasLyrics = hasMeaningfulLyricItems(items);
         renderer.__elyricHasLyrics = hasLyrics;
         setAttributeIfChanged(
             renderer.itemsContainer,
