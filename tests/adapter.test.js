@@ -1211,6 +1211,11 @@ function createLyricElement(index) {
     assert(adapter.includes("bandAverage * .76 + bandPeak * .24")
         && adapter.includes("Math.pow((i + 1) / count, 1.12)"),
     "frequency styles should average perceptual bands instead of repeatedly sampling bass bins");
+    assert(adapter.includes("waveformGain")
+        && adapter.includes("displayEnergy = Math.pow")
+        && adapter.includes("particleSpan = ballEnergy * height * .46")
+        && adapter.includes("pulseEnergy = Math.pow"),
+    "quiet live audio should remain visibly reactive in waveform, curve, particle and pulse modes");
     assert(adapter.includes("spectralBalance = .58 + Math.pow(normalizedX, .58) * .62"),
         "display weighting should keep naturally loud low bins from dominating the spectrum");
     assert(!adapter.includes("connect(audioContext.destination)"),
@@ -1306,6 +1311,15 @@ function createLyricElement(index) {
         && adapterCss.includes("bottom: max(8.25rem")
         && adapterCss.includes("bottom: max(10.45rem"),
         "mobile controls should provide explicit 44px targets across a full-width, non-overlapping tool row");
+    assert(adapterCss.includes("/* V3.10: preserve each preset's artwork ratio on phones and tall narrow windows. */")
+        && adapterCss.includes("width: min(68vw, 28rem) !important")
+        && adapterCss.includes("width: 72% !important")
+        && adapterCss.includes("width: 88% !important")
+        && adapterCss.includes("width: 42% !important")
+        && adapterCss.includes("width: 56% !important")
+        && adapterCss.includes("width: min(86vw, 34rem) !important")
+        && adapterCss.includes("@media (min-width: 521px) and (max-width: 760px)"),
+        "mobile presets should keep distinct artwork proportions and use the available seek width");
     assert(adapterCss.includes("/* V3.9: balanced desktop canvases and scalable 2K/4K compositions. */")
         && adapterCss.includes("@media (min-width: 1920px) and (min-height: 1000px)")
         && adapterCss.includes("width: min(82vw, 180rem)")

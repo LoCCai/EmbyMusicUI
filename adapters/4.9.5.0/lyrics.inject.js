@@ -2299,13 +2299,24 @@
                 renderer.__elyricVisualizerWaveformData = new Uint8Array(analyser.fftSize);
             }
             analyser.getByteTimeDomainData(renderer.__elyricVisualizerWaveformData);
+            var waveformEnergy = 0;
+            for (i = 0; i < renderer.__elyricVisualizerWaveformData.length; i++) {
+                var waveformValue = (renderer.__elyricVisualizerWaveformData[i] - 128) / 128;
+                waveformEnergy += waveformValue * waveformValue;
+            }
+            var waveformRms = Math.sqrt(
+                waveformEnergy / Math.max(1, renderer.__elyricVisualizerWaveformData.length)
+            );
+            var waveformGain = waveformRms > .006
+                ? Math.min(4.2, Math.max(1, .22 / waveformRms))
+                : 0;
             for (i = 0; i < count; i++) {
                 var waveformIndex = Math.min(
                     renderer.__elyricVisualizerWaveformData.length - 1,
                     Math.round(i / (count - 1) * (renderer.__elyricVisualizerWaveformData.length - 1))
                 );
                 samples[i] = (renderer.__elyricVisualizerWaveformData[waveformIndex] - 128)
-                    / 128 * amplitude;
+                    / 128 * waveformGain * amplitude;
             }
             return samples;
         }
@@ -2350,6 +2361,7 @@
                 }
                 var bandAverage = bandTotal / Math.max(1, bandEnd - bandStart);
                 var raw = (bandAverage * .76 + bandPeak * .24) / 255;
+                var displayEnergy = Math.pow(Math.max(0, (raw - .015) / .985), .68);
                 var lowFrequencyGain = 1 + (bassBoost - 1) * Math.pow(1 - normalizedX, 1.85);
                 // Music masters naturally carry much more energy in the first few bins.
                 // Apply a gentle display-only tilt so "bass boost" remains an explicit
@@ -2357,7 +2369,7 @@
                 var spectralBalance = .58 + Math.pow(normalizedX, .58) * .62;
                 var target = Math.min(
                     1.18,
-                    raw * sensitivity * lowFrequencyGain * spectralBalance * amplitude
+                    displayEnergy * sensitivity * lowFrequencyGain * spectralBalance * amplitude
                 );
                 var previous = renderer.__elyricVisualizerEnergy[i] || 0;
                 var rate = target > previous
@@ -2446,8 +2458,10 @@
                 for (i = 0; i < count; i++) {
                     x = i / (count - 1);
                     value = curveSamples[i];
+                    var curveEnergy = Math.pow(Math.max(0, value), .66);
                     var curveY = height * (.54 + (curveIndex - 1) * .1)
-                        - Math.sin(x * 7 + curveIndex * .85) * value * height * .21;
+                        - Math.sin(x * 7 + curveIndex * .85)
+                            * height * (.055 + curveEnergy * .35);
                     if (i) {
                         context.lineTo(x * width, curveY);
                     } else {
@@ -2464,7 +2478,7 @@
             for (i = 0; i < count; i++) {
                 x = i / (count - 1);
                 value = lineSamples[i];
-                var lineY = baseline - value * height * .7;
+                var lineY = baseline - Math.pow(Math.max(0, value), .72) * height * .78;
                 if (i) {
                     context.lineTo(x * width, lineY);
                 } else {
@@ -2480,9 +2494,10 @@
             for (i = 0; i < count; i++) {
                 x = (i + .5) / count;
                 value = chromaSamples[i];
-                var chromaHeight = Math.max(2, value * height * .82);
+                var chromaEnergy = Math.pow(Math.max(0, value), .66);
+                var chromaHeight = Math.max(2, chromaEnergy * height * .88);
                 var chromaX = i * chromaSlot + chromaSlot / 2;
-                context.globalAlpha = .2 + value * .28;
+                context.globalAlpha = .18 + chromaEnergy * .58;
                 context.lineWidth = Math.max(2.2, Math.min(9, chromaSlot * .74));
                 context.beginPath();
                 context.moveTo(chromaX, baseline - chromaHeight * .62);
@@ -2506,10 +2521,13 @@
             for (i = 0; i < count; i++) {
                 x = i / (count - 1);
                 value = ballSamples[i];
-                var radius = Math.max(1.7, Math.min(3.6, height * .075, width / count * .31));
+                var ballEnergy = Math.pow(Math.max(0, value), .62);
+                var baseRadius = Math.max(1.7, Math.min(3.6, height * .075, width / count * .31));
+                var radius = baseRadius * (.82 + ballEnergy * .32);
                 var particleGap = radius * 2.65;
-                var particleRows = Math.max(1, Math.round(value * height * .42 / particleGap));
-                context.shadowBlur = radius * (1.2 + value * 2.1);
+                var particleSpan = ballEnergy * height * .46;
+                var particleRows = Math.max(0, Math.floor(particleSpan / particleGap));
+                context.shadowBlur = radius * (1.2 + ballEnergy * 2.1);
                 for (var particleRow = 0; particleRow <= particleRows; particleRow++) {
                     var particleAlpha = Math.max(.2, .92 - particleRow / Math.max(2, particleRows + 1) * .62);
                     context.globalAlpha = particleAlpha;
@@ -2535,6 +2553,16 @@
                         context.fill();
                     }
                 }
+                if (particleSpan > radius * 1.15) {
+                    context.globalAlpha = .96;
+                    context.beginPath();
+                    context.arc(x * width, baseline - particleSpan, radius * 1.08, 0, Math.PI * 2);
+                    context.fill();
+                    context.globalAlpha = .58;
+                    context.beginPath();
+                    context.arc(x * width, baseline + particleSpan, radius * .76, 0, Math.PI * 2);
+                    context.fill();
+                }
             }
             context.shadowBlur = 0;
             context.globalAlpha = .92;
@@ -2546,6 +2574,7 @@
                 pulseEnergy += pulseSamples[i];
             }
             pulseEnergy /= Math.max(4, Math.round(count * .32));
+            pulseEnergy = Math.pow(Math.max(0, pulseEnergy), .58);
             for (i = 0; i < 5; i++) {
                 context.globalAlpha = .55 - i * .09;
                 context.lineWidth = Math.max(1.2, height * (.035 - i * .004));
@@ -2553,7 +2582,7 @@
                 context.arc(
                     width / 2,
                     baseline,
-                    Math.max(4, height * (.08 + i * .075) + pulseEnergy * height * .2),
+                    Math.max(4, height * (.07 + i * .072) + pulseEnergy * height * .34),
                     0,
                     Math.PI * 2
                 );
@@ -2579,7 +2608,7 @@
             for (i = 0; i < count; i++) {
                 x = (i + .5) / count;
                 value = barSamples[i];
-                var barHeight = Math.max(2, value * height * .72);
+                var barHeight = Math.max(2, Math.pow(Math.max(0, value), .68) * height * .78);
                 var centerX = i * slot + slot / 2;
                 context.beginPath();
                 if ("mirror" === styleId) {

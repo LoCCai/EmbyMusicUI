@@ -5862,4 +5862,156 @@
     }
 }
 
+/* V3.10: preserve each preset's artwork ratio on phones and tall narrow windows. */
+@media (max-width: 760px) {
+    .elyric-player-shell.elyric-theme-picker .elyric-player-progress {
+        right: auto;
+        left: 50%;
+        width: min(68vw, 28rem) !important;
+        transform: translateX(-50%);
+    }
+
+    .elyric-player-shell[data-elyric-player-layout] .elyric-player-format {
+        max-width: 100%;
+        align-self: flex-start;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="album"] .elyric-player-artwork,
+    .elyric-player-shell[data-elyric-player-layout="deck"] .elyric-player-artwork {
+        width: 42% !important;
+        min-width: 42% !important;
+        height: 42% !important;
+        border-radius: 50% !important;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="center"] .elyric-player-artwork,
+    .elyric-player-shell[data-elyric-player-layout="stack"] .elyric-player-artwork {
+        width: 100% !important;
+        min-width: 100% !important;
+        height: 100% !important;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="mobile"] .elyric-player-artwork {
+        width: 72% !important;
+        min-width: 72% !important;
+        height: 72% !important;
+        border-radius: 50% !important;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="mint"] .elyric-player-artwork,
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-artwork {
+        width: 88% !important;
+        min-width: 88% !important;
+        height: 88% !important;
+        border-radius: 50% !important;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="lyrics"] .elyric-player-artwork {
+        width: 56% !important;
+        min-width: 56% !important;
+        height: 56% !important;
+        border-radius: 50% !important;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="mint"] .elyric-player-artwork-stage,
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-artwork-stage {
+        box-sizing: border-box;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-metadata {
+        left: 50%;
+        width: min(86vw, 34rem);
+        text-align: center;
+        transform: translateX(-50%);
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-title {
+        font-size: clamp(1.25rem, 3.4vw, 1.6rem);
+        line-height: 1.05;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-artist {
+        font-size: clamp(.78rem, 2vw, .92rem);
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="rose"] .elyric-player-format {
+        align-self: center;
+    }
+
+    .elyric-player-active-page[data-elyric-player-layout="rose"]
+        .osdContentSection[data-contentsection="lyrics"] {
+        right: auto !important;
+        left: 50% !important;
+        width: min(86vw, 34rem) !important;
+        padding: clamp(.9rem, 3vw, 1.4rem) !important;
+        transform: translateX(-50%);
+    }
+}
+
+@media (min-width: 521px) and (max-width: 760px) {
+    .elyric-player-shell[data-elyric-player-layout="center"] .elyric-player-identity,
+    .elyric-player-shell[data-elyric-player-layout="stack"] .elyric-player-identity {
+        width: clamp(6.8rem, 17vw, 8rem);
+        height: clamp(6.8rem, 17vw, 8rem);
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="center"] .elyric-player-metadata {
+        left: calc(1.7rem + clamp(6.8rem, 17vw, 8rem));
+        min-height: clamp(6.8rem, 17vw, 8rem);
+    }
+
+    .elyric-player-shell[data-elyric-player-layout="stack"] .elyric-player-metadata {
+        left: calc(1.75rem + clamp(6.8rem, 17vw, 8rem));
+        min-height: clamp(6.8rem, 17vw, 8rem);
+    }
+
+    .elyric-player-active-page:is(
+        [data-elyric-player-layout="center"],
+        [data-elyric-player-layout="stack"]
+    ) .osdContentSection[data-contentsection="lyrics"] {
+        top: max(12.5rem, calc(env(safe-area-inset-top, 0px) + 11.7rem)) !important;
+    }
+
+    .elyric-player-shell:is(
+        [data-elyric-player-layout="mint"],
+        [data-elyric-player-layout="rose"]
+    ) .elyric-player-identity {
+        top: max(4.8rem, calc(env(safe-area-inset-top, 0px) + 4.2rem));
+        width: clamp(12.5rem, 31vw, 15rem);
+        height: clamp(12.5rem, 31vw, 15rem);
+    }
+
+    .elyric-player-shell:is(
+        [data-elyric-player-layout="mint"],
+        [data-elyric-player-layout="rose"]
+    ) .elyric-player-metadata {
+        top: calc(
+            max(4.8rem, calc(env(safe-area-inset-top, 0px) + 4.2rem))
+            + clamp(12.5rem, 31vw, 15rem) + 2.25rem
+        );
+    }
+
+    .elyric-player-active-page:is(
+        [data-elyric-player-layout="mint"],
+        [data-elyric-player-layout="rose"]
+    ) .osdContentSection[data-contentsection="lyrics"] {
+        top: calc(
+            max(4.8rem, calc(env(safe-area-inset-top, 0px) + 4.2rem))
+            + clamp(12.5rem, 31vw, 15rem) + 7.75rem
+        ) !important;
+    }
+
+}
+
+@media (min-width: 521px) and (max-width: 760px) and (min-height: 1000px) {
+    .elyric-player-shell[data-elyric-player-layout="album"] .elyric-player-identity {
+        top: 32%;
+    }
+
+    .elyric-player-active-page[data-elyric-player-layout="album"]
+        .osdContentSection[data-contentsection="lyrics"] {
+        top: 49vh !important;
+    }
+}
+
 /* ELYRIC_ENHANCE_END:4.9.5.0 */
