@@ -1474,6 +1474,7 @@
 
     function setSettingsPanelOpen(renderer, open) {
         open = !!open;
+        var wasOpen = !!renderer.__elyricSettingsOpen;
         if (open) {
             setMediaPanelOpen(renderer, false);
             if (renderer.__elyricQueueOpen) {
@@ -1501,10 +1502,14 @@
             setAttributeIfChanged(document.body, "data-elyric-settings-open", open ? "true" : "false");
         }
         syncPlayerOverlayScrim(renderer);
+        if (wasOpen && !open) {
+            resumeLyricFollowing(renderer, false);
+        }
     }
 
     function setMediaPanelOpen(renderer, open) {
         open = !!open;
+        var wasOpen = !!renderer.__elyricMediaOpen;
         if (open) {
             setSettingsPanelOpen(renderer, false);
             if (renderer.__elyricQueueOpen) {
@@ -1530,6 +1535,9 @@
             refreshMediaInformation(renderer);
         }
         syncPlayerOverlayScrim(renderer);
+        if (wasOpen && !open) {
+            resumeLyricFollowing(renderer, false);
+        }
     }
 
     function syncPlayerOverlayScrim(renderer, pageVisible) {
@@ -1646,6 +1654,7 @@
         }
         syncArtworkRotationAvailability(renderer);
         syncPlayerPageState(renderer, isThemeContextVisible(renderer));
+        resumeLyricFollowing(renderer, false);
     }
 
     function applyTheme(renderer, themeId, persist) {
@@ -2191,10 +2200,13 @@
                 var bandAverage = bandTotal / Math.max(1, bandEnd - bandStart);
                 var raw = (bandAverage * .76 + bandPeak * .24) / 255;
                 var lowFrequencyGain = 1 + (bassBoost - 1) * Math.pow(1 - normalizedX, 1.85);
-                var perceptualTilt = .82 + Math.pow(normalizedX, .7) * .42;
+                // Music masters naturally carry much more energy in the first few bins.
+                // Apply a gentle display-only tilt so "bass boost" remains an explicit
+                // choice instead of making the left edge dominate every spectrum.
+                var spectralBalance = .58 + Math.pow(normalizedX, .58) * .62;
                 var target = Math.min(
                     1.18,
-                    raw * sensitivity * lowFrequencyGain * perceptualTilt * amplitude
+                    raw * sensitivity * lowFrequencyGain * spectralBalance * amplitude
                 );
                 var previous = renderer.__elyricVisualizerEnergy[i] || 0;
                 var rate = target > previous
@@ -3953,7 +3965,7 @@
         var behaviorSection = createSettingsSection(settingsPanel, "7. 播放细节", "elyric-behavior-settings");
         var secondLineChoices = createSegmentedControl(
             renderer,
-            [{ id: "on", label: "显示注音" }, { id: "off", label: "隐藏注音" }],
+            [{ id: "on", label: "显示注音 / 翻译" }, { id: "off", label: "隐藏注音 / 翻译" }],
             "elyric-second-line-segments",
             "elyric-second-line-choice",
             "注音或翻译",
@@ -4566,6 +4578,17 @@
         renderer.__elyricLastRuntimeTicks = null;
     }
 
+    function isLyricCreditLine(item, index) {
+        if (!item || !item.__elyric || !item.__elyric.sublines || !item.__elyric.sublines.length) {
+            return false;
+        }
+        var text = String(item.__elyric.sublines[0].text || "").trim();
+        if (/^(?:词|曲|编曲|作词|作曲|填词|谱曲|制作人|原唱|翻唱|lyrics?(?:\s+by)?|music(?:\s+by)?|composer|arranger)\s*[：:]/i.test(text)) {
+            return true;
+        }
+        return index < 2 && /\s[-–—]\s/.test(text);
+    }
+
     function renderLyricElement(renderer, element) {
         var index = Number(element.getAttribute("data-index"));
         var item = renderer.__elyricItems && renderer.__elyricItems[index];
@@ -4587,9 +4610,21 @@
             body.removeChild(body.firstChild);
         }
 
+        element.classList.remove("elyric-line-multilingual", "elyric-line-credit");
+        if (item.__elyric.sublines.length > 1) {
+            element.classList.add("elyric-line-multilingual");
+        }
+        if (isLyricCreditLine(item, index)) {
+            element.classList.add("elyric-line-credit");
+        }
+
         item.__elyric.sublines.forEach(function (line, sublineIndex) {
             var lineElement = document.createElement("div");
             lineElement.className = "elyric-subline elyric-subline-" + (sublineIndex + 1);
+            lineElement.setAttribute(
+                "data-elyric-subline-role",
+                0 === sublineIndex ? "primary" : 1 === sublineIndex ? "secondary" : "tertiary"
+            );
 
             if (line.words) {
                 line.words.forEach(function (word) {

@@ -601,6 +601,12 @@ function createLyricElement(index) {
         "opening settings must not duplicate the drawer");
     document.frontElement = renderer.__elyricOverlayScrim;
     renderer.onTimeUpdate(0, 20000000);
+    assert(visible.item.classList.contains("elyric-line-multilingual"),
+        "grouped pronunciation or translation rows should expose a multilingual layout hook");
+    assert.strictEqual(visible.body.querySelector(".elyric-subline-1")
+        .getAttribute("data-elyric-subline-role"), "primary");
+    assert.strictEqual(visible.body.querySelector(".elyric-subline-2")
+        .getAttribute("data-elyric-subline-role"), "secondary");
     assert.strictEqual(settingsPanel.getAttribute("hidden"), null,
         "the player scrim must not be mistaken for a different page covering playback");
     assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), null,
@@ -614,9 +620,12 @@ function createLyricElement(index) {
     renderer.onTimeUpdate(0, 20000000);
     assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), null,
         "returning to the player should restore the open drawer and its scrim together");
+    const panelCloseFollowCount = visible.item.scrollIntoViewCalls.length;
     settingsPanel.querySelector(".elyric-player-settings-close").click();
     assert.strictEqual(settingsPanel.getAttribute("hidden"), "hidden");
     assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), "hidden");
+    assert(visible.item.scrollIntoViewCalls.length > panelCloseFollowCount,
+        "closing a sheet should recenter the active multilingual lyric after responsive layout changes");
     const layoutButtons = renderer.__elyricLayoutButtons;
     assert.strictEqual(layoutButtons.length, 10,
         "all nine supplied reference layouts and the custom composition should be selectable");
@@ -667,6 +676,9 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricPlayerTuningInputs.lyricsHeight.value, "54");
     assert(settingsPanel.querySelector(".elyric-player-settings-action"),
         "the custom composition workspace should expose a one-click reset action");
+    assert(settingsPanel.textContent.includes("显示注音 / 翻译")
+        && settingsPanel.textContent.includes("隐藏注音 / 翻译"),
+    "multiline lyric controls should describe both pronunciation and translation rows");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-source"), "estimated",
         "test browsers without Web Audio should use the explicit rhythm-estimation fallback");
     const liveMediaElement = new FakeNode("video");
@@ -1152,6 +1164,8 @@ function createLyricElement(index) {
     assert(adapter.includes("bandAverage * .76 + bandPeak * .24")
         && adapter.includes("Math.pow((i + 1) / count, 1.12)"),
     "frequency styles should average perceptual bands instead of repeatedly sampling bass bins");
+    assert(adapter.includes("spectralBalance = .58 + Math.pow(normalizedX, .58) * .62"),
+        "display weighting should keep naturally loud low bins from dominating the spectrum");
     assert(!adapter.includes("connect(audioContext.destination)"),
         "passive spectrum analysis must not reroute Emby's audio output");
     assert(adapter.includes("var LYRIC_FOLLOW_IDLE_MS = 10000"),
@@ -1197,6 +1211,23 @@ function createLyricElement(index) {
     assert(adapterCss.includes(".elyric-player-settings-panel .elyric-player-settings-header")
         && adapterCss.includes("-webkit-backdrop-filter: none;"),
         "the settings header should not reintroduce blur inside the opaque drawer");
+    assert(adapterCss.includes(':not([data-elyric-player-layout="custom"]) .elyric-player-artwork-stage'),
+        "saved custom artwork scale must not leak into the supplied layout presets");
+    assert(adapterCss.includes('[data-elyric-player-layout="center"] .elyric-player-metadata')
+        && adapterCss.includes("transform: none;"),
+    "the Spotify poster metadata should not inherit a centering transform into its artwork column");
+    assert(adapterCss.includes(".elyric-visualizer-style-segments")
+        && adapterCss.includes("grid-template-columns: repeat(3, minmax(0, 1fr))"),
+    "all spectrum shape labels should fit in a wrapping desktop grid");
+    assert(adapterCss.includes(".elyric-player-progress-slider::-webkit-slider-runnable-track")
+        && adapterCss.includes("height: .42rem"),
+    "the playback seek rail should expose a thicker rounded drag target");
+    assert(adapterCss.includes("@starting-style") && adapterCss.includes("transition-behavior: allow-discrete"),
+        "settings and media sheets should enter and leave with a discrete-safe easing transition");
+    assert(adapterCss.includes("bottom: max(7.75rem"),
+        "mobile lyrics, spectrum and the seek rail should occupy separate vertical safety zones");
+    assert(adapterCss.includes(".elyric-line-credit") && adapter.includes("isLyricCreditLine"),
+        "embedded title and production credits should not compete with the main song identity");
     assert(adapterCss.includes('[data-elyric-alignment="right"]'),
         "lyrics should support an explicit right text anchor without moving their container");
     assert(adapterCss.includes("@media (min-width: 761px) and (max-height: 520px)")
