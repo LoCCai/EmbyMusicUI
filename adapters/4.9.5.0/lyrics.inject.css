@@ -3052,4 +3052,577 @@
     }
 }
 
+/* V3.3: semantic color system, live audio motion and collision-safe sheets. */
+.elyric-player-shell.elyric-theme-picker,
+.elyric-player-settings-panel,
+.elyric-player-media-panel,
+.elyric-player-active-page {
+    --elyric-surface: rgb(13 17 23 / .9);
+    --elyric-surface-solid: #0d1117;
+    --elyric-surface-elevated: #171d26;
+    --elyric-control: rgb(255 255 255 / .055);
+    --elyric-control-hover: rgb(255 255 255 / .11);
+    --elyric-border: rgb(255 255 255 / .1);
+    --elyric-player-foreground: #f7f9fc;
+    --elyric-player-muted: rgb(247 249 252 / .58);
+    --elyric-panel-text: #f4f7fb;
+    --elyric-panel-muted: rgb(244 247 251 / .52);
+    --elyric-accent: var(--elyric-highlight-color, var(--theme-primary-color, #9bd85c));
+    --elyric-on-accent: #102006;
+    --elyric-panel-shadow: 0 1.5rem 5rem rgb(0 0 0 / .44);
+}
+
+.elyric-player-shell[data-elyric-background-mode="white"],
+.elyric-player-settings-panel[data-elyric-background-mode="white"],
+.elyric-player-media-panel[data-elyric-background-mode="white"],
+.elyric-player-active-page[data-elyric-background-mode="white"] {
+    --elyric-surface: rgb(255 255 255 / .94);
+    --elyric-surface-solid: #fff;
+    --elyric-surface-elevated: #f3f5f8;
+    --elyric-control: rgb(17 24 39 / .055);
+    --elyric-control-hover: rgb(17 24 39 / .1);
+    --elyric-border: rgb(15 23 42 / .12);
+    --elyric-player-foreground: #111827;
+    --elyric-player-muted: rgb(17 24 39 / .58);
+    --elyric-panel-text: #111827;
+    --elyric-panel-muted: rgb(17 24 39 / .58);
+    --elyric-on-accent: #102006;
+    --elyric-panel-shadow: 0 1.5rem 5rem rgb(15 23 42 / .16);
+}
+
+.elyric-player-shell.elyric-theme-picker,
+.elyric-player-shell.elyric-theme-picker[data-elyric-player-layout] {
+    --elyric-artwork-size: 30vw;
+    --elyric-metadata-width: 30vw;
+    --elyric-lyrics-height: 54vh;
+    color: var(--elyric-player-foreground);
+}
+
+.elyric-player-shell[data-elyric-background-mode="white"] {
+    background: #fff;
+}
+
+.elyric-player-shell[data-elyric-background-mode="white"]::before {
+    background: rgb(255 255 255 / .88);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+.elyric-player-shell[data-elyric-background-mode="white"] .elyric-player-background {
+    opacity: 0;
+}
+
+.elyric-player-topbar-title,
+.elyric-player-position,
+.elyric-player-duration,
+.elyric-player-volume-value {
+    color: var(--elyric-player-muted);
+}
+
+.elyric-player-title {
+    color: var(--elyric-player-foreground);
+}
+
+.elyric-player-artist {
+    color: color-mix(in srgb, var(--elyric-player-foreground) 68%, transparent);
+}
+
+.elyric-player-album {
+    color: color-mix(in srgb, var(--elyric-player-foreground) 46%, transparent);
+}
+
+.elyric-player-format {
+    border-color: var(--elyric-border);
+    color: color-mix(in srgb, var(--elyric-accent) 76%, var(--elyric-player-foreground));
+    background: var(--elyric-control);
+}
+
+.elyric-player-button-back,
+.elyric-player-button-cast,
+.elyric-player-tools .elyric-player-button,
+.elyric-player-volume .elyric-player-button,
+.elyric-lyric-follow-button {
+    border-color: var(--elyric-border);
+    color: var(--elyric-player-muted);
+    background: var(--elyric-control);
+}
+
+.elyric-player-button-back:hover:not(:disabled),
+.elyric-player-button-cast:hover:not(:disabled),
+.elyric-player-tools .elyric-player-button:hover:not(:disabled),
+.elyric-player-tools .elyric-player-button:focus-visible,
+.elyric-player-tools .elyric-player-button[data-elyric-active="true"],
+.elyric-player-volume .elyric-player-button:hover:not(:disabled),
+.elyric-lyric-follow-button:hover,
+.elyric-lyric-follow-button:focus-visible {
+    color: var(--elyric-player-foreground);
+    background: var(--elyric-control-hover);
+}
+
+.elyric-player-transport .elyric-player-button {
+    color: color-mix(in srgb, var(--elyric-player-foreground) 82%, transparent);
+}
+
+.elyric-player-transport .elyric-player-button:hover:not(:disabled),
+.elyric-player-transport .elyric-player-button:focus-visible {
+    background: var(--elyric-control-hover);
+}
+
+.elyric-player-button-playPause,
+.elyric-player-transport .elyric-player-button-playPause {
+    color: var(--elyric-on-accent);
+    background: color-mix(in srgb, var(--elyric-accent) 88%, #fff);
+}
+
+.elyric-player-icon {
+    display: block;
+    width: 1.18rem;
+    height: 1.18rem;
+    flex: 0 0 auto;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.elyric-player-icon-fallback {
+    width: 1rem;
+    height: 1rem;
+}
+
+.elyric-player-button,
+.elyric-player-settings-close,
+.elyric-lyric-follow-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.elyric-player-tools .elyric-player-button,
+.elyric-player-volume .elyric-player-button {
+    width: 2.4rem;
+    min-width: 2.4rem;
+    height: 2.4rem;
+    padding: 0;
+    border-radius: .72rem;
+    font-size: 0;
+}
+
+.elyric-player-tools {
+    max-width: min(38vw, 22rem);
+    gap: .18rem;
+}
+
+.elyric-player-progress-slider,
+.elyric-player-volume-slider,
+.elyric-player-range-setting input[type="range"] {
+    accent-color: var(--elyric-accent);
+}
+
+.elyric-player-progress-slider::-webkit-slider-runnable-track,
+.elyric-player-volume-slider::-webkit-slider-runnable-track {
+    background: linear-gradient(90deg,
+        var(--elyric-accent) 0 var(--elyric-player-progress, var(--elyric-player-volume, 0%)),
+        color-mix(in srgb, var(--elyric-player-foreground) 16%, transparent)
+            var(--elyric-player-progress, var(--elyric-player-volume, 0%)) 100%);
+}
+
+.elyric-player-shell[data-elyric-player-layout="custom"] .elyric-player-identity {
+    width: min(var(--elyric-artwork-size), calc(100vw - 2rem));
+    height: min(var(--elyric-artwork-size), calc(100vh - 12rem));
+}
+
+.elyric-player-shell[data-elyric-player-layout="custom"] .elyric-player-metadata {
+    width: min(var(--elyric-metadata-width), calc(100vw - var(--elyric-metadata-x) - 1.5rem));
+}
+
+.elyric-player-active-page[data-elyric-player-layout="custom"] .osdContentSection[data-contentsection="lyrics"] {
+    bottom: auto !important;
+    height: min(var(--elyric-lyrics-height), calc(100vh - var(--elyric-lyrics-y) - 10.5rem)) !important;
+    max-height: min(var(--elyric-lyrics-height), calc(100vh - var(--elyric-lyrics-y) - 10.5rem)) !important;
+}
+
+.elyric-lyric-follow-button {
+    position: fixed;
+    z-index: 10;
+    right: clamp(1rem, 3vw, 2.5rem);
+    bottom: max(10.2rem, calc(env(safe-area-inset-bottom, 0px) + 9.4rem));
+    width: 2.6rem;
+    height: 2.6rem;
+    padding: 0;
+    border: 1px solid var(--elyric-border);
+    border-radius: 50%;
+    box-shadow: 0 .75rem 2.2rem rgb(0 0 0 / .22);
+    -webkit-backdrop-filter: blur(1rem);
+    backdrop-filter: blur(1rem);
+}
+
+.elyric-lyric-follow-button[hidden] {
+    display: none !important;
+}
+
+.elyric-player-settings-panel,
+.elyric-player-media-panel {
+    top: max(4.6rem, calc(env(safe-area-inset-top, 0px) + 3.6rem));
+    right: clamp(.8rem, 2vw, 1.5rem);
+    bottom: max(.8rem, env(safe-area-inset-bottom, 0px));
+    box-sizing: border-box;
+    border: 1px solid var(--elyric-border);
+    color: var(--elyric-panel-text);
+    background: var(--elyric-surface);
+    box-shadow: var(--elyric-panel-shadow);
+}
+
+.elyric-player-settings-panel {
+    width: min(34rem, calc(100vw - 2rem));
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+}
+
+.elyric-player-settings-header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-column: 1;
+    border-color: var(--elyric-border);
+    color: var(--elyric-panel-text);
+    background: var(--elyric-surface-solid);
+}
+
+.elyric-player-settings-header strong {
+    color: var(--elyric-panel-text);
+    font-size: .88rem;
+    letter-spacing: .01em;
+}
+
+.elyric-player-preference-status {
+    color: var(--elyric-panel-muted);
+}
+
+.elyric-player-preference-status[data-elyric-state="synced"],
+.elyric-visualizer-source-status[data-elyric-state="live"] {
+    color: color-mix(in srgb, var(--elyric-accent) 72%, var(--elyric-panel-text));
+}
+
+.elyric-player-settings-close {
+    width: 2.15rem;
+    height: 2.15rem;
+    padding: 0;
+    border: 1px solid var(--elyric-border);
+    color: var(--elyric-panel-muted);
+    background: var(--elyric-control);
+}
+
+.elyric-player-settings-close:hover,
+.elyric-player-settings-close:focus-visible {
+    color: var(--elyric-panel-text);
+    background: var(--elyric-control-hover);
+}
+
+.elyric-player-settings-section,
+.elyric-player-settings-section:nth-of-type(-n+2) {
+    grid-column: 1;
+    padding: 1.05rem .05rem 1.1rem;
+    border-top: 1px solid var(--elyric-border);
+}
+
+.elyric-player-settings-section:first-of-type {
+    border-top: 0;
+}
+
+.elyric-player-settings-panel[data-elyric-background-mode="white"] .elyric-player-settings-section,
+.elyric-player-media-panel[data-elyric-background-mode="white"] .elyric-player-media-section {
+    border-color: var(--elyric-border);
+    color: var(--elyric-panel-text);
+    background: transparent;
+}
+
+.elyric-player-settings-panel[data-elyric-background-mode="white"] .elyric-player-settings-note {
+    border-color: var(--elyric-border);
+    color: var(--elyric-panel-muted);
+    background: var(--elyric-control);
+}
+
+.elyric-player-settings-panel[data-elyric-background-mode="white"] .elyric-player-settings-close {
+    border-color: var(--elyric-border);
+    color: var(--elyric-panel-muted);
+    background: var(--elyric-control);
+}
+
+.elyric-player-settings-section-title {
+    color: var(--elyric-panel-text);
+    font-size: .78rem;
+}
+
+.elyric-composition-settings {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 1rem;
+}
+
+.elyric-composition-settings .elyric-player-settings-section-title,
+.elyric-composition-settings .elyric-player-settings-help,
+.elyric-composition-settings .elyric-player-settings-action {
+    grid-column: 1 / -1;
+}
+
+.elyric-player-segmented {
+    border-color: var(--elyric-border);
+    background: var(--elyric-control);
+}
+
+.elyric-player-segment {
+    color: var(--elyric-panel-muted);
+}
+
+.elyric-player-segment:hover:not(:disabled) {
+    color: var(--elyric-panel-text);
+    background: var(--elyric-control-hover);
+}
+
+.elyric-player-segment[data-elyric-active="true"],
+.elyric-player-segment[aria-pressed="true"] {
+    color: var(--elyric-on-accent);
+    background: color-mix(in srgb, var(--elyric-accent) 84%, #fff);
+}
+
+.elyric-player-range-header {
+    color: var(--elyric-panel-muted);
+}
+
+.elyric-player-range-header output {
+    color: color-mix(in srgb, var(--elyric-accent) 70%, var(--elyric-panel-text));
+}
+
+.elyric-player-settings-help,
+.elyric-player-settings-note,
+.elyric-player-settings-note-muted,
+.elyric-player-media-label,
+.elyric-player-media-empty {
+    color: var(--elyric-panel-muted);
+}
+
+.elyric-player-settings-note {
+    border-color: var(--elyric-border);
+    background: var(--elyric-control);
+}
+
+.elyric-player-color-input {
+    border-color: var(--elyric-border);
+    color: var(--elyric-panel-text);
+    background: var(--elyric-surface-elevated);
+}
+
+.elyric-player-settings-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    justify-self: start;
+    gap: .48rem;
+    min-height: 2.3rem;
+    padding: 0 .8rem;
+    border: 1px solid var(--elyric-border);
+    border-radius: .65rem;
+    color: var(--elyric-panel-text);
+    background: var(--elyric-control);
+    font: inherit;
+    font-size: .68rem;
+    font-weight: 650;
+}
+
+.elyric-player-settings-action:hover,
+.elyric-player-settings-action:focus-visible {
+    background: var(--elyric-control-hover);
+}
+
+.elyric-visualizer-source-status {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    min-height: 2rem;
+    padding: 0 .68rem;
+    border: 1px solid var(--elyric-border);
+    border-radius: .62rem;
+    color: var(--elyric-panel-muted);
+    background: var(--elyric-control);
+    font-size: .64rem;
+}
+
+.elyric-visualizer-source-status::before {
+    width: .42rem;
+    height: .42rem;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 .8rem currentColor;
+    content: "";
+}
+
+.elyric-player-media-panel {
+    width: min(36rem, calc(100vw - 2rem));
+    overflow: auto;
+}
+
+.elyric-player-media-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+}
+
+.elyric-player-media-section,
+.elyric-player-media-section:first-child {
+    grid-column: 1;
+    padding: 1rem .1rem;
+    border-top: 1px solid var(--elyric-border);
+}
+
+.elyric-player-media-section:first-child {
+    border-top: 0;
+}
+
+.elyric-player-media-section-title,
+.elyric-player-media-value {
+    color: var(--elyric-panel-text);
+}
+
+.elyric-player-media-row {
+    border-color: var(--elyric-border);
+}
+
+.elyric-player-active-page .osdContentSection[data-contentsection="playqueue"] {
+    top: max(4.75rem, calc(env(safe-area-inset-top, 0px) + 3.8rem)) !important;
+    bottom: max(6.4rem, calc(env(safe-area-inset-bottom, 0px) + 5.6rem)) !important;
+    left: clamp(.8rem, 2vw, 1.5rem) !important;
+    width: min(24rem, calc(100vw - 2rem)) !important;
+    max-width: min(24rem, calc(100vw - 2rem)) !important;
+    padding: .55rem !important;
+    border: 1px solid var(--elyric-border) !important;
+    color: var(--elyric-panel-text) !important;
+    background: var(--elyric-surface) !important;
+    box-shadow: var(--elyric-panel-shadow);
+}
+
+.elyric-player-active-page .osdContentSection[data-contentsection="playqueue"]::before {
+    color: var(--elyric-panel-text);
+}
+
+.elyric-player-active-page .osdContentSection[data-contentsection="playqueue"] .listItem {
+    min-height: 3.55rem;
+    padding-inline: .45rem !important;
+    border-bottom: 1px solid var(--elyric-border);
+    color: var(--elyric-panel-text) !important;
+}
+
+.elyric-player-active-page .osdContentSection[data-contentsection="playqueue"] .listItemBodyText,
+.elyric-player-active-page .osdContentSection[data-contentsection="playqueue"] .secondary {
+    color: var(--elyric-panel-muted) !important;
+}
+
+.elyric-player-active-page .osdContentSection[data-contentsection="playqueue"] .listItem:hover,
+.elyric-player-active-page .osdContentSection[data-contentsection="playqueue"] .listItem-selected,
+.elyric-player-active-page .osdContentSection[data-contentsection="playqueue"] .listItem[aria-current="true"] {
+    background: var(--elyric-control-hover) !important;
+    box-shadow: inset .18rem 0 var(--elyric-accent);
+}
+
+@media (max-width: 1080px) and (min-width: 761px) {
+    .elyric-player-tools {
+        max-width: 19rem;
+    }
+
+    .elyric-player-tools .elyric-player-button,
+    .elyric-player-volume .elyric-player-button {
+        width: 2.25rem;
+        min-width: 2.25rem;
+        padding: 0 !important;
+        font-size: 0 !important;
+    }
+}
+
+@media (max-width: 760px) {
+    .elyric-player-shell[data-elyric-player-layout] .elyric-player-identity,
+    .elyric-player-shell[data-elyric-player-layout="lyrics"] .elyric-player-identity,
+    .elyric-player-shell[data-elyric-player-layout="stack"] .elyric-player-identity,
+    .elyric-player-shell[data-elyric-player-layout="custom"] .elyric-player-identity {
+        width: 5.2rem;
+        height: 5.2rem;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout] .elyric-player-artwork-stage {
+        width: 5.2rem;
+    }
+
+    .elyric-player-shell[data-elyric-player-layout] .elyric-player-metadata,
+    .elyric-player-shell[data-elyric-player-layout="custom"] .elyric-player-metadata {
+        left: 6.45rem;
+    }
+
+    .elyric-player-tools .elyric-player-button {
+        padding: 0;
+        font-size: 0;
+    }
+
+    .elyric-player-icon {
+        width: 1.12rem;
+        height: 1.12rem;
+    }
+
+    .elyric-lyric-follow-button {
+        right: .75rem;
+        bottom: max(9.2rem, calc(env(safe-area-inset-bottom, 0px) + 8.4rem));
+        width: 2.4rem;
+        height: 2.4rem;
+    }
+
+    .elyric-player-settings-panel,
+    .elyric-player-media-panel {
+        color: var(--elyric-panel-text);
+        background: var(--elyric-surface-solid);
+    }
+
+    .elyric-player-settings-header {
+        grid-template-columns: minmax(0, 1fr) auto;
+        row-gap: .18rem;
+    }
+
+    .elyric-player-settings-header strong {
+        grid-column: 1;
+    }
+
+    .elyric-player-settings-header .elyric-player-preference-status {
+        grid-row: 2;
+        grid-column: 1 / -1;
+        text-align: left;
+    }
+
+    .elyric-player-settings-close {
+        grid-row: 1;
+        grid-column: 2;
+    }
+
+    .elyric-player-active-page .osdContentSection[data-contentsection="playqueue"] {
+        top: max(.45rem, env(safe-area-inset-top, 0px)) !important;
+        right: .42rem !important;
+        bottom: max(6.35rem, calc(env(safe-area-inset-bottom, 0px) + 5.55rem)) !important;
+        left: .42rem !important;
+        width: auto !important;
+        max-width: none !important;
+        border-radius: 1rem !important;
+    }
+}
+
+@media (max-width: 520px) {
+    .elyric-composition-settings {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .elyric-composition-settings .elyric-player-settings-section-title,
+    .elyric-composition-settings .elyric-player-settings-help,
+    .elyric-composition-settings .elyric-player-settings-action {
+        grid-column: 1;
+    }
+
+    .elyric-player-settings-panel,
+    .elyric-player-media-panel {
+        right: .3rem;
+        left: .3rem;
+        padding-right: .72rem;
+        padding-left: .72rem;
+    }
+}
+
 /* ELYRIC_ENHANCE_END:4.9.5.0 */

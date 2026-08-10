@@ -77,6 +77,7 @@ class FakeNode {
         this.style = new FakeStyle();
         this.parentNode = null;
         this.listeners = {};
+        this.scrollIntoViewCalls = [];
     }
     set className(value) {
         this._className = String(value);
@@ -138,6 +139,9 @@ class FakeNode {
             ? { left: 0, right: 100, top: 0, bottom: 100 }
             : { left: 0, right: 0, top: 0, bottom: 0 };
     }
+    scrollIntoView(options) {
+        this.scrollIntoViewCalls.push(options || null);
+    }
     getContext(type) {
         if (this.tagName !== "canvas" || type !== "2d") return null;
         if (!this.canvasContext) this.canvasContext = new FakeCanvasContext();
@@ -154,6 +158,7 @@ class FakeNode {
         return this.tagName ? this.children.map((child) => child.textContent).join("") : this.nodeText;
     }
     matches(selector) {
+        if (selector === "audio" || selector === "video") return this.tagName === selector;
         if (/^\.[a-z0-9_-]+$/i.test(selector)) return this.classList.contains(selector.slice(1));
         if (selector === ".listItemBodyText") return this.classList.contains("listItemBodyText");
         if (selector === ".lyricsItem[data-index]") {
@@ -338,6 +343,44 @@ let clockNow = 0;
 let nextFrameId = 1;
 const frames = new Map();
 const performance = { now: () => clockNow };
+let liveFrequencyReads = 0;
+let liveWaveformReads = 0;
+let audioDestinationConnections = 0;
+class FakeAnalyserNode {
+    constructor() {
+        this.fftSize = 2048;
+        this.frequencyBinCount = 1024;
+        this.smoothingTimeConstant = 0;
+    }
+    getByteFrequencyData(target) {
+        liveFrequencyReads += 1;
+        target.fill(96);
+        for (let i = 0; i < Math.min(48, target.length); i++) target[i] = 196 - i;
+    }
+    getByteTimeDomainData(target) {
+        liveWaveformReads += 1;
+        for (let i = 0; i < target.length; i++) target[i] = 128 + Math.round(Math.sin(i / 9) * 48);
+    }
+    disconnect() {}
+}
+class FakeAudioContext {
+    constructor() {
+        this.state = "running";
+        this.closed = false;
+        this.destination = {};
+    }
+    createMediaStreamSource() {
+        return {
+            connect(target) {
+                if (!(target instanceof FakeAnalyserNode)) audioDestinationConnections += 1;
+            },
+            disconnect() {}
+        };
+    }
+    createAnalyser() { return new FakeAnalyserNode(); }
+    resume() { this.state = "running"; return Promise.resolve(); }
+    close() { this.state = "closed"; this.closed = true; return Promise.resolve(); }
+}
 global.window = {
     devicePixelRatio: 1,
     matchMedia() { return { matches: true }; }
@@ -552,12 +595,21 @@ function createLyricElement(index) {
     assert.strictEqual(document.body.querySelector(".elyric-layout-select"), null);
     assert.strictEqual(renderer.__elyricPlayerButtons.lyrics, undefined,
         "lyrics are always visible, so V3 must not expose a redundant lyrics button");
+    ["back", "cast", "previous", "playPause", "next", "mute", "shuffle", "repeat", "stop", "queue"]
+        .forEach((action) => {
+            assert(renderer.__elyricPlayerButtons[action].getAttribute("data-elyric-icon"),
+                `${action} should use the shared SVG icon presentation`);
+        });
+    assert.strictEqual(renderer.__elyricMediaButton.getAttribute("data-elyric-icon"), "info");
+    assert.strictEqual(renderer.__elyricSecondLineButton.getAttribute("data-elyric-icon"), "subtitle");
+    assert.strictEqual(renderer.__elyricArtworkRotationButton.getAttribute("data-elyric-icon"), "rotation");
+    assert.strictEqual(renderer.__elyricSettingsButton.getAttribute("data-elyric-icon"), "settings");
     assert.strictEqual(renderer.__elyricVisualizer.children.length, 1,
         "the player should mount one horizontal canvas visualizer");
     assert.strictEqual(renderer.__elyricVisualizer.children[0].tagName, "canvas");
     assert(renderer.__elyricVisualizerContext.strokeCalls > 0,
         "the default spectrum shape should paint rounded center-balanced bars into the canvas");
-    assert.strictEqual(renderer.__elyricVisualizerStyleButtons.length, 5);
+    assert.strictEqual(renderer.__elyricVisualizerStyleButtons.length, 8);
     assert.strictEqual(renderer.__elyricVisualizerRangeButtons.length, 3);
     assert.strictEqual(renderer.__elyricVisualizerColorModeButtons.length, 4);
     assert.strictEqual(renderer.__elyricBackgroundButtons.length, 3);
@@ -566,6 +618,40 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricVisualizerWidthInput.value, "62");
     assert.strictEqual(renderer.__elyricVisualizerHeightInput.value, "8");
     assert.strictEqual(renderer.__elyricVisualizerAmplitudeInput.value, "70");
+    assert.strictEqual(renderer.__elyricVisualizerAnalysisInputs.sensitivity.value, "125");
+    assert.strictEqual(renderer.__elyricVisualizerAnalysisInputs.response.value, "80");
+    assert.strictEqual(renderer.__elyricVisualizerAnalysisInputs.smoothing.value, "25");
+    assert.strictEqual(renderer.__elyricVisualizerAnalysisInputs.density.value, "56");
+    assert.strictEqual(renderer.__elyricVisualizerAnalysisInputs.bassBoost.value, "135");
+    assert.strictEqual(renderer.__elyricPlayerTuningInputs.backgroundBlur.value, "44",
+        "missing local values must use balanced defaults instead of coercing null to zero");
+    assert.strictEqual(renderer.__elyricPlayerTuningInputs.artworkX.value, "76");
+    assert.strictEqual(renderer.__elyricPlayerTuningInputs.artworkSize.value, "30");
+    assert.strictEqual(renderer.__elyricPlayerTuningInputs.metadataWidth.value, "30");
+    assert.strictEqual(renderer.__elyricPlayerTuningInputs.lyricsHeight.value, "54");
+    assert(settingsPanel.querySelector(".elyric-player-settings-action"),
+        "the custom composition workspace should expose a one-click reset action");
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-source"), "estimated",
+        "test browsers without Web Audio should use the explicit rhythm-estimation fallback");
+    const liveMediaElement = new FakeNode("video");
+    liveMediaElement.paused = false;
+    liveMediaElement.ended = false;
+    liveMediaElement.captureStream = () => ({ getAudioTracks: () => [{}] });
+    playbackPage.appendChild(liveMediaElement);
+    window.AudioContext = FakeAudioContext;
+    renderer.__elyricVisualizerAnalyserRetryAt = 0;
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-source"), "live",
+        "an active media capture stream should switch the visualizer to live audio analysis");
+    assert(liveFrequencyReads > 0, "live spectrum frames should read analyser frequency bins");
+    assert.strictEqual(audioDestinationConnections, 0,
+        "the analyser source should never connect to the AudioContext destination");
+    const liveAudioContext = renderer.__elyricVisualizerAudioContext;
+    renderer.__elyricVisualizerStyleButtons
+        .find((button) => button.getAttribute("data-elyric-choice") === "waveform")
+        .click();
+    renderer.onTimeUpdate(0, 20000000);
+    assert(liveWaveformReads > 0, "the waveform style should read live time-domain samples");
     renderer.__elyricVisualizerStyleButtons
         .find((button) => button.getAttribute("data-elyric-choice") === "curve")
         .click();
@@ -578,6 +664,12 @@ function createLyricElement(index) {
     renderer.__elyricVisualizerHeightInput.dispatchEvent({ type: "input", stopPropagation() {} });
     renderer.__elyricVisualizerAmplitudeInput.value = "130";
     renderer.__elyricVisualizerAmplitudeInput.dispatchEvent({ type: "input", stopPropagation() {} });
+    renderer.__elyricVisualizerAnalysisInputs.response.value = "95";
+    renderer.__elyricVisualizerAnalysisInputs.response.dispatchEvent({ type: "input", stopPropagation() {} });
+    renderer.__elyricVisualizerAnalysisInputs.smoothing.value = "15";
+    renderer.__elyricVisualizerAnalysisInputs.smoothing.dispatchEvent({ type: "input", stopPropagation() {} });
+    renderer.__elyricVisualizerAnalysisInputs.density.value = "80";
+    renderer.__elyricVisualizerAnalysisInputs.density.dispatchEvent({ type: "input", stopPropagation() {} });
     renderer.__elyricVisualizerColorModeButtons
         .find((button) => button.getAttribute("data-elyric-choice") === "multi")
         .click();
@@ -614,6 +706,9 @@ function createLyricElement(index) {
     assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-width"), "83");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-height"), "16");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-amplitude"), "130");
+    assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-response"), "95");
+    assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-smoothing"), "15");
+    assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-density"), "80");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-color-mode"), "multi");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.visualizer-color-1"), "#123456");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.background-mode"), "white");
@@ -664,6 +759,9 @@ function createLyricElement(index) {
     assert.strictEqual(syncedPlayerPreferences.layout, "custom");
     assert.strictEqual(syncedPlayerPreferences.theme, "focus");
     assert.strictEqual(syncedPlayerPreferences.visualizerHeight, 16);
+    assert.strictEqual(syncedPlayerPreferences.visualizerResponse, 95);
+    assert.strictEqual(syncedPlayerPreferences.visualizerSmoothing, 15);
+    assert.strictEqual(syncedPlayerPreferences.visualizerDensity, 80);
     assert.strictEqual(syncedPlayerPreferences.tuning.backgroundBlur, 32);
     assert.strictEqual(syncedPlayerPreferences.tuning.artworkX, 82);
     assert.strictEqual(syncedPlayerPreferences.tuning.lyricsWidth, 52);
@@ -720,7 +818,7 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricPlayerFormat.textContent,
         "WAV · PCM_S16LE · 44.1 kHz · 16 bit · 6 ch");
     assert.strictEqual(createdTags.filter((tag) => tag === "canvas").length, 1,
-        "the visualizer should use one isolated canvas without rerouting Emby audio");
+        "the visualizer should use one isolated canvas");
     assert(!createdTags.includes("audio"));
     renderer.__elyricPlayerButtons.next.click();
     renderer.__elyricPlayerButtons.playPause.dispatchEvent({ type: "pointerdown", stopPropagation() {} });
@@ -730,7 +828,7 @@ function createLyricElement(index) {
     assert.strictEqual(nativeVolume.value, "0");
     assert.strictEqual(renderer.__elyricVolumeSlider.style.getPropertyValue("--elyric-player-volume"), "0%");
     assert.strictEqual(renderer.__elyricVolumeValue.textContent, "0%");
-    assert.strictEqual(renderer.__elyricPlayerButtons.mute.textContent, "🔇");
+    assert.strictEqual(renderer.__elyricPlayerButtons.mute.getAttribute("data-elyric-icon"), "volumeMute");
     assert.strictEqual(renderer.__elyricPlayerButtons.mute.getAttribute("aria-pressed"), "true");
     renderer.__elyricPlayerButtons.mute.click();
     assert.strictEqual(nativeVolume.value, "65");
@@ -747,7 +845,7 @@ function createLyricElement(index) {
         "pointer-down playback should update the custom control optimistically");
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-playback-active"), "true",
         "playback state should drive both artwork and visualizer animation");
-    assert.strictEqual(renderer.__elyricPlayerButtons.playPause.textContent, "Ⅱ");
+    assert.strictEqual(renderer.__elyricPlayerButtons.playPause.getAttribute("data-elyric-icon"), "pause");
     assert.strictEqual(nativeClicks.stop, 1);
     assert.strictEqual(nativeClicks.mute, 0,
         "custom mute should operate the current player volume slider without double-toggling Emby's mute button");
@@ -824,6 +922,21 @@ function createLyricElement(index) {
         "full-page synchronization must not rewrite body.class and retrigger its MutationObserver");
     assert.strictEqual(frames.size, 0, "one native sample must not start interpolation");
     assert(visible.item.classList.contains("elyric-line-current"));
+    const followedScrollCount = visible.item.scrollIntoViewCalls.length;
+    renderer.itemsContainer.dispatchEvent({ type: "wheel" });
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-manual-scroll"), "true",
+        "manual lyric scrolling should suspend automatic following");
+    assert.strictEqual(renderer.__elyricLyricFollowButton.getAttribute("hidden"), null,
+        "manual lyric scrolling should expose an immediate return-to-current-line button");
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(visible.item.scrollIntoViewCalls.length, followedScrollCount,
+        "the player should not fight the user while the manual-scroll idle window is active");
+    renderer.__elyricManualScrollUntil = Date.now() - 1;
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-manual-scroll"), "false");
+    assert.strictEqual(renderer.__elyricLyricFollowButton.getAttribute("hidden"), "hidden");
+    assert(visible.item.scrollIntoViewCalls.length > followedScrollCount,
+        "expired manual scrolling should smoothly return to the current lyric line");
     assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 1, "time updates must not duplicate the picker");
 
     const coveringPage = new FakeNode("div");
@@ -924,9 +1037,22 @@ function createLyricElement(index) {
         "spectrum width and height must be independently adjustable");
     assert(adapterCss.includes("data-elyric-playback-active=\"true\""),
         "playback animations must only run while Emby reports active playback");
-    ["spectrum", "fall", "curve", "line", "balls"].forEach((styleId) => {
+    ["spectrum", "mirror", "waveform", "fall", "curve", "line", "balls", "pulse"].forEach((styleId) => {
         assert(adapter.includes(`id: "${styleId}"`), `${styleId} visualizer shape should be available`);
     });
+    assert(adapter.includes("captureStream") && adapter.includes("createMediaStreamSource")
+        && adapter.includes("getByteFrequencyData") && adapter.includes("getByteTimeDomainData"),
+    "the visualizer should analyse the active Emby media stream before using its fallback envelope");
+    assert(!adapter.includes("connect(audioContext.destination)"),
+        "passive spectrum analysis must not reroute Emby's audio output");
+    assert(adapter.includes("var LYRIC_FOLLOW_IDLE_MS = 10000"),
+        "automatic lyric following should resume after ten seconds of user inactivity");
+    ["--elyric-surface", "--elyric-panel-text", "--elyric-panel-muted", "--elyric-accent"]
+        .forEach((token) => assert(adapterCss.includes(token), `${token} semantic color should exist`));
+    assert(adapterCss.includes("bottom: max(6.4rem"),
+        "the desktop queue should reserve the transport and progress safety zone");
+    assert(adapterCss.includes(".elyric-player-icon"),
+        "player controls should share one vector icon system");
     ["solid", "dual", "multi", "rainbow"].forEach((modeId) => {
         assert(adapter.includes(`id: "${modeId}"`), `${modeId} visualizer color mode should be available`);
     });
@@ -972,6 +1098,8 @@ function createLyricElement(index) {
     assert(visible.item.classList.contains("elyric-line-past"));
     const themeControl = renderer.__elyricThemeControl;
     const queueDismissHandler = renderer.__elyricQueueDismissHandler;
+    const lyricFollowHost = renderer.__elyricLyricFollowHost;
+    const lyricFollowHandler = renderer.__elyricLyricManualScrollHandler;
     renderer.destroy();
     assert.strictEqual(frames.size, 0, "destroy should cancel any pending animation frame");
     assert.strictEqual(renderer.__elyricClock, null);
@@ -980,6 +1108,10 @@ function createLyricElement(index) {
     assert.strictEqual(mediaPanel.parentNode, null, "destroy should remove the separate media drawer");
     assert(!(document.body.listeners.pointerdown || []).includes(queueDismissHandler),
         "destroy should release the global click-outside queue handler");
+    assert(!(lyricFollowHost.listeners.wheel || []).includes(lyricFollowHandler),
+        "destroy should release manual lyric-follow listeners");
+    assert.strictEqual(liveAudioContext.closed, true,
+        "destroy should close the passive analyser context during player navigation");
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), null);
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-show-second"), null);
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-player-layout"), null);
@@ -1012,6 +1144,9 @@ function createLyricElement(index) {
     assert.strictEqual(secondRenderer.__elyricVisualizerWidthInput.value, "83");
     assert.strictEqual(secondRenderer.__elyricVisualizerHeightInput.value, "16");
     assert.strictEqual(secondRenderer.__elyricVisualizerAmplitudeInput.value, "130");
+    assert.strictEqual(secondRenderer.__elyricVisualizerAnalysisInputs.response.value, "95");
+    assert.strictEqual(secondRenderer.__elyricVisualizerAnalysisInputs.smoothing.value, "15");
+    assert.strictEqual(secondRenderer.__elyricVisualizerAnalysisInputs.density.value, "80");
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-color-mode"), "multi");
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-background-mode"), "white");
     assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-alignment"), "center");
