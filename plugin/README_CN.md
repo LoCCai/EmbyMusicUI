@@ -84,7 +84,9 @@ plugin\scripts\verify.ps1 -IncludeEmbyBuild
 
 ## Docker 安装
 
-仓库中的单文件预编译 DLL 可直接安装。在 Emby Docker 宿主机执行：
+日常更新建议使用仓库根目录的统一入口 `sh docker-install.sh`，选择 `2` 只更新 DLL，或输入 `1 2 3` 一次完成前端、DLL 和 EDE 修复。统一入口只要求选择一次容器，并在全部选中功能成功后重启一次。
+
+下面的独立脚本继续保留，用于插件备份、状态和回滚等高级管理。仓库中的单文件预编译 DLL 可直接安装，在 Emby Docker 宿主机执行：
 
 ```bash
 sh docker-plugin-install.sh

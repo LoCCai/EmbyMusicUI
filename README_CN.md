@@ -36,14 +36,25 @@ sh docker-install.sh
 
 不传容器参数时，脚本会先从运行中的容器名称、镜像和状态里自动检索 `emby`（不区分大小写），把候选项按编号列出。候选列表始终保留“没有我要的容器，手动输入”；如果完全没有自动匹配项，则直接列出全部运行中容器，并接受容器名或容器 ID（不是镜像名）。
 
-之后可以选择：
+容器只需选择一次。之后可以选择：
 
-1. 安装或重新生成并启用增强版
-2. 切换到原版，保留全部备份
-3. 重新启用增强版
-4. 查看状态
+1. 安装或更新歌词播放器前端
+2. 安装或更新服务端插件 DLL
+3. 修复 EDE 1.47 页面生命周期
 
-也可以直接传参：
+支持单选和空格分隔多选，例如输入 `1` 只安装前端，输入 `1 2 3` 会依次执行全部三项。重复编号会自动去重，逗号、越界编号或其他非法输入会被拒绝并要求重新输入。只要选择了 DLL，脚本会等所有选中功能成功完成后再统一重启容器一次；任一功能失败时立即停止，不执行后续功能，也不会重启容器。
+
+常用非交互组合命令：
+
+```bash
+sh docker-install.sh <容器名或ID> all
+sh docker-install.sh <容器名或ID> plugin
+sh docker-install.sh <容器名或ID> ede
+```
+
+`all` 等同于交互输入 `1 2 3`。`plugin` 安装 DLL 并重启一次，`ede` 只应用 EDE 修复且不重启。
+
+原有前端管理命令继续兼容，也可以直接传参：
 
 ```bash
 sh docker-install.sh <容器名或ID> install
@@ -59,6 +70,13 @@ sh docker-install.sh <容器名或ID> undo
 ```
 
 切换文件后不需要重启 Emby，更不要为了切换而重建容器。请强制刷新浏览器；仍显示旧内容时，再清除 Emby 站点缓存。
+
+EDE 修复只识别经过验证的 1.47 代码特征。原文件会持久备份到 `/config/emby-lyric-enhance/ede-1.47/original/ede.user.js`，重复执行是幂等的；未安装 EDE 时安全跳过，未知版本则拒绝修改。可用以下命令检查或恢复：
+
+```bash
+sh docker-install.sh <容器名或ID> ede-status
+sh docker-install.sh <容器名或ID> ede-restore
+```
 
 ## C# 设置插件与用户主题服务
 
@@ -186,6 +204,7 @@ node tests/adapter.test.js
 node tests/theme-v2-contract.test.js
 node tests/plugin-integration.test.js
 node tests/docker-install.test.js
+node tests/ede-manager.test.js
 ```
 
 或在 Windows 使用 `plugin\scripts\verify.ps1`，同时验证参数注册表完整性、严格服务端校验、用户隔离、无限主题 CRUD、原子恢复、revision 冲突、资源限制、画布/设置互斥、安全入口、账户同步、歌词与播放控制及安装器行为。真实部署仍需同时更新 DLL、`lyrics.js`、`lyrics.css`，重启 Emby 加载 DLL，清理站点缓存后再用真实歌曲验收。

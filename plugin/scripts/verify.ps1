@@ -49,6 +49,11 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+& $node (Join-Path $repositoryRoot "tests\ede-manager.test.js")
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
 & $node (Join-Path $repositoryRoot "tests\docker-plugin-install.test.js")
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

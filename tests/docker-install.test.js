@@ -28,7 +28,7 @@ function findShell() {
             return candidate;
         }
     }
-    throw new Error("POSIX sh was not found for the frontend Docker installer test");
+    throw new Error("POSIX sh was not found for the unified Docker installer test");
 }
 
 const shell = findShell();
@@ -69,9 +69,29 @@ case "$command" in
         case "$*" in
             *'.State.Running'*) printf '%s\\n' true ;;
             *'.Destination "/config"'*) printf '%s\\n' /host/emby-config ;;
+            *'println .Destination'*) printf '%s\\n' /config ;;
         esac
         ;;
-    cp|exec)
+    cp)
+        exit 0
+        ;;
+    exec)
+        case "$*" in
+            *ELYRIC_ENHANCE_BEGIN*) exit 1 ;;
+        esac
+        if [ "\${FAKE_FAIL_COMPONENT:-}" = "frontend" ]; then
+            case "$*" in
+                *container-manager.sh*install*) exit 71 ;;
+            esac
+        fi
+        if [ "\${FAKE_FAIL_COMPONENT:-}" = "ede" ]; then
+            case "$*" in
+                *ede-manager.sh*install*) exit 72 ;;
+            esac
+        fi
+        exit 0
+        ;;
+    restart)
         exit 0
         ;;
     *)
@@ -84,8 +104,8 @@ esac
 
     const localPath = (value) => posixPath(path.relative(root, value));
 
-    function runInteractive(input, mode) {
-        return spawnSync(shell, [localPath(installer)], {
+    function runInteractive(input, mode, args, overrides) {
+        return spawnSync(shell, [localPath(installer), ...(args || [])], {
             cwd: root,
             encoding: "utf8",
             input,
@@ -93,7 +113,8 @@ esac
                 ...process.env,
                 PATH: `${localPath(fakeBin)}:/usr/bin:/bin`,
                 FAKE_DOCKER_LOG: localPath(dockerLog),
-                FAKE_PS_MODE: mode || "matches"
+                FAKE_PS_MODE: mode || "matches",
+                ...(overrides || {})
             }
         });
     }
@@ -106,30 +127,88 @@ esac
         );
     }
 
-    const automatic = runInteractive("not-a-number\n99\n1\r\n4\n");
-    expectSuccess(automatic, "automatic Emby container selection");
+    function resetLog() {
+        fs.writeFileSync(dockerLog, "", "utf8");
+    }
+
+    function logLines(prefix) {
+        return fs.readFileSync(dockerLog, "utf8")
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith(prefix));
+    }
+
+    const automatic = runInteractive("not-a-number\n99\n1\r\n\nbad\n1,2\n1 2 3\n");
+    expectSuccess(automatic, "automatic container selection and combined execution");
     assert(automatic.stdout.includes("自动发现可能的 Emby 容器"));
     assert(automatic.stdout.includes("1) emby-auto"));
-    assert(automatic.stdout.includes("没有我要的容器，手动输入"));
     assert(automatic.stdout.includes("请输入列表中的数字序号"));
     assert(automatic.stdout.includes("序号超出范围"));
-    assert(fs.readFileSync(dockerLog, "utf8").includes("inspect emby-auto"));
+    assert.strictEqual((automatic.stdout.match(/输入无效/g) || []).length, 3);
+    assert(automatic.stdout.includes("执行完成：1 2 3"));
+    assert.strictEqual(logLines("restart emby-auto").length, 1,
+        "selecting all features must restart the container exactly once");
 
-    fs.writeFileSync(dockerLog, "", "utf8");
-    const manualFallback = runInteractive("2\nmanual-emby\n4\n");
+    resetLog();
+    const frontendOnly = runInteractive("1\n", null, ["emby-test"]);
+    expectSuccess(frontendOnly, "single frontend feature");
+    assert(frontendOnly.stdout.includes("执行完成：1"));
+    assert.strictEqual(logLines("restart ").length, 0,
+        "frontend-only installation must not restart the container");
+
+    resetLog();
+    const duplicates = runInteractive("1 2 1\n", null, ["emby-test"]);
+    expectSuccess(duplicates, "duplicate feature removal");
+    assert(duplicates.stdout.includes("执行功能：1 2"));
+    assert.strictEqual(logLines("cp ").filter((line) => line.includes("lyrics.inject.js")).length, 1,
+        "a duplicated frontend feature must execute once");
+    assert.strictEqual(logLines("restart emby-test").length, 1,
+        "a duplicated plugin feature must still restart once");
+
+    resetLog();
+    const pluginOnly = runInteractive("2\n", null, ["emby-test"]);
+    expectSuccess(pluginOnly, "single plugin feature");
+    assert.strictEqual(logLines("restart emby-test").length, 1,
+        "plugin-only installation must restart exactly once");
+
+    resetLog();
+    const failedFrontend = runInteractive("1 2 3\n", null, ["emby-test"], {
+        FAKE_FAIL_COMPONENT: "frontend"
+    });
+    assert.notStrictEqual(failedFrontend.status, 0, "a failed component must stop the bundle");
+    const failureLog = fs.readFileSync(dockerLog, "utf8");
+    assert(!failureLog.includes("EmbyLyricEnhance.dll"),
+        "a failed frontend step must stop before plugin installation");
+    assert(!failureLog.includes("ede-manager.sh"),
+        "a failed frontend step must stop before the EDE repair");
+    assert.strictEqual(logLines("restart ").length, 0,
+        "a failed bundle must not restart the container");
+
+    resetLog();
+    const failedEde = runInteractive("1 2 3\n", null, ["emby-test"], {
+        FAKE_FAIL_COMPONENT: "ede"
+    });
+    assert.notStrictEqual(failedEde.status, 0, "a failed final component must fail the bundle");
+    const edeFailureLog = fs.readFileSync(dockerLog, "utf8");
+    assert(edeFailureLog.includes("EmbyLyricEnhance.dll"),
+        "steps before the EDE failure should have completed");
+    assert.strictEqual(logLines("restart ").length, 0,
+        "a failure after DLL installation must still suppress the deferred restart");
+
+    resetLog();
+    const manualFallback = runInteractive("2\nmanual-emby\n3\n");
     expectSuccess(manualFallback, "manual input after automatic discovery");
     assert(manualFallback.stdout.includes("当前正在运行的全部 Docker 容器"));
-    assert(manualFallback.stdout.includes("请输入 Emby 容器名或容器 ID"));
     assert(fs.readFileSync(dockerLog, "utf8").includes("inspect manual-emby"));
+    assert.strictEqual(logLines("restart ").length, 0,
+        "the EDE repair does not require a container restart");
 
-    fs.writeFileSync(dockerLog, "", "utf8");
-    const noMatch = runInteractive("manually-entered-emby\n4\n", "no-match");
+    resetLog();
+    const noMatch = runInteractive("manually-entered-emby\n1\n", "no-match");
     expectSuccess(noMatch, "manual input when no Emby-like container exists");
     assert(noMatch.stdout.includes("没有自动发现"));
-    assert(noMatch.stdout.includes("当前正在运行的全部 Docker 容器"));
     assert(fs.readFileSync(dockerLog, "utf8").includes("inspect manually-entered-emby"));
 
-    console.log("frontend Docker container discovery, numbered selection and manual input: ok");
+    console.log("unified Docker installer selection, multi-select, deduplication and single restart: ok");
 } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
 }

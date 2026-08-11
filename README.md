@@ -34,9 +34,19 @@ cd EmbyLyricEnhance
 sh docker-install.sh
 ```
 
-Without a container argument, the script searches the name, image, and status of running containers for `emby` (case-insensitive) and presents matching containers as a numbered list. The list always includes a manual-input option. If no match exists, it lists every running container and accepts an explicit **container name or container ID**, not an image name. Its next menu can install, switch to the original files, re-enable the enhanced files, or show status.
+Without a container argument, the script searches the name, image, and status of running containers for `emby` (case-insensitive) and presents matching containers as a numbered list. The list always includes a manual-input option. If no match exists, it lists every running container and accepts an explicit **container name or container ID**, not an image name.
 
-Non-interactive commands are also available:
+The container is selected once. The next menu offers frontend injection, server plugin DLL installation, and the guarded EDE 1.47 lifecycle repair. Enter one number such as `1`, or a space-separated set such as `1 2 3`. Duplicate numbers are removed. When DLL installation is selected, the container is restarted exactly once after every selected step succeeds; a failed step stops the remaining work and suppresses the restart.
+
+Common non-interactive bundles:
+
+```bash
+sh docker-install.sh <container-name-or-id> all
+sh docker-install.sh <container-name-or-id> plugin
+sh docker-install.sh <container-name-or-id> ede
+```
+
+The original frontend-only management commands remain available:
 
 ```bash
 sh docker-install.sh <container-name-or-id> install
@@ -46,6 +56,8 @@ sh docker-install.sh <container-name-or-id> status
 ```
 
 `undo` is accepted as an alias for `original`.
+
+The EDE repair keeps an original backup under `/config/emby-lyric-enhance/ede-1.47/`, safely skips containers without EDE, and rejects unrecognized versions. Inspect or restore it with `ede-status` and `ede-restore`.
 
 No Emby restart is required after switching. Force-refresh Emby Web and clear the site cache only if the old frontend remains cached.
 
