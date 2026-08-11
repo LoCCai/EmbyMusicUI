@@ -13,6 +13,7 @@ public static class PlayerThemeV2Validator
     private static readonly Regex HexColor = new("^#[0-9A-Fa-f]{6}$", RegexOptions.CultureInvariant);
     private static readonly Regex ClipPath = new("^(?:none|polygon\\([0-9\\s.,%+\\-]+\\))$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
     private static readonly HashSet<string> Profiles = new(PlayerThemeV2Schema.ResponsiveProfiles, StringComparer.Ordinal);
+    private static readonly HashSet<string> LegacyProfiles = new(PlayerThemeV2Schema.LegacyResponsiveProfiles, StringComparer.Ordinal);
     private static readonly HashSet<string> Layers = new(PlayerThemeV2Schema.LayerIds, StringComparer.Ordinal);
     private static readonly IReadOnlyDictionary<string, (double Minimum, double Maximum)> TuningRanges =
         new Dictionary<string, (double, double)>(StringComparer.Ordinal)
@@ -51,7 +52,9 @@ public static class PlayerThemeV2Validator
         new Dictionary<string, (double, double)>(StringComparer.Ordinal)
         {
             ["sensitivity"] = (50, 220), ["response"] = (10, 100),
-            ["smoothing"] = (0, 85), ["density"] = (24, 96), ["bassBoost"] = (0, 200)
+            ["smoothing"] = (0, 85), ["minFrequency"] = (20, 400),
+            ["maxFrequency"] = (6000, 22000), ["density"] = (24, 96),
+            ["bassBoost"] = (0, 200)
         };
     private static readonly HashSet<string> ThemeColorIds = new(new[]
     {
@@ -111,10 +114,17 @@ public static class PlayerThemeV2Validator
         }
 
         ValidateElement(document.RootElement, 0);
-        ValidateLayouts(document.RootElement);
-        ValidateThemeParameterFamilies(document.RootElement);
-        ValidateExternalUrl(document.RootElement, "artwork", "url");
-        ValidateExternalUrl(document.RootElement, "font", "url");
+        if (IsPortableV3Document(document.RootElement))
+        {
+            ValidatePortableV3Document(document.RootElement);
+        }
+        else
+        {
+            ValidateLayouts(document.RootElement);
+            ValidateThemeParameterFamilies(document.RootElement);
+            ValidateExternalUrl(document.RootElement, "artwork", "url");
+            ValidateExternalUrl(document.RootElement, "font", "url");
+        }
         return candidate;
     }
 
@@ -141,6 +151,206 @@ public static class PlayerThemeV2Validator
         };
     }
 
+    private static bool IsPortableV3Document(JsonElement root)
+    {
+        return TryGetPropertyIgnoreCase(root, "format", out _)
+            || TryGetPropertyIgnoreCase(root, "layouts", out _);
+    }
+
+    private static void ValidatePortableV3Document(JsonElement root)
+    {
+        RejectUnknownProperties(root, "document",
+            "format", "schemaVersion", "name", "baseTheme", "layouts", "background",
+            "artwork", "metadata", "lyrics", "visualizer", "console", "mediaCard", "mediaFields");
+        if (!TryGetPropertyIgnoreCase(root, "format", out _)
+            || !TryGetPropertyIgnoreCase(root, "schemaVersion", out _))
+        {
+            throw new ArgumentException("Theme V3 must declare its format and schema version.");
+        }
+        ValidateOptionalEnum(root, "format", PlayerThemeV2Schema.DocumentFormat);
+        ValidateOptionalNumber(root, "schemaVersion", PlayerThemeV2Schema.Version, PlayerThemeV2Schema.Version);
+        ValidateOptionalString(root, "name", 80);
+        ValidateOptionalEnum(root, "baseTheme",
+            "album", "center", "mobile", "mint", "deck", "stack", "coverflow", "lyrics", "rose");
+        if (!TryGetPropertyIgnoreCase(root, "layouts", out var layouts))
+        {
+            throw new ArgumentException("Theme V3 must contain responsive layouts.");
+        }
+        ValidateLayoutsValue(layouts, Profiles, requireAllProfiles: true);
+
+        if (TryGetPropertyIgnoreCase(root, "background", out var background))
+        {
+            RequireObject(background, "background");
+            RejectUnknownProperties(background, "background",
+                "mode", "blur", "dim", "saturation", "angle", "colorA", "colorB");
+            ValidateOptionalEnum(background, "mode", "black", "white", "blur", "gradient");
+            ValidateMappedNumbers(background, new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["blur"] = "backgroundBlur", ["dim"] = "backgroundDim",
+                ["saturation"] = "backgroundSaturation", ["angle"] = "backgroundAngle"
+            });
+            ValidateOptionalColor(background, "colorA");
+            ValidateOptionalColor(background, "colorB");
+        }
+
+        if (TryGetPropertyIgnoreCase(root, "artwork", out var artwork))
+        {
+            RequireObject(artwork, "artwork");
+            RejectUnknownProperties(artwork, "artwork",
+                "source", "url", "assetId", "fit", "focusX", "focusY", "clipPath",
+                "mode", "rotation", "scale", "size", "x", "y", "innerSize", "outerRadius",
+                "innerRadius", "padding", "borderWidth", "shadowDepth", "coverflowWidth",
+                "coverflowHeight", "frameColor");
+            ValidateOptionalEnum(artwork, "source", "emby", "url", "asset");
+            ValidateOptionalEnum(artwork, "fit", "cover", "contain", "fill", "none", "scale-down");
+            ValidateOptionalEnum(artwork, "mode", "single", "coverflow");
+            ValidateOptionalBoolean(artwork, "rotation");
+            ValidateOptionalNumber(artwork, "focusX", 0, 100);
+            ValidateOptionalNumber(artwork, "focusY", 0, 100);
+            ValidateOptionalSafeId(artwork, "assetId");
+            RejectPortablePrivateAsset(artwork, "assetId");
+            ValidateOptionalHttpsUrl(artwork, "url");
+            ValidateOptionalClipPath(artwork, "clipPath");
+            ValidateOptionalColor(artwork, "frameColor");
+            ValidateMappedNumbers(artwork, new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["scale"] = "artworkScale", ["size"] = "artworkSize", ["x"] = "artworkX",
+                ["y"] = "artworkY", ["innerSize"] = "artworkInnerSize",
+                ["outerRadius"] = "artworkOuterRadius", ["innerRadius"] = "artworkInnerRadius",
+                ["padding"] = "artworkPadding", ["borderWidth"] = "artworkBorderWidth",
+                ["shadowDepth"] = "artworkShadowDepth", ["coverflowWidth"] = "coverflowWidth",
+                ["coverflowHeight"] = "coverflowHeight"
+            });
+        }
+
+        if (TryGetPropertyIgnoreCase(root, "metadata", out var metadata))
+        {
+            RequireObject(metadata, "metadata");
+            RejectUnknownProperties(metadata, "metadata",
+                "anchor", "align", "surface", "width", "x", "y", "titleSize", "artistSize",
+                "albumSize", "letterSpacing", "padding", "radius", "blur", "opacity",
+                "textColor", "surfaceColor");
+            ValidateOptionalEnum(metadata, "anchor", "start", "center", "end");
+            ValidateOptionalEnum(metadata, "align", "left", "center", "right");
+            ValidateOptionalEnum(metadata, "surface", "none", "glass", "inset", "embossed", "floating");
+            ValidateOptionalColor(metadata, "textColor");
+            ValidateOptionalColor(metadata, "surfaceColor");
+            ValidateMappedNumbers(metadata, new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["width"] = "metadataWidth", ["x"] = "metadataX", ["y"] = "metadataY",
+                ["titleSize"] = "metadataTitleSize", ["artistSize"] = "metadataArtistSize",
+                ["albumSize"] = "metadataAlbumSize", ["letterSpacing"] = "metadataLetterSpacing",
+                ["padding"] = "metadataPadding", ["radius"] = "metadataRadius",
+                ["blur"] = "metadataBlur", ["opacity"] = "metadataOpacity"
+            });
+        }
+
+        if (TryGetPropertyIgnoreCase(root, "lyrics", out var lyrics))
+        {
+            RequireObject(lyrics, "lyrics");
+            RejectUnknownProperties(lyrics, "lyrics",
+                "style", "alignment", "scale", "surface", "width", "height", "x", "y",
+                "lineHeight", "inactiveOpacity", "padding", "radius", "blur", "opacity",
+                "letterSpacing", "pastSize", "currentSize", "futureSize", "currentWeight",
+                "pastColor", "currentColor", "futureColor", "surfaceColor", "showSecondLine",
+                "showThirdAndLaterLines", "followDelayMs", "typography");
+            ValidateOptionalEnum(lyrics, "style", "classic", "focus", "gradient", "apple", "minimal");
+            ValidateOptionalEnum(lyrics, "alignment", "left", "center", "right");
+            ValidateOptionalEnum(lyrics, "surface", "none", "glass", "inset", "embossed", "floating");
+            ValidateOptionalNumber(lyrics, "scale", 70, 170);
+            ValidateOptionalBoolean(lyrics, "showSecondLine");
+            ValidateOptionalBoolean(lyrics, "showThirdAndLaterLines");
+            ValidateOptionalNumber(lyrics, "followDelayMs", 1000, 60000);
+            foreach (var colorName in new[] { "pastColor", "currentColor", "futureColor", "surfaceColor" })
+            {
+                ValidateOptionalColor(lyrics, colorName);
+            }
+            ValidateMappedNumbers(lyrics, new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["width"] = "lyricsWidth", ["height"] = "lyricsHeight", ["x"] = "lyricsX",
+                ["y"] = "lyricsY", ["lineHeight"] = "lyricLineGap",
+                ["inactiveOpacity"] = "lyricInactiveOpacity", ["padding"] = "lyricsPadding",
+                ["radius"] = "lyricsRadius", ["blur"] = "lyricsBlur", ["opacity"] = "lyricsOpacity",
+                ["letterSpacing"] = "lyricLetterSpacing", ["pastSize"] = "lyricPastSize",
+                ["currentSize"] = "lyricCurrentSize", ["futureSize"] = "lyricFutureSize",
+                ["currentWeight"] = "lyricCurrentWeight"
+            });
+            if (TryGetPropertyIgnoreCase(lyrics, "typography", out var typography))
+            {
+                ValidateTypographyCollection(typography);
+                foreach (var line in typography.EnumerateObject())
+                {
+                    RejectPortablePrivateAsset(line.Value, "fontAssetId");
+                }
+            }
+        }
+
+        if (TryGetPropertyIgnoreCase(root, "visualizer", out var visualizer))
+        {
+            RequireObject(visualizer, "visualizer");
+            RejectUnknownProperties(visualizer, "visualizer",
+                "style", "frequencyLayout", "width", "height", "amplitude", "colorMode",
+                "colors", "x", "y", "rotation", "opacity", "analysis");
+            ValidateOptionalEnum(visualizer, "style",
+                "spectrum", "mirror", "waveform", "fall", "curve", "line", "chroma", "balls", "pulse");
+            ValidateOptionalEnum(visualizer, "frequencyLayout", "centerOut", "lowToHigh", "radial");
+            ValidateOptionalEnum(visualizer, "colorMode", "solid", "dual", "multi", "rainbow");
+            ValidateOptionalNumber(visualizer, "width", 10, 100);
+            ValidateOptionalNumber(visualizer, "height", 2, 30);
+            ValidateOptionalNumber(visualizer, "amplitude", 25, 140);
+            ValidateMappedNumbers(visualizer, new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["x"] = "visualizerX", ["y"] = "visualizerY",
+                ["rotation"] = "visualizerRotation", ["opacity"] = "visualizerOpacity"
+            });
+            ValidateOptionalColorArray(visualizer, "colors");
+            if (TryGetPropertyIgnoreCase(visualizer, "analysis", out var analysis))
+            {
+                ValidateRangedObjectValue(analysis, "visualizer.analysis", AnalysisRanges);
+            }
+        }
+
+        if (TryGetPropertyIgnoreCase(root, "console", out var consoleStyle))
+        {
+            RequireObject(consoleStyle, "console");
+            RejectUnknownProperties(consoleStyle, "console",
+                "progressWidth", "progressHeight", "progressThumbSize", "volumeWidth", "volumeHeight",
+                "volumeThumbSize", "blur", "opacity", "progressActive", "progressTrack",
+                "volumeActive", "volumeTrack", "safeArea");
+            ValidateMappedNumbers(consoleStyle, new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["progressWidth"] = "progressWidth", ["progressHeight"] = "progressTrackHeight",
+                ["progressThumbSize"] = "progressThumbSize", ["volumeWidth"] = "volumeWidth",
+                ["volumeHeight"] = "volumeTrackHeight", ["volumeThumbSize"] = "volumeThumbSize",
+                ["blur"] = "consoleBlur", ["opacity"] = "consoleOpacity"
+            });
+            ValidateOptionalNumber(consoleStyle, "safeArea", 44, 180);
+            foreach (var colorName in new[] { "progressActive", "progressTrack", "volumeActive", "volumeTrack" })
+            {
+                ValidateOptionalColor(consoleStyle, colorName);
+            }
+        }
+
+        if (TryGetPropertyIgnoreCase(root, "mediaCard", out var mediaCard))
+        {
+            RequireObject(mediaCard, "mediaCard");
+            RejectUnknownProperties(mediaCard, "mediaCard",
+                "surface", "width", "maxHeight", "radius", "blur", "opacity", "surfaceColor",
+                "popupOpacity", "popupRadius");
+            ValidateOptionalEnum(mediaCard, "surface", "none", "glass", "inset", "embossed", "floating");
+            ValidateMappedNumbers(mediaCard, new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["width"] = "mediaWidth", ["maxHeight"] = "mediaMaxHeight",
+                ["radius"] = "mediaRadius", ["blur"] = "mediaBlur", ["opacity"] = "mediaOpacity"
+            });
+            ValidateOptionalColor(mediaCard, "surfaceColor");
+            ValidateOptionalNumber(mediaCard, "popupOpacity", 35, 100);
+            ValidateOptionalNumber(mediaCard, "popupRadius", 0, 64);
+        }
+
+        ValidateBooleanObject(root, "mediaFields", MediaFieldIds);
+    }
+
     private static void ValidateLayouts(JsonElement root)
     {
         if (!TryGetPropertyIgnoreCase(root, "v2", out var v2))
@@ -155,12 +365,31 @@ public static class PlayerThemeV2Validator
         }
         RequireObject(layouts, "layouts");
 
+        var version = GetOptionalInteger(v2, "schemaVersion", PlayerThemeV2Schema.LegacyVersion);
+        if (version is not (PlayerThemeV2Schema.LegacyVersion or PlayerThemeV2Schema.Version))
+        {
+            throw new ArgumentException("Theme schema version is unsupported.");
+        }
+        ValidateLayoutsValue(
+            layouts,
+            version == PlayerThemeV2Schema.Version ? Profiles : LegacyProfiles,
+            requireAllProfiles: false);
+    }
+
+    private static void ValidateLayoutsValue(
+        JsonElement layouts,
+        HashSet<string> allowedProfiles,
+        bool requireAllProfiles)
+    {
+        RequireObject(layouts, "layouts");
+        var seenProfiles = new HashSet<string>(StringComparer.Ordinal);
         foreach (var profile in layouts.EnumerateObject())
         {
-            if (!Profiles.Contains(profile.Name) || profile.Value.ValueKind != JsonValueKind.Object)
+            if (!allowedProfiles.Contains(profile.Name) || profile.Value.ValueKind != JsonValueKind.Object)
             {
                 throw new ArgumentException("Theme contains an unknown responsive profile.");
             }
+            seenProfiles.Add(profile.Name);
 
             foreach (var layer in profile.Value.EnumerateObject())
             {
@@ -171,6 +400,10 @@ public static class PlayerThemeV2Validator
 
                 ValidateLayer(layer.Value);
             }
+        }
+        if (requireAllProfiles && !allowedProfiles.SetEquals(seenProfiles))
+        {
+            throw new ArgumentException("Theme V3 must define both landscape and portrait layouts.");
         }
     }
 
@@ -272,13 +505,17 @@ public static class PlayerThemeV2Validator
         RejectUnknownProperties(v2, "v2",
             "schemaVersion", "layouts", "layoutOverrides", "lyrics", "artwork",
             "visualizer", "popupStyle", "controls", "typography");
-        ValidateOptionalNumber(v2, "schemaVersion", PlayerThemeV2Schema.Version, PlayerThemeV2Schema.Version);
+        ValidateOptionalNumber(v2, "schemaVersion", PlayerThemeV2Schema.LegacyVersion, PlayerThemeV2Schema.Version);
+        var v2Version = GetOptionalInteger(v2, "schemaVersion", PlayerThemeV2Schema.LegacyVersion);
+        var responsiveProfiles = v2Version == PlayerThemeV2Schema.Version
+            ? PlayerThemeV2Schema.ResponsiveProfiles
+            : PlayerThemeV2Schema.LegacyResponsiveProfiles;
 
         if (TryGetPropertyIgnoreCase(v2, "layoutOverrides", out var layoutOverrides))
         {
             RequireObject(layoutOverrides, "layoutOverrides");
-            RejectUnknownProperties(layoutOverrides, "layoutOverrides", PlayerThemeV2Schema.ResponsiveProfiles);
-            foreach (var profile in PlayerThemeV2Schema.ResponsiveProfiles)
+            RejectUnknownProperties(layoutOverrides, "layoutOverrides", responsiveProfiles);
+            foreach (var profile in responsiveProfiles)
             {
                 ValidateOptionalBoolean(layoutOverrides, profile);
             }
@@ -314,7 +551,8 @@ public static class PlayerThemeV2Validator
         if (TryGetPropertyIgnoreCase(v2, "visualizer", out var visualizer))
         {
             RequireObject(visualizer, "visualizer");
-            RejectUnknownProperties(visualizer, "visualizer", "analysis");
+            RejectUnknownProperties(visualizer, "visualizer", "frequencyLayout", "analysis");
+            ValidateOptionalEnum(visualizer, "frequencyLayout", "centerOut", "lowToHigh", "radial");
             if (TryGetPropertyIgnoreCase(visualizer, "analysis", out var analysis))
             {
                 ValidateRangedObjectValue(analysis, "visualizer.analysis", AnalysisRanges);
@@ -335,15 +573,20 @@ public static class PlayerThemeV2Validator
         }
         if (TryGetPropertyIgnoreCase(v2, "typography", out var typography))
         {
-            RequireObject(typography, "typography");
-            foreach (var line in typography.EnumerateObject())
+            ValidateTypographyCollection(typography);
+        }
+    }
+
+    private static void ValidateTypographyCollection(JsonElement typography)
+    {
+        RequireObject(typography, "typography");
+        foreach (var line in typography.EnumerateObject())
+        {
+            if (line.Name is not ("primary" or "secondary" or "tertiary"))
             {
-                if (line.Name is not ("primary" or "secondary" or "tertiary"))
-                {
-                    throw new ArgumentException("Theme contains an unknown lyric typography layer.");
-                }
-                ValidateTypography(line.Value);
+                throw new ArgumentException("Theme contains an unknown lyric typography layer.");
             }
+            ValidateTypography(line.Value);
         }
     }
 
@@ -387,6 +630,55 @@ public static class PlayerThemeV2Validator
                 ValidateOptionalNumber(state.Value, "opacity", 0, 1);
             }
         }
+    }
+
+    private static void ValidateMappedNumbers(
+        JsonElement section,
+        IReadOnlyDictionary<string, string> propertyToTuningId)
+    {
+        foreach (var pair in propertyToTuningId)
+        {
+            var range = TuningRanges[pair.Value];
+            ValidateOptionalNumber(section, pair.Key, range.Minimum, range.Maximum);
+        }
+    }
+
+    private static void ValidateOptionalColorArray(JsonElement parent, string name)
+    {
+        if (!TryGetPropertyIgnoreCase(parent, name, out var colors))
+        {
+            return;
+        }
+        if (colors.ValueKind != JsonValueKind.Array || colors.GetArrayLength() is < 1 or > 8
+            || colors.EnumerateArray().Any(value => value.ValueKind != JsonValueKind.String
+                || !HexColor.IsMatch(value.GetString() ?? "")))
+        {
+            throw new ArgumentException($"Theme parameter {name} must contain one to eight RGB hex colors.");
+        }
+    }
+
+    private static void ValidateOptionalClipPath(JsonElement parent, string name)
+    {
+        if (TryGetPropertyIgnoreCase(parent, name, out var clipPath)
+            && (clipPath.ValueKind != JsonValueKind.String
+                || !ClipPath.IsMatch(clipPath.GetString() ?? "")
+                || (clipPath.GetString()?.Length ?? 0) > 2048))
+        {
+            throw new ArgumentException($"Theme parameter {name} must be none or a polygon().");
+        }
+    }
+
+    private static int GetOptionalInteger(JsonElement parent, string name, int fallback)
+    {
+        if (!TryGetPropertyIgnoreCase(parent, name, out var value))
+        {
+            return fallback;
+        }
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var number))
+        {
+            throw new ArgumentException($"Theme parameter {name} must be an integer.");
+        }
+        return number;
     }
 
     private static void ValidateRangedObject(
@@ -526,6 +818,16 @@ public static class PlayerThemeV2Validator
         if (candidate.Length > 0 && !SafeId.IsMatch(candidate))
         {
             throw new ArgumentException($"Theme parameter {name} must be a safe asset id.");
+        }
+    }
+
+    private static void RejectPortablePrivateAsset(JsonElement parent, string name)
+    {
+        if (TryGetPropertyIgnoreCase(parent, name, out var value)
+            && value.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(value.GetString()))
+        {
+            throw new ArgumentException($"Portable themes cannot reference private asset {name}.");
         }
     }
 

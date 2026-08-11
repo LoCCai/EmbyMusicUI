@@ -6,14 +6,21 @@ namespace EmbyLyricEnhance.Core;
 
 public static class PlayerThemeV2Schema
 {
-    public const int Version = 2;
+    public const int Version = 3;
+
+    public const int LegacyVersion = 2;
+
+    public const string DocumentFormat = "emby-lyric-theme";
 
     public static readonly string[] ResponsiveProfiles =
     {
-        "desktop",
-        "tablet",
-        "phonePortrait",
-        "phoneLandscape"
+        "landscape",
+        "portrait"
+    };
+
+    public static readonly string[] LegacyResponsiveProfiles =
+    {
+        "desktop", "tablet", "phonePortrait", "phoneLandscape"
     };
 
     public static readonly string[] LayerIds =

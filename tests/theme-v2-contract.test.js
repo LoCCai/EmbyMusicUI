@@ -17,7 +17,7 @@ assert(adapter.includes("PLAYER_THEME_V2_REGISTRY"), "the web editor should expo
     assert(adapter.includes(field), `registered parameters should declare ${field}`);
 });
 
-["desktop", "tablet", "phonePortrait", "phoneLandscape"].forEach((profile) => {
+["landscape", "portrait"].forEach((profile) => {
     assert(adapter.includes(`\"${profile}\"`) || adapter.includes(`${profile}:`), `${profile} should have a saved layout profile`);
     assert(models.includes(`\"${profile}\"`), `${profile} should be server-validated`);
 });
@@ -38,7 +38,7 @@ assert(adapter.includes("layoutOverrides") && models.includes("layoutOverrides")
     assert(css.includes(`--elyric-v2-${line}-`), `${line} lyric typography should render through CSS`);
 });
 
-["sensitivity", "response", "smoothing", "density", "bassBoost"].forEach((setting) => {
+["sensitivity", "response", "smoothing", "density", "bassBoost", "minFrequency", "maxFrequency"].forEach((setting) => {
     assert(adapter.includes(`id: \"${setting}\"`), `${setting} should stay in the visualizer analysis registry`);
     assert(adapter.includes(`state.visualizer.analysis[definition.id]`), "analysis values should be part of every theme snapshot");
 });

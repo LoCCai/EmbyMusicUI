@@ -69,20 +69,47 @@ Check(nullOptions.DefaultTheme == ThemeIds.Classic, "null configuration should u
 
 var validThemeJson = """
 {
+  "format": "emby-lyric-theme",
+  "schemaVersion": 3,
+  "name": "V3 test",
+  "baseTheme": "album",
+  "layouts": {
+    "landscape": {
+      "lyrics": { "x": 5, "y": 12, "width": 55, "height": 60, "rotation": 0, "z": 12, "opacity": 1, "hidden": false, "locked": false }
+    },
+    "portrait": {
+      "lyrics": { "x": 6, "y": 52, "width": 88, "height": 29, "rotation": 0, "z": 12, "opacity": 1, "hidden": false, "locked": false }
+    }
+  },
+  "artwork": { "source": "url", "url": "https://example.invalid/cover.webp", "mode": "single" },
+  "lyrics": { "style": "classic", "currentColor": "#ffffff" },
+  "visualizer": {
+    "style": "spectrum",
+    "frequencyLayout": "centerOut",
+    "colors": ["#ffffff"],
+    "analysis": { "minFrequency": 30, "maxFrequency": 16000 }
+  },
+  "mediaFields": { "overview": true, "file": true, "audio": true, "image": false, "lyrics": false }
+}
+""";
+Check(PlayerThemeV2Validator.ValidateThemeJson(validThemeJson, 64 * 1024) == validThemeJson,
+    "valid ThemeDocumentV3 JSON should be accepted");
+var legacyThemeJson = """
+{
   "schemaVersion": 2,
   "v2": {
+    "schemaVersion": 2,
     "layoutOverrides": { "desktop": true },
     "layouts": {
       "desktop": {
         "lyrics": { "x": 5, "y": 12, "width": 55, "height": 60, "rotation": 0, "z": 12, "opacity": 1, "hidden": false, "locked": false }
       }
-    },
-    "artwork": { "url": "https://example.invalid/cover.webp" }
+    }
   }
 }
 """;
-Check(PlayerThemeV2Validator.ValidateThemeJson(validThemeJson, 64 * 1024) == validThemeJson,
-    "valid PlayerThemeV2 JSON should be accepted");
+Check(PlayerThemeV2Validator.ValidateThemeJson(legacyThemeJson, 64 * 1024) == legacyThemeJson,
+    "legacy PlayerThemeV2 JSON should remain import-compatible");
 Check(PlayerThemeV2Schema.ParameterFamilies.Length >= 12,
     "the server schema should cover all frontend parameter families");
 
@@ -148,12 +175,42 @@ catch (ArgumentException)
 
 try
 {
-    PlayerThemeV2Validator.ValidateThemeJson("{\"v2\":{\"layoutOverrides\":{\"tablet\":\"yes\"}}}", 2048);
+    PlayerThemeV2Validator.ValidateThemeJson("{\"v2\":{\"schemaVersion\":2,\"layoutOverrides\":{\"tablet\":\"yes\"}}}", 2048);
     Check(false, "responsive inheritance markers should be boolean");
 }
 catch (ArgumentException)
 {
     Check(true, "responsive inheritance marker rejection");
+}
+
+try
+{
+    PlayerThemeV2Validator.ValidateThemeJson("{\"format\":\"emby-lyric-theme\",\"schemaVersion\":3,\"layouts\":{\"landscape\":{},\"portrait\":{}},\"visualizer\":{\"analysis\":{\"minFrequency\":5}}}", 4096);
+    Check(false, "V3 visualizer frequencies outside their editor range should be rejected");
+}
+catch (ArgumentException)
+{
+    Check(true, "V3 visualizer analysis range rejection");
+}
+
+try
+{
+    PlayerThemeV2Validator.ValidateThemeJson("{\"format\":\"emby-lyric-theme\",\"schemaVersion\":3,\"layouts\":{\"landscape\":{},\"portrait\":{}},\"artwork\":{\"assetId\":\"private-cover\"}}", 4096);
+    Check(false, "portable V3 documents must not retain private artwork asset ids");
+}
+catch (ArgumentException)
+{
+    Check(true, "portable V3 private artwork rejection");
+}
+
+try
+{
+    PlayerThemeV2Validator.ValidateThemeJson("{\"format\":\"emby-lyric-theme\",\"schemaVersion\":3,\"layouts\":{\"landscape\":{},\"portrait\":{}},\"lyrics\":{\"typography\":{\"primary\":{\"fontAssetId\":\"private-font\"}}}}", 4096);
+    Check(false, "portable V3 documents must not retain private font asset ids");
+}
+catch (ArgumentException)
+{
+    Check(true, "portable V3 private font rejection");
 }
 
 try

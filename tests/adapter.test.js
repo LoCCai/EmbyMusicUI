@@ -411,6 +411,7 @@ const performance = { now: () => clockNow };
 let liveFrequencyReads = 0;
 let liveWaveformReads = 0;
 let audioDestinationConnections = 0;
+let frequencyFixture = "mixed";
 class FakeAnalyserNode {
     constructor() {
         this.fftSize = 2048;
@@ -419,11 +420,24 @@ class FakeAnalyserNode {
     }
     getByteFrequencyData(target) {
         liveFrequencyReads += 1;
+        if (frequencyFixture === "silent") {
+            target.fill(0);
+            return;
+        }
+        if (frequencyFixture === "lowOnly") {
+            target.fill(0);
+            for (let i = 2; i < Math.min(14, target.length); i++) target[i] = 235;
+            return;
+        }
         target.fill(96);
         for (let i = 0; i < Math.min(48, target.length); i++) target[i] = 196 - i;
     }
     getByteTimeDomainData(target) {
         liveWaveformReads += 1;
+        if (frequencyFixture === "silent") {
+            target.fill(128);
+            return;
+        }
         for (let i = 0; i < target.length; i++) target[i] = 128 + Math.round(Math.sin(i / 9) * 48);
     }
     disconnect() {}
@@ -523,8 +537,8 @@ new Function(
 );
 
 const playerThemeV2Registry = window.__elyricPlayerThemeV2Registry;
-assert(Array.isArray(playerThemeV2Registry) && playerThemeV2Registry.length > 400,
-    "the V2 registry should enumerate every scalar and responsive layer parameter");
+assert(Array.isArray(playerThemeV2Registry) && playerThemeV2Registry.length > 250,
+    "the V3 registry should enumerate every scalar and both responsive layout parameters");
 assert.strictEqual(new Set(playerThemeV2Registry.map((item) => item.id)).size,
     playerThemeV2Registry.length, "registered PlayerThemeV2 ids should be unique");
 playerThemeV2Registry.forEach((item) => {
@@ -535,6 +549,90 @@ playerThemeV2Registry.forEach((item) => {
     assert(item.serverRule && serverValidationRules.has(item.serverRule),
         `${item.id} should reference a concrete validation rule enforced by the server`);
 });
+const playerThemeV3Fixtures = window.__elyricPlayerThemeV3Fixtures;
+assert.strictEqual(playerThemeV3Fixtures.length, 9,
+    "all nine built-in themes should be exported through the same ThemeDocumentV3 contract");
+let responsiveFixtureCount = 0;
+playerThemeV3Fixtures.forEach((fixture) => {
+    assert.strictEqual(fixture.format, "emby-lyric-theme");
+    assert.strictEqual(fixture.schemaVersion, 3);
+    ["landscape", "portrait"].forEach((profileId) => {
+        responsiveFixtureCount += 1;
+        assert(fixture.layouts[profileId], `${fixture.baseTheme} should define ${profileId}`);
+        ["artwork", "metadata", "lyrics", "visualizer", "progress", "transport", "volume", "auxiliary"]
+            .forEach((layerId) => assert(fixture.layouts[profileId][layerId],
+                `${fixture.baseTheme}.${profileId} should define ${layerId}`));
+    });
+});
+assert.strictEqual(responsiveFixtureCount, 18,
+    "the built-in catalog should contain exactly eighteen formal responsive compositions");
+const responsiveVisualMatrix = [
+    [390, 844], [768, 1024], [844, 390],
+    [1440, 900], [2560, 1440], [3840, 2160]
+];
+const consoleLayerIds = new Set(["progress", "transport", "volume", "auxiliary"]);
+playerThemeV3Fixtures.forEach((fixture) => {
+    responsiveVisualMatrix.forEach(([viewportWidth, viewportHeight]) => {
+        const profileId = viewportHeight > viewportWidth ? "portrait" : "landscape";
+        Object.entries(fixture.layouts[profileId]).forEach(([layerId, layer]) => {
+            const useDesignCanvas = profileId === "landscape" && !consoleLayerIds.has(layerId);
+            const stageWidth = useDesignCanvas ? Math.min(viewportWidth, 2560) : viewportWidth;
+            const stageHeight = useDesignCanvas ? Math.min(viewportHeight, 1440) : viewportHeight;
+            const offsetX = (viewportWidth - stageWidth) / 2;
+            const offsetY = (viewportHeight - stageHeight) / 2;
+            const left = offsetX + layer.x / 100 * stageWidth;
+            const top = offsetY + layer.y / 100 * stageHeight;
+            const right = left + layer.width / 100 * stageWidth;
+            const bottom = top + layer.height / 100 * stageHeight;
+            assert(left >= -0.001 && top >= -0.001
+                && right <= viewportWidth + 0.001 && bottom <= viewportHeight + 0.001,
+            `${fixture.baseTheme}.${profileId}.${layerId} should stay inside ${viewportWidth}x${viewportHeight}`);
+            if (viewportWidth === 3840 && viewportHeight === 2160 && useDesignCanvas) {
+                assert(offsetX === 640 && offsetY === 360,
+                    "4K visual content should use the centered 2560x1440 design canvas");
+            }
+        });
+    });
+});
+const roseLandscape = playerThemeV3Fixtures.find((fixture) => fixture.baseTheme === "rose").layouts.landscape;
+assert(roseLandscape.artwork.x + roseLandscape.artwork.width <= roseLandscape.lyrics.x
+    && roseLandscape.metadata.x + roseLandscape.metadata.width <= roseLandscape.visualizer.x
+    && roseLandscape.artwork.y + roseLandscape.artwork.height <= roseLandscape.metadata.y,
+"rose landscape should keep enlarged left artwork/metadata separate from right lyrics/visualizer");
+const migratedLegacyTheme = window.__elyricMigratePlayerThemeV2State({
+    schemaVersion: 2,
+    layouts: {
+        desktop: { lyrics: { x: 17 } },
+        phonePortrait: { lyrics: { x: 9 } }
+    },
+    layoutOverrides: { desktop: true, phonePortrait: true }
+});
+assert.strictEqual(migratedLegacyTheme.schemaVersion, 3);
+assert.strictEqual(migratedLegacyTheme.layouts.landscape.lyrics.x, 17);
+assert.strictEqual(migratedLegacyTheme.layouts.portrait.lyrics.x, 9);
+assert(!migratedLegacyTheme.layouts.desktop && !migratedLegacyTheme.layouts.phonePortrait,
+    "legacy four-profile themes should normalize into only landscape and portrait layouts");
+const portablePrivateAssetTheme = window.__elyricPortablePlayerThemeV3({
+    name: "私有资产回退",
+    baseLayout: "album",
+    tuning: {}, choices: {}, colors: {}, player: {}, mediaFields: {},
+    v2: {
+        artwork: { source: "asset", assetId: "private-cover" },
+        typography: {
+            primary: { fontAssetId: "private-font", fontFamily: "PrivateFont", fontUrl: "" }
+        }
+    }
+});
+assert.strictEqual(portablePrivateAssetTheme.artwork.source, "emby");
+assert.strictEqual(portablePrivateAssetTheme.artwork.assetId, "");
+assert.strictEqual(portablePrivateAssetTheme.lyrics.typography.primary.fontAssetId, "");
+assert.strictEqual(portablePrivateAssetTheme.lyrics.typography.primary.fontFamily, "inherit",
+    "sharing a private uploaded font should fall back to the default font family");
+assert.throws(() => {
+    const unsafePortableTheme = JSON.parse(JSON.stringify(playerThemeV3Fixtures[0]));
+    unsafePortableTheme.lyrics.currentColor = "white";
+    window.__elyricValidatePortablePlayerThemeV3(unsafePortableTheme);
+}, /六位十六进制颜色/, "portable V3 validation should reject invalid colors before preview");
 
 function valueAtPath(source, dottedPath) {
     return dottedPath.split(".").reduce((value, part) => value == null ? undefined : value[part], source);
@@ -855,6 +953,25 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricPlayerTuningInputs.artworkSize.value, "46");
     assert.strictEqual(renderer.__elyricPlayerTuningInputs.metadataWidth.value, "42");
     assert.strictEqual(renderer.__elyricPlayerTuningInputs.lyricsHeight.value, "48");
+    const pasteThemeJsonButton = settingsPanel.querySelector(".elyric-theme-paste-json");
+    assert(pasteThemeJsonButton && settingsPanel.querySelector(".elyric-theme-copy-json")
+        && settingsPanel.querySelector(".elyric-theme-download-json")
+        && settingsPanel.querySelector(".elyric-theme-import-json"),
+    "the settings panel should expose all four Theme V3 import/export paths");
+    const invalidPortableTheme = JSON.parse(JSON.stringify(playerThemeV3Fixtures[0]));
+    invalidPortableTheme.artwork.source = "url";
+    invalidPortableTheme.artwork.url = "http://unsafe.example.test/cover.jpg";
+    window.prompt = () => JSON.stringify(invalidPortableTheme);
+    pasteThemeJsonButton.click();
+    assert(renderer.__elyricPlayerThemeLibraryStatus.textContent.includes("只允许 HTTPS"),
+        "invalid imports must fail atomically before changing the current composition");
+    window.prompt = () => JSON.stringify(playerThemeV3Fixtures[0]);
+    pasteThemeJsonButton.click();
+    assert.strictEqual(renderer.__elyricPlayerThemeLibrarySelect.value, "draft",
+        "a valid imported document should enter an unsaved preview instead of overwriting a theme id");
+    renderer.__elyricPlayerThemeLibrarySelect.value = "builtin:album";
+    renderer.__elyricPlayerThemeLibrarySelect.dispatchEvent({ type: "change", stopPropagation() {} });
+    delete window.prompt;
     assert(settingsPanel.querySelector(".elyric-player-settings-action"),
         "the custom composition workspace should expose a one-click reset action");
     assert(settingsPanel.textContent.includes("显示注音 / 翻译")
@@ -882,8 +999,50 @@ function createLyricElement(index) {
     renderer.onTimeUpdate(0, 20000000);
     assert.strictEqual(renderer.__elyricVisualizerBassBoost, 0,
         "zero low-frequency weight must not be replaced by the default value");
-    assert(renderer.__elyricVisualizerEnergy[0] < renderer.__elyricVisualizerEnergy.at(-1),
-        "zero low-frequency weight should attenuate bass instead of oversampling the first bins");
+    const centerEnergyIndex = Math.floor(renderer.__elyricVisualizerEnergy.length / 2);
+    assert(renderer.__elyricVisualizerEnergy[centerEnergyIndex] < renderer.__elyricVisualizerEnergy[0],
+        "zero low-frequency weight should attenuate the bass bands placed at the center");
+    assert(Math.abs(renderer.__elyricVisualizerEnergy[0]
+        - renderer.__elyricVisualizerEnergy.at(-1)) < 0.000001,
+    "centerOut should mirror the same logarithmic band energy across both sides");
+    frequencyFixture = "lowOnly";
+    renderer.__elyricVisualizerAnalysisInputs.bassBoost.value = "100";
+    renderer.__elyricVisualizerAnalysisInputs.bassBoost
+        .dispatchEvent({ type: "input", stopPropagation() {} });
+    renderer.__elyricVisualizerEnergy = null;
+    renderer.__elyricVisualizerRawBands = null;
+    renderer.__elyricVisualizerAgcGain = 1;
+    renderer.__elyricVisualizerFrequencyLayoutButtons
+        .find((button) => button.getAttribute("data-elyric-choice") === "centerOut").click();
+    renderer.onTimeUpdate(0, 20000000);
+    const lowCenterStart = Math.floor(renderer.__elyricVisualizerEnergy.length * .35);
+    const lowCenterEnd = Math.ceil(renderer.__elyricVisualizerEnergy.length * .65);
+    const lowCenterEnergy = Math.max(...renderer.__elyricVisualizerEnergy.slice(lowCenterStart, lowCenterEnd));
+    assert(lowCenterEnergy > Math.max(renderer.__elyricVisualizerEnergy[0], renderer.__elyricVisualizerEnergy.at(-1)),
+        "centerOut should place a bass-only fixture at the center and mirror it toward both edges");
+    renderer.__elyricVisualizerEnergy = null;
+    renderer.__elyricVisualizerRawBands = null;
+    renderer.__elyricVisualizerAgcGain = 1;
+    renderer.__elyricVisualizerFrequencyLayoutButtons
+        .find((button) => button.getAttribute("data-elyric-choice") === "lowToHigh").click();
+    renderer.onTimeUpdate(0, 20000000);
+    const lowQuarter = renderer.__elyricVisualizerEnergy.slice(0, Math.ceil(renderer.__elyricVisualizerEnergy.length / 4));
+    const highQuarter = renderer.__elyricVisualizerEnergy.slice(-Math.ceil(renderer.__elyricVisualizerEnergy.length / 4));
+    assert(Math.max(...lowQuarter) > Math.max(...highQuarter),
+        "lowToHigh should place the same bass-only fixture in the low-frequency left region");
+    frequencyFixture = "mixed";
+    renderer.__elyricVisualizerFrequencyLayoutButtons
+        .find((button) => button.getAttribute("data-elyric-choice") === "centerOut").click();
+    renderer.__elyricVisualizerEnergy.fill(1);
+    frequencyFixture = "silent";
+    liveMediaElement.muted = true;
+    for (let decayFrame = 0; decayFrame < 10; decayFrame++) {
+        renderer.onTimeUpdate(0, 20000000);
+    }
+    assert(Math.max(...renderer.__elyricVisualizerEnergy) < .05,
+        "mute and true silence should decay the frequency display naturally toward rest");
+    liveMediaElement.muted = false;
+    frequencyFixture = "mixed";
     const liveAudioContext = renderer.__elyricVisualizerAudioContext;
     renderer.__elyricVisualizerStyleButtons
         .find((button) => button.getAttribute("data-elyric-choice") === "waveform")
@@ -1015,8 +1174,10 @@ function createLyricElement(index) {
         "the theme library should follow built-in theme buttons");
     layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "custom").click();
     assert.strictEqual(document.body.getAttribute("data-elyric-player-layout"), "custom");
-    assert.strictEqual(renderer.__elyricPlayerThemeLibrarySelect.value, "builtin:stack",
-        "an unsaved custom draft should retain its built-in composition basis");
+    assert.strictEqual(renderer.__elyricPlayerThemeLibrarySelect.value, "draft",
+        "an unsaved custom composition should remain visibly selected as a draft");
+    assert(renderer.__elyricPlayerThemeLibrarySelect.textContent.includes("草稿 · 基于专辑列表"),
+        "the draft entry should identify its built-in composition basis");
 
     themeButtons.find((button) => button.getAttribute("data-elyric-choice") === "focus").click();
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), "focus");
@@ -1033,10 +1194,10 @@ function createLyricElement(index) {
     );
     assert.strictEqual(syncedPlayerPreferences.layout, "custom");
     assert.strictEqual(syncedPlayerPreferences.theme, "focus");
-    assert.strictEqual(syncedPlayerPreferences.visualizerHeight, 16);
-    assert.strictEqual(syncedPlayerPreferences.visualizerResponse, 95);
-    assert.strictEqual(syncedPlayerPreferences.visualizerSmoothing, 15);
-    assert.strictEqual(syncedPlayerPreferences.visualizerDensity, 80);
+    assert.strictEqual(syncedPlayerPreferences.visualizerHeight, 8);
+    assert.strictEqual(syncedPlayerPreferences.visualizerResponse, 80);
+    assert.strictEqual(syncedPlayerPreferences.visualizerSmoothing, 25);
+    assert.strictEqual(syncedPlayerPreferences.visualizerDensity, 56);
     assert.strictEqual(syncedPlayerPreferences.tuning.backgroundBlur, 44,
         "selecting a built-in theme should apply its complete parameter set");
     assert.strictEqual(syncedPlayerPreferences.tuning.artworkX, 24);
@@ -1077,7 +1238,10 @@ function createLyricElement(index) {
     themeLibrarySelect.dispatchEvent({ type: "change", stopPropagation() {} });
     assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-theme-v2"), "true",
         "selecting a user theme should apply its V2 layer layout");
-    assert.strictEqual(renderer.__elyricPlayerArtworkStage.style.getPropertyValue("position"), "fixed");
+    assert.strictEqual(renderer.__elyricPlayerIdentity.style.getPropertyValue("position"), "fixed",
+        "V3 artwork geometry should bind the outer identity layer");
+    assert.strictEqual(renderer.__elyricPlayerArtworkStage.style.getPropertyValue("position"), "",
+        "the inner artwork stage should only own shape and clipping transforms");
     renderer.__elyricThemeV2.typography.primary.fontAssetId = "font-old";
     renderer.__elyricThemeV2TypographyInputs.primary.fontUrl.value = "https://cdn.example.test/new-font.woff2";
     renderer.__elyricThemeV2TypographyInputs.primary.fontUrl.dispatchEvent({
@@ -1097,10 +1261,10 @@ function createLyricElement(index) {
         "switching the cover source back to Emby should immediately restore the current item artwork");
     themeLibrarySelect.value = "builtin:stack";
     themeLibrarySelect.dispatchEvent({ type: "change", stopPropagation() {} });
-    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-theme-v2"), null,
-        "switching from a user theme to a built-in theme should clear V2 mode hooks");
-    assert.strictEqual(renderer.__elyricPlayerArtworkStage.style.getPropertyValue("position"), "",
-        "built-in themes should not inherit fixed positioning from the previous user canvas");
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-theme-v2"), "true",
+        "built-in and user themes should share the same parameterized V3 renderer");
+    assert.strictEqual(renderer.__elyricPlayerIdentity.style.getPropertyValue("position"), "fixed",
+        "built-in V3 themes should apply their own artwork identity geometry");
     themeLibrarySelect.value = `user:${firstUserThemeId}`;
     themeLibrarySelect.dispatchEvent({ type: "change", stopPropagation() {} });
     renderer.__elyricPlayerThemeChoiceButtons.mediaSurface
@@ -1245,7 +1409,8 @@ function createLyricElement(index) {
     assert.strictEqual(mediaPanel.getAttribute("data-elyric-anchor-placement"), "above");
     assert.strictEqual(mediaPanel.style.getPropertyValue("left"), "934px");
     assert.strictEqual(mediaPanel.style.getPropertyValue("top"), "258px");
-    assert.strictEqual(mediaPanel.style.getPropertyValue("max-height"), "762px");
+    assert.strictEqual(mediaPanel.style.getPropertyValue("max-height"), "520px",
+        "the anchored card must not expand beyond its measured content height");
     assert.strictEqual(mediaPanel.style.getPropertyValue("--elyric-media-anchor-tip-x"), "268px");
     [
         "/music/测试歌曲.wav", "WAV", "139.6 MB", "PCM_S16LE 6 ch", "PCM_S16LE",
@@ -1282,7 +1447,7 @@ function createLyricElement(index) {
     renderer.__elyricMediaButton.click();
     assert.strictEqual(mediaPanel.getAttribute("data-elyric-anchor-mode"), "drawer",
         "portrait phones should use the safe bottom drawer instead of a desktop fixed position");
-    ["left", "top", "right", "bottom", "max-height", "--elyric-media-anchor-tip-x"]
+    ["left", "top", "right", "bottom", "height", "max-height", "--elyric-media-anchor-tip-x"]
         .forEach((propertyName) => assert.strictEqual(
             mediaPanel.style.getPropertyValue(propertyName), "",
             `${propertyName} should be cleared when the information card becomes a phone drawer`
@@ -1407,9 +1572,10 @@ function createLyricElement(index) {
     assert.strictEqual(nativeVolume.value, "33");
     assert.strictEqual(nativeVolumeInputs, 3);
     assert.strictEqual(nativeVolumeChanges, 3);
-    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-show-second"), "false");
-    renderer.__elyricSecondLineButton.click();
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-show-second"), "true",
+        "the active V3 theme should restore its saved annotation visibility");
+    renderer.__elyricSecondLineButton.click();
+    assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-show-second"), "false",
         "the player shell should expose a session-level annotation toggle");
     const playerPageClassWrites = document.body.classList.syncCount;
     renderer.onTimeUpdate(0, 20000000);
@@ -1433,6 +1599,16 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricLyricFollowButton.getAttribute("hidden"), "hidden");
     assert(visible.item.scrollIntoViewCalls.length > followedScrollCount,
         "expired manual scrolling should smoothly return to the current lyric line");
+    const artworkWidthBeforeResize = renderer.__elyricPlayerIdentity.style.getPropertyValue("width");
+    const lyricScrollsBeforeResize = visible.item.scrollIntoViewCalls.length;
+    window.innerWidth = 1600;
+    window.dispatchEvent({ type: "resize" });
+    assert.notStrictEqual(renderer.__elyricPlayerIdentity.style.getPropertyValue("width"), artworkWidthBeforeResize,
+        "same-orientation viewport changes should recalculate V3 pixel geometry");
+    assert(visible.item.scrollIntoViewCalls.length > lyricScrollsBeforeResize,
+        "viewport changes should return the current lyric to the visible region");
+    window.innerWidth = 1440;
+    window.dispatchEvent({ type: "resize" });
     assert.strictEqual(document.body.querySelectorAll(".elyric-theme-picker").length, 1, "time updates must not duplicate the picker");
 
     const coveringPage = new FakeNode("div");
@@ -1550,16 +1726,18 @@ function createLyricElement(index) {
     assert(adapter.includes("captureStream") && adapter.includes("createMediaStreamSource")
         && adapter.includes("getByteFrequencyData") && adapter.includes("getByteTimeDomainData"),
     "the visualizer should analyse the active Emby media stream before using its fallback envelope");
-    assert(adapter.includes("bandAverage * .76 + bandPeak * .24")
-        && adapter.includes("Math.pow((i + 1) / count, 1.12)"),
-    "frequency styles should average perceptual bands instead of repeatedly sampling bass bins");
+    assert(adapter.includes("startFrequency * analyser.fftSize / sampleRate")
+        && adapter.includes("Math.pow(maximumFrequency / minimumFrequency")
+        && adapter.includes("average * .72 + peak * .28"),
+    "frequency styles should aggregate real-Hz logarithmic bands instead of linearly sampling bins");
     assert(adapter.includes("waveformGain")
-        && adapter.includes("displayEnergy = Math.pow")
+        && adapter.includes("__elyricVisualizerAgcGain")
         && adapter.includes("particleSpan = ballEnergy * height * .46")
-        && adapter.includes("pulseEnergy = Math.pow"),
-    "quiet live audio should remain visibly reactive in waveform, curve, particle and pulse modes");
-    assert(adapter.includes("spectralBalance = .58 + Math.pow(normalizedX, .58) * .62"),
-        "display weighting should keep naturally loud low bins from dominating the spectrum");
+        && adapter.includes("pulseMetrics.flux"),
+    "waveform and frequency modes should use slow AGC while pulse reacts to spectral transients");
+    assert(adapter.includes("spectralTilt = .72 + Math.pow(normalizedFrequency, .58) * .78")
+        && adapter.includes("distanceFromCenter"),
+    "display weighting and centerOut mirroring should prevent bass from occupying only the left edge");
     assert(!adapter.includes("connect(audioContext.destination)"),
         "passive spectrum analysis must not reroute Emby's audio output");
     assert(adapter.includes("var LYRIC_FOLLOW_IDLE_MS = 10000"),
@@ -1749,28 +1927,28 @@ function createLyricElement(index) {
     renderer.onTimeUpdate(19500000, 20000000);
     renderer.onTimeUpdate(20000000, 20000000);
     assert(visible.item.classList.contains("elyric-line-past"));
-    renderer.__elyricThemeV2ProfileSelect.value = "phonePortrait";
+    renderer.__elyricThemeV2ProfileSelect.value = "portrait";
     renderer.__elyricThemeV2ProfileSelect.dispatchEvent({ type: "change", stopPropagation() {} });
-    assert.strictEqual(renderer.__elyricThemeV2Profile, "phonePortrait",
+    assert.strictEqual(renderer.__elyricThemeV2Profile, "portrait",
         "the editor should allow configuring a non-current responsive profile from desktop");
-    renderer.__elyricThemeV2.layoutOverrides.desktop = true;
-    renderer.__elyricThemeV2.layoutOverrides.tablet = false;
-    renderer.__elyricThemeV2.layouts.desktop.lyrics.x = 17;
+    renderer.__elyricThemeV2.layoutOverrides.landscape = true;
+    renderer.__elyricThemeV2.layoutOverrides.portrait = false;
+    renderer.__elyricThemeV2.layouts.landscape.lyrics.x = 17;
     renderer.__elyricThemeV2SelectedLayer = "lyrics";
-    renderer.__elyricThemeV2ProfileSelect.value = "tablet";
+    renderer.__elyricThemeV2ProfileSelect.value = "portrait";
     renderer.__elyricThemeV2ProfileSelect.dispatchEvent({ type: "change", stopPropagation() {} });
     assert.strictEqual(Number(renderer.__elyricThemeV2GeometryInputs.x.value), 17,
         "an unedited responsive profile should inherit the nearest edited layout");
     renderer.__elyricThemeV2GeometryInputs.x.value = "23";
     renderer.__elyricThemeV2GeometryInputs.x.dispatchEvent({ type: "change", stopPropagation() {} });
-    assert.strictEqual(renderer.__elyricThemeV2.layoutOverrides.tablet, true,
+    assert.strictEqual(renderer.__elyricThemeV2.layoutOverrides.portrait, true,
         "editing inherited geometry should detach that responsive profile");
-    assert.strictEqual(renderer.__elyricThemeV2.layouts.tablet.lyrics.x, 23);
+    assert.strictEqual(renderer.__elyricThemeV2.layouts.portrait.lyrics.x, 23);
     renderer.__elyricThemeV2InheritanceReset.click();
-    assert.strictEqual(renderer.__elyricThemeV2.layoutOverrides.tablet, false,
+    assert.strictEqual(renderer.__elyricThemeV2.layoutOverrides.portrait, false,
         "the editor should allow returning a profile to nearest-layout inheritance");
     assert.strictEqual(Number(renderer.__elyricThemeV2GeometryInputs.x.value), 17);
-    renderer.__elyricThemeV2ProfileSelect.value = "desktop";
+    renderer.__elyricThemeV2ProfileSelect.value = "landscape";
     renderer.__elyricThemeV2ProfileSelect.dispatchEvent({ type: "change", stopPropagation() {} });
     const themeControl = renderer.__elyricThemeControl;
     const queueDismissHandler = renderer.__elyricQueueDismissHandler;
@@ -1812,18 +1990,18 @@ function createLyricElement(index) {
         "the selected theme should be restored from browser storage");
     assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-player-layout"), "custom",
         "the selected full-player interface should be restored from Emby user preferences");
-    assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-artwork-rotate"), "false",
-        "the artwork rotation choice should be restored from browser storage");
+    assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-artwork-rotate"), "true",
+        "the saved V3 theme should restore its artwork rotation choice");
     assert.strictEqual(secondRenderer.__elyricArtworkRotationButton.disabled, false);
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-style"), "line",
         "the last selected reference preset should restore its paired visualizer style");
-    assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-range"), "custom");
-    assert.strictEqual(secondRenderer.__elyricVisualizerWidthInput.value, "83");
-    assert.strictEqual(secondRenderer.__elyricVisualizerHeightInput.value, "16");
-    assert.strictEqual(secondRenderer.__elyricVisualizerAmplitudeInput.value, "130");
-    assert.strictEqual(secondRenderer.__elyricVisualizerAnalysisInputs.response.value, "95");
-    assert.strictEqual(secondRenderer.__elyricVisualizerAnalysisInputs.smoothing.value, "15");
-    assert.strictEqual(secondRenderer.__elyricVisualizerAnalysisInputs.density.value, "80");
+    assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-range"), "wide");
+    assert.strictEqual(secondRenderer.__elyricVisualizerWidthInput.value, "62");
+    assert.strictEqual(secondRenderer.__elyricVisualizerHeightInput.value, "8");
+    assert.strictEqual(secondRenderer.__elyricVisualizerAmplitudeInput.value, "70");
+    assert.strictEqual(secondRenderer.__elyricVisualizerAnalysisInputs.response.value, "80");
+    assert.strictEqual(secondRenderer.__elyricVisualizerAnalysisInputs.smoothing.value, "25");
+    assert.strictEqual(secondRenderer.__elyricVisualizerAnalysisInputs.density.value, "56");
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-visualizer-color-mode"), "dual");
     assert.strictEqual(secondRenderer.__elyricThemeControl.getAttribute("data-elyric-background-mode"), "blur");
     assert.strictEqual(secondRenderer.itemsContainer.getAttribute("data-elyric-alignment"), "left");

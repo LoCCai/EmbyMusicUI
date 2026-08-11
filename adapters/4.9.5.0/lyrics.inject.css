@@ -7190,4 +7190,48 @@
     .elyric-player-button { transition-duration: 1ms !important; }
 }
 
+/* V5.2: Theme V3 editor reachability and compact landscape controls. */
+.elyric-player-settings-panel > .elyric-player-settings-header {
+    position: sticky !important;
+    z-index: 12 !important;
+    top: -1rem !important;
+    flex: 0 0 auto;
+    background: var(--elyric-v2-panel-bg, var(--elyric-surface-solid, #121722)) !important;
+}
+
+.elyric-player-settings-panel {
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+}
+
+.elyric-player-theme-library-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.elyric-visualizer-frequency-layout-segments {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.elyric-player-shell[data-elyric-compact="true"] .elyric-player-v2-layer-volume {
+    display: none !important;
+}
+
+.elyric-player-shell[data-elyric-compact="true"] .elyric-player-button {
+    min-width: 2.5rem !important;
+    min-height: 2.5rem !important;
+}
+
+@media (max-width: 760px) {
+    .elyric-player-settings-panel > .elyric-player-settings-header {
+        top: 0 !important;
+        margin-top: 0 !important;
+        padding-top: max(.8rem, env(safe-area-inset-top, 0px)) !important;
+    }
+
+    .elyric-player-theme-library-actions {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 /* ELYRIC_ENHANCE_END:4.9.5.0 */

@@ -35,21 +35,27 @@ const vulnerableEde = `function destroy() {
         window.ede.destroyIntervalIds.map(id => clearInterval(id));
         window.ede.destroyIntervalIds = [];
 }
-document.addEventListener('viewhide', e => {
+const lifecycle = {
+    beforeDestroy(e) {
         if (e.detail.type !== 'video-osd') {
             return;
         }
         if (window.ede.danmaku) {
             window.ede.danmaku.destroy();
         }
-});
-document.addEventListener('viewshow', e => {
+    },
+    onViewShow(e) {
         prepareView();
         if (e.detail.type === 'video-osd') {
             window.ede = createEde();
         }
         window.ede.itemId = e.detail.params.id ? e.detail.params.id : '';
-});
+    }
+};
+function unrelatedOne() { if (window.ede.danmaku) { window.ede.danmaku.refresh(); } }
+function unrelatedTwo() { if (window.ede.danmaku) { window.ede.danmaku.pause(); } }
+function unrelatedThree() { if (window.ede.danmaku) { window.ede.danmaku.resume(); } }
+function unrelatedFour() { if (window.ede.danmaku) { window.ede.danmaku.resize(); } }
 `;
 
 const shell = findShell();
@@ -87,6 +93,10 @@ try {
     assert(fixed.includes("const detail = e && e.detail ? e.detail : {};"));
     assert(fixed.includes("window.ede.itemId = params.id || '';"));
     assert(!fixed.includes("window.ede.itemId = e.detail.params.id"));
+    assert.strictEqual((fixed.match(/if \(window\.ede\.danmaku\) \{/g) || []).length, 4,
+        "the four valid danmaku checks outside beforeDestroy must remain untouched");
+    assert.strictEqual((fixed.match(/if \(window\.ede && window\.ede\.danmaku\) \{/g) || []).length, 1,
+        "only beforeDestroy should receive the lifecycle guard");
     assert(fixed.indexOf("window.ede = createEde();") < fixed.indexOf("window.ede.itemId = params.id || '';"),
         "itemId must be assigned only after the EDE instance is created");
     assert.strictEqual(
@@ -119,6 +129,8 @@ try {
     fs.writeFileSync(target, "console.log('different EDE version');\n", "utf8");
     const unknown = run("install");
     assert.notStrictEqual(unknown.status, 0, "an unrecognized EDE version must be rejected");
+    assert(unknown.stderr.includes("全局/目标函数") && unknown.stderr.includes("beforeDestroy-danmaku="),
+        "an unrecognized file should report global and function-scope feature counts");
     assert.strictEqual(fs.readFileSync(target, "utf8"), "console.log('different EDE version');\n",
         "an unrecognized EDE file must remain untouched");
 
