@@ -2,7 +2,7 @@
 set -eu
 
 VERSION="4.9.5.0"
-BUILD_ID="2026.08.11-player-theme-v2"
+BUILD_ID="2026.08.11-player-theme-v2-fixes2"
 TARGET_ROOT="${ELYRIC_TARGET_ROOT:-/system/dashboard-ui/videoosd}"
 TARGET_JS="$TARGET_ROOT/lyrics.js"
 TARGET_CSS="$TARGET_ROOT/lyrics.css"

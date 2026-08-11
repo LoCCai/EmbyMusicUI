@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.11-player-theme-v2 */
+/* ELYRIC_BUILD:2026.08.11-player-theme-v2-fixes2 */
 ;(function () {
     "use strict";
 
@@ -1293,7 +1293,7 @@
                 artworkSize: 40, artworkX: 24, artworkY: 50, artworkInnerSize: 100,
                 artworkOuterRadius: 1, artworkInnerRadius: 1, artworkPadding: 0,
                 metadataWidth: 44, metadataX: 49, metadataY: 10, metadataTitleSize: 185,
-                lyricsWidth: 44, lyricsHeight: 58, lyricsX: 51, lyricsY: 21,
+                lyricsWidth: 44, lyricsHeight: 56, lyricsX: 51, lyricsY: 23,
                 visualizerX: 50, visualizerY: 79, progressWidth: 82
             },
             colors: {
@@ -1310,8 +1310,8 @@
             tuning: {
                 artworkX: 50, artworkY: 36, coverflowWidth: 82, coverflowHeight: 48,
                 artworkOuterRadius: 8, artworkInnerRadius: 6, metadataWidth: 60,
-                metadataX: 50, metadataY: 63, metadataTitleSize: 180,
-                lyricsWidth: 68, lyricsHeight: 20, lyricsX: 16, lyricsY: 58,
+                metadataX: 50, metadataY: 58, metadataTitleSize: 180,
+                lyricsWidth: 68, lyricsHeight: 15, lyricsX: 16, lyricsY: 70,
                 visualizerX: 50, visualizerY: 79, progressWidth: 82
             },
             colors: {
@@ -1322,8 +1322,8 @@
             mobile: {
                 tuning: {
                     artworkX: 50, artworkY: 22, coverflowWidth: 92, coverflowHeight: 27,
-                    metadataX: 50, metadataY: 42, metadataWidth: 88,
-                    lyricsX: 4, lyricsY: 50, lyricsWidth: 92, lyricsHeight: 18
+                    metadataX: 50, metadataY: 41, metadataWidth: 88,
+                    lyricsX: 4, lyricsY: 55, lyricsWidth: 92, lyricsHeight: 16
                 }
             }
         },
@@ -1372,8 +1372,8 @@
         },
         tuning: {
             artworkSize: 52, artworkX: 50, artworkY: 17, artworkInnerSize: 88,
-            metadataWidth: 86, metadataX: 50, metadataY: 31, metadataTitleSize: 145,
-            lyricsWidth: 92, lyricsHeight: 31, lyricsX: 4, lyricsY: 40,
+            metadataWidth: 86, metadataX: 50, metadataY: 29, metadataTitleSize: 145,
+            lyricsWidth: 92, lyricsHeight: 20, lyricsX: 4, lyricsY: 44,
             lyricsPadding: 14, visualizerX: 50, visualizerY: 69,
             progressWidth: 68, volumeWidth: 18
         }
@@ -2127,11 +2127,15 @@
             "--elyric-v2-metadata-on": readablePlayerThemeForeground(colors.metadataSurface),
             "--elyric-v2-lyrics-on": readablePlayerThemeForeground(colors.lyricsSurface),
             "--elyric-v2-media-on": readablePlayerThemeForeground(colors.mediaSurface),
-            "--elyric-v2-panel-bg": colors.metadataSurface,
-            "--elyric-v2-panel-on": readablePlayerThemeForeground(colors.metadataSurface)
+            "--elyric-v2-panel-bg": colors.backgroundA,
+            "--elyric-v2-panel-on": readablePlayerThemeForeground(colors.backgroundA)
         };
-        [renderer.__elyricThemeControl, renderer.itemsContainer, renderer.__elyricSettingsPanel,
-            renderer.__elyricMediaPanel].forEach(function (element) {
+        var targets = [renderer.__elyricThemeControl, renderer.itemsContainer,
+            renderer.__elyricSettingsPanel, renderer.__elyricMediaPanel];
+        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
+            targets.push(document.body);
+        }
+        targets.forEach(function (element) {
             Object.keys(values).forEach(function (property) { setDisplayStyle(element, property, values[property]); });
         });
     }
@@ -2492,8 +2496,46 @@
 
     function playerThemeV2ApiRequest(renderer, method, path, body, formData) {
         var apiClient = activeApiClient(renderer);
-        if (!apiClient || !apiClient.getUrl || "undefined" === typeof fetch) {
+        if (!apiClient || !apiClient.getUrl) {
             return Promise.reject(new Error("当前 Emby 连接不支持主题库接口"));
+        }
+        var url = apiClient.getUrl(path);
+        var parsePayload = function (value) {
+            if (null == value || "" === value) { return {}; }
+            if ("string" === typeof value) {
+                try { return JSON.parse(value); } catch (error) { return {}; }
+            }
+            return value;
+        };
+        if (apiClient.ajax) {
+            var request = {
+                url: url,
+                type: method,
+                method: method,
+                dataType: "json",
+                headers: { Accept: "application/json" }
+            };
+            if (formData) {
+                request.data = formData;
+                request.processData = false;
+                request.contentType = false;
+            } else if (null != body) {
+                request.data = JSON.stringify(body);
+                request.contentType = "application/json";
+            }
+            return Promise.resolve(apiClient.ajax(request)).then(parsePayload, function (error) {
+                var status = Number(error && (error.status || error.statusCode) || 0);
+                if (409 === status) {
+                    return parsePayload(error.responseJSON || error.responseText || error.body || {});
+                }
+                throw error;
+            });
+        }
+        if ("GET" === method && apiClient.getJSON) {
+            return Promise.resolve(apiClient.getJSON(url)).then(parsePayload);
+        }
+        if ("undefined" === typeof fetch) {
+            return Promise.reject(new Error("当前 Emby Web 缺少可用的已认证主题请求通道"));
         }
         var headers = { Accept: "application/json" };
         var token = apiClient.accessToken ? apiClient.accessToken() : "";
@@ -2505,7 +2547,7 @@
             headers["Content-Type"] = "application/json";
             options.body = JSON.stringify(body);
         }
-        return fetch(apiClient.getUrl(path), options).then(function (response) {
+        return fetch(url, options).then(function (response) {
             return response.text().then(function (text) {
                 var payload = null;
                 try { payload = text ? JSON.parse(text) : {}; } catch (error) { payload = {}; }
@@ -2518,6 +2560,24 @@
                 return payload;
             });
         });
+    }
+
+    function playerThemeV2FailureMessage(error, localAction) {
+        var status = Number(error && (error.status || error.statusCode) || 0);
+        var prefix = localAction || "当前修改已保存在本地";
+        if (404 === status) {
+            return "服务器未加载主题同步接口（HTTP 404）；" + prefix;
+        }
+        if (401 === status || 403 === status) {
+            return "当前 Emby 登录无权访问主题库（HTTP " + status + "）；" + prefix;
+        }
+        if (409 === status) {
+            return "服务器检测到主题 revision 冲突；" + prefix;
+        }
+        if (status) {
+            return "主题同步失败（HTTP " + status + "）；" + prefix;
+        }
+        return "无法连接服务器主题库；" + prefix;
     }
 
     function normalizeRemotePlayerTheme(record) {
@@ -2593,12 +2653,42 @@
         return preferences;
     }
 
+    function playerThemeV2OperationTargetsTheme(operation, themeId) {
+        if (!operation || !themeId) { return false; }
+        if (String(operation.themeId || "") === String(themeId)) { return true; }
+        var path = String(operation.path || "");
+        var themePath = PLAYER_THEMES_PATH + "/" + encodeURIComponent(themeId);
+        return path === themePath || 0 === path.indexOf(themePath + "?");
+    }
+
+    function removeQueuedPlayerThemeV2Operations(themeId) {
+        try {
+            var queue = JSON.parse(localStorage.getItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY) || "[]");
+            if (!Array.isArray(queue)) { queue = []; }
+            queue = queue.filter(function (operation) {
+                return !playerThemeV2OperationTargetsTheme(operation, themeId);
+            });
+            if (queue.length) {
+                localStorage.setItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+            } else if (localStorage.removeItem) {
+                localStorage.removeItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY);
+            } else {
+                localStorage.setItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY, "[]");
+            }
+        } catch (error) {}
+    }
+
     function queuePlayerThemeV2Operation(operation) {
         try {
             var queue = JSON.parse(localStorage.getItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY) || "[]");
             if (!Array.isArray(queue)) { queue = []; }
             if ("workspace" === operation.kind) {
                 queue = queue.filter(function (item) { return "workspace" !== item.kind; });
+            }
+            if (operation.themeId) {
+                queue = queue.filter(function (item) {
+                    return !playerThemeV2OperationTargetsTheme(item, operation.themeId);
+                });
             }
             queue.push(operation);
             localStorage.setItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY, JSON.stringify(queue.slice(-100)));
@@ -2662,11 +2752,17 @@
         return playerThemeV2ApiRequest(renderer, method, path, body).then(function (record) {
             var resultRecord = playerThemeV2ResponseValue(record, "value", "Value", record);
             var synced = normalizeRemotePlayerTheme(resultRecord);
+            if (!synced || !(synced.revision > 0)) {
+                var invalidResponse = new Error("服务器主题接口未返回有效 revision");
+                invalidResponse.status = 502;
+                throw invalidResponse;
+            }
             if (synced) {
                 var index = renderer.__elyricUserPlayerThemes.findIndex(function (item) { return item.id === synced.id; });
                 if (index >= 0) { renderer.__elyricUserPlayerThemes[index] = synced; }
                 else { renderer.__elyricUserPlayerThemes.push(synced); }
             }
+            removeQueuedPlayerThemeV2Operations(theme.id);
             var conflictCopy = playerThemeV2ResponseValue(record, "conflictCopy", "ConflictCopy", null);
             if (conflictCopy) {
                 var copy = normalizeRemotePlayerTheme(conflictCopy);
@@ -2674,10 +2770,25 @@
             }
             storePlayerThemeLibrary(renderer);
             syncPlayerThemeLibraryControls(renderer);
+            if (playerThemeV2ResponseValue(record, "conflict", "Conflict", false)) {
+                updatePlayerThemeLibraryStatus(renderer, "检测到跨设备修改；当前版本已重新读取，你的修改已保留为冲突副本", "error");
+            } else {
+                updatePlayerThemeLibraryStatus(renderer, "主题“" + synced.name + "”已同步到服务器（revision " + synced.revision + "）", "synced");
+            }
             return synced;
-        }).catch(function () {
-            queuePlayerThemeV2Operation({ kind: "theme", method: method, path: path, body: body });
-            updatePlayerThemeLibraryStatus(renderer, "服务器暂不可用，主题已保存在本地待同步", "error");
+        }).catch(function (error) {
+            queuePlayerThemeV2Operation({
+                kind: create ? "theme-create" : "theme-update",
+                themeId: theme.id,
+                method: method,
+                path: path,
+                body: body
+            });
+            updatePlayerThemeLibraryStatus(
+                renderer,
+                playerThemeV2FailureMessage(error, "主题已保存在本地待同步"),
+                "error"
+            );
             return null;
         });
     }
@@ -5882,7 +5993,7 @@
         storePlayerThemeLibrary(renderer);
         storeCurrentPlayerThemeDesign(renderer);
         scheduleUserPlayerPreferencesSave(renderer);
-        updatePlayerThemeLibraryStatus(renderer, "已新建“" + theme.name + "”", "synced");
+        updatePlayerThemeLibraryStatus(renderer, "已在本地新建“" + theme.name + "”，正在同步服务器…", "saving");
         syncPlayerThemeLibraryControls(renderer);
         syncNamedPlayerThemeV2(renderer, theme, true);
     }
@@ -5905,9 +6016,14 @@
         storePlayerThemeLibrary(renderer);
         storeCurrentPlayerThemeDesign(renderer);
         scheduleUserPlayerPreferencesSave(renderer);
-        updatePlayerThemeLibraryStatus(renderer, "已保存“" + saved.name + "”", "synced");
+        var createOnServer = !(saved.revision > 0);
+        updatePlayerThemeLibraryStatus(
+            renderer,
+            "已在本地保存“" + saved.name + "”，正在同步服务器…",
+            "saving"
+        );
         syncPlayerThemeLibraryControls(renderer);
-        syncNamedPlayerThemeV2(renderer, saved, false);
+        syncNamedPlayerThemeV2(renderer, saved, createOnServer);
     }
 
     function renameActiveUserPlayerTheme(renderer) {
@@ -5919,9 +6035,9 @@
         active.updatedAt = Date.now();
         storePlayerThemeLibrary(renderer);
         scheduleUserPlayerPreferencesSave(renderer);
-        updatePlayerThemeLibraryStatus(renderer, "已重命名为“" + active.name + "”", "synced");
+        updatePlayerThemeLibraryStatus(renderer, "已在本地重命名为“" + active.name + "”，正在同步服务器…", "saving");
         syncPlayerThemeLibraryControls(renderer);
-        syncNamedPlayerThemeV2(renderer, active, false);
+        syncNamedPlayerThemeV2(renderer, active, !(active.revision > 0));
     }
 
     function deleteActiveUserPlayerTheme(renderer) {
@@ -5933,7 +6049,7 @@
             && !window.confirm("删除用户主题“" + active.name + "”？此操作不可撤销。")) {
             return;
         }
-        var finishLocalDelete = function () {
+        var finishLocalDelete = function (message, state) {
             renderer.__elyricUserPlayerThemes = renderer.__elyricUserPlayerThemes.filter(function (theme) {
                 return theme.id !== active.id;
             });
@@ -5941,9 +6057,18 @@
             storePlayerThemeLibrary(renderer);
             applyPlayerLayout(renderer, active.baseLayout || "album", true);
             scheduleUserPlayerPreferencesSave(renderer);
-            updatePlayerThemeLibraryStatus(renderer, "已删除“" + active.name + "”并恢复内置主题", "ready");
+            updatePlayerThemeLibraryStatus(
+                renderer,
+                message || "已删除“" + active.name + "”并恢复内置主题",
+                state || "ready"
+            );
             syncPlayerThemeLibraryControls(renderer);
         };
+        if (!(active.revision > 0)) {
+            removeQueuedPlayerThemeV2Operations(active.id);
+            finishLocalDelete("已删除本地待同步主题“" + active.name + "”，不会再上传服务器", "ready");
+            return;
+        }
         playerThemeV2ApiRequest(
             renderer,
             "DELETE",
@@ -5955,15 +6080,20 @@
                 requestPlayerThemeV2Workspace(renderer).catch(function () {});
                 return;
             }
+            removeQueuedPlayerThemeV2Operations(active.id);
             finishLocalDelete();
-        }).catch(function () {
+        }).catch(function (error) {
             queuePlayerThemeV2Operation({
                 kind: "theme-delete",
+                themeId: active.id,
                 method: "DELETE",
                 path: PLAYER_THEMES_PATH + "/" + encodeURIComponent(active.id)
                     + "?ExpectedRevision=" + encodeURIComponent(active.revision || 0)
             });
-            finishLocalDelete();
+            finishLocalDelete(
+                playerThemeV2FailureMessage(error, "主题已从本地删除，服务器删除操作进入待同步队列"),
+                "error"
+            );
         });
     }
 
@@ -6086,6 +6216,10 @@
             renderer.__elyricThemeV2Guides.parentNode.removeChild(renderer.__elyricThemeV2Guides);
         }
         renderer.__elyricThemeV2Guides = null;
+        if (renderer.__elyricThemeV2ExitButton && renderer.__elyricThemeV2ExitButton.parentNode) {
+            renderer.__elyricThemeV2ExitButton.parentNode.removeChild(renderer.__elyricThemeV2ExitButton);
+        }
+        renderer.__elyricThemeV2ExitButton = null;
     }
 
     function installPlayerThemeV2BoxPointer(renderer, box, layerId, handle) {
@@ -6161,6 +6295,18 @@
             installPlayerThemeV2BoxPointer(renderer, handle, layerId, true);
             renderer.__elyricThemeV2Boxes.push(box);
         });
+        var exitButton = document.createElement("button");
+        exitButton.type = "button";
+        exitButton.className = "elyric-v2-designer-exit";
+        exitButton.setAttribute("aria-label", "完成画布编辑并返回设置");
+        exitButton.appendChild(document.createTextNode("完成编辑"));
+        exitButton.addEventListener("click", function (event) {
+            stopControlEvent(event);
+            setPlayerThemeV2DesignerOpen(renderer, false);
+            setSettingsPanelOpen(renderer, true);
+        });
+        document.body.appendChild(exitButton);
+        renderer.__elyricThemeV2ExitButton = exitButton;
         syncPlayerThemeV2Designer(renderer);
     }
 
@@ -7808,6 +7954,8 @@
                 && !(renderer.__elyricOverlayScrim
                     && renderer.__elyricOverlayScrim.contains
                     && renderer.__elyricOverlayScrim.contains(front))
+                && !(elementOrAncestorHasClass(front, "elyric-v2-layer-box"))
+                && !(elementOrAncestorHasClass(front, "elyric-v2-designer-exit"))
                 && !isPlaybackDialogOverlay(front)) {
                 return false;
             }
@@ -7828,6 +7976,9 @@
             syncMediaPanelVisibility(renderer, true);
             syncPlayerPageState(renderer, true);
         } else {
+            if (renderer.__elyricThemeV2DesignerOpen) {
+                setPlayerThemeV2DesignerOpen(renderer, false);
+            }
             syncSettingsPanelVisibility(renderer, false);
             syncMediaPanelVisibility(renderer, false);
             setAttributeIfChanged(control, "hidden", "hidden");
@@ -8208,6 +8359,15 @@
         return index < 2 && /\s[-–—]\s/.test(text);
     }
 
+    function isLyricTitleCreditLine(renderer, item, index) {
+        if (index > 1 || !isLyricCreditLine(item, index) || !renderer || !renderer.currentItem) {
+            return false;
+        }
+        var title = String(renderer.currentItem.Name || renderer.currentItem.OriginalTitle || "").trim();
+        var text = String(item.__elyric.sublines[0].text || "").trim();
+        return !!title && text.indexOf(title) >= 0;
+    }
+
     function renderLyricElement(renderer, element) {
         var index = Number(element.getAttribute("data-index"));
         var item = renderer.__elyricItems && renderer.__elyricItems[index];
@@ -8229,12 +8389,15 @@
             body.removeChild(body.firstChild);
         }
 
-        element.classList.remove("elyric-line-multilingual", "elyric-line-credit");
+        element.classList.remove("elyric-line-multilingual", "elyric-line-credit", "elyric-line-title-credit");
         if (item.__elyric.sublines.length > 1) {
             element.classList.add("elyric-line-multilingual");
         }
         if (isLyricCreditLine(item, index)) {
             element.classList.add("elyric-line-credit");
+        }
+        if (isLyricTitleCreditLine(renderer, item, index)) {
+            element.classList.add("elyric-line-title-credit");
         }
 
         item.__elyric.sublines.forEach(function (line, sublineIndex) {

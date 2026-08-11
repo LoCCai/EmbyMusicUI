@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.11-player-theme-v2 */
+/* ELYRIC_BUILD:2026.08.11-player-theme-v2-fixes2 */
 .elyric-subline {
     display: block;
     max-width: 100%;
@@ -6769,8 +6769,8 @@
 
 .elyric-player-settings-panel {
     z-index: 2147483600 !important;
-    color: var(--elyric-v2-panel-on, var(--elyric-panel-text, #fff)) !important;
-    background: var(--elyric-v2-panel-bg, #121722) !important;
+    color: var(--elyric-panel-text, #fff) !important;
+    background: var(--elyric-surface-solid, #121722) !important;
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
     isolation: isolate;
@@ -6818,7 +6818,7 @@
 .elyric-player-settings-panel select,
 .elyric-player-settings-panel button,
 .elyric-player-settings-panel summary {
-    color: inherit;
+    color: inherit !important;
 }
 
 .elyric-v2-designer-settings {
@@ -6850,7 +6850,7 @@
     border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
     border-radius: .72rem;
     color: inherit;
-    background: color-mix(in srgb, var(--elyric-v2-panel-bg, #121722) 86%, currentColor 14%);
+    background: var(--elyric-control, rgb(255 255 255 / .08));
 }
 
 .elyric-v2-profile-select { width: 10rem; padding: .55rem .65rem; }
@@ -6884,7 +6884,7 @@
     padding: .45rem .35rem;
     border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
     border-radius: .65rem;
-    background: color-mix(in srgb, var(--elyric-v2-panel-bg, #121722) 80%, currentColor 20%);
+    background: var(--elyric-control, rgb(255 255 255 / .08));
     font: inherit;
     font-size: .78rem;
     line-height: 1.25;
@@ -6916,7 +6916,7 @@
     padding: .7rem;
     border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
     border-radius: .8rem;
-    background: color-mix(in srgb, var(--elyric-v2-panel-bg, #121722) 94%, currentColor 6%);
+    background: var(--elyric-control, rgb(255 255 255 / .055));
 }
 
 .elyric-v2-designer-settings summary {
@@ -7012,6 +7012,147 @@
     text-overflow: clip !important;
 }
 
+/* V5.1: keep semantic surfaces readable and preserve physical safety zones. */
+.elyric-player-settings-panel[data-elyric-background-mode] {
+    --elyric-panel-text: var(--elyric-v2-panel-on, #fff);
+    --elyric-panel-muted: color-mix(in srgb, var(--elyric-v2-panel-on, #fff) 62%, transparent);
+    --elyric-surface-solid: var(--elyric-v2-panel-bg, #121722);
+    --elyric-surface-elevated: color-mix(
+        in srgb,
+        var(--elyric-v2-panel-bg, #121722) 91%,
+        var(--elyric-v2-panel-on, #fff) 9%
+    );
+    --elyric-control: color-mix(
+        in srgb,
+        var(--elyric-v2-panel-bg, #121722) 92%,
+        var(--elyric-v2-panel-on, #fff) 8%
+    );
+    --elyric-control-hover: color-mix(
+        in srgb,
+        var(--elyric-v2-panel-bg, #121722) 84%,
+        var(--elyric-v2-panel-on, #fff) 16%
+    );
+    --elyric-border: color-mix(in srgb, var(--elyric-v2-panel-on, #fff) 18%, transparent);
+    color: var(--elyric-v2-panel-on, #fff) !important;
+    background: var(--elyric-v2-panel-bg, #121722) !important;
+}
+
+.elyric-player-settings-panel select,
+.elyric-player-settings-panel input,
+.elyric-player-settings-panel textarea,
+.elyric-player-settings-panel button,
+.elyric-player-settings-panel summary {
+    border-color: var(--elyric-border) !important;
+    color: var(--elyric-v2-panel-on, #fff) !important;
+}
+
+.elyric-player-settings-panel option {
+    color: var(--elyric-v2-panel-on, #fff);
+    background: var(--elyric-v2-panel-bg, #121722);
+}
+
+.elyric-player-media-panel[data-elyric-background-mode] {
+    --elyric-panel-text: var(--elyric-v2-media-on, #fff);
+    --elyric-panel-muted: color-mix(in srgb, var(--elyric-v2-media-on, #fff) 62%, transparent);
+    --elyric-surface-solid: var(--elyric-design-media-surface, #111827);
+    --elyric-surface-elevated: color-mix(
+        in srgb,
+        var(--elyric-design-media-surface, #111827) 91%,
+        var(--elyric-v2-media-on, #fff) 9%
+    );
+    --elyric-control: color-mix(
+        in srgb,
+        var(--elyric-design-media-surface, #111827) 91%,
+        var(--elyric-v2-media-on, #fff) 9%
+    );
+    --elyric-control-hover: color-mix(
+        in srgb,
+        var(--elyric-design-media-surface, #111827) 83%,
+        var(--elyric-v2-media-on, #fff) 17%
+    );
+    --elyric-border: color-mix(in srgb, var(--elyric-v2-media-on, #fff) 18%, transparent);
+    color: var(--elyric-v2-media-on, #fff) !important;
+}
+
+.elyric-player-media-panel .elyric-player-settings-header {
+    color: var(--elyric-v2-media-on, var(--elyric-panel-text, #fff)) !important;
+    background: color-mix(
+        in srgb,
+        var(--elyric-design-media-surface, var(--elyric-surface-solid, #121722)) 94%,
+        var(--elyric-surface-solid, #121722) 6%
+    ) !important;
+}
+
+.elyric-player-active-page .osdContentSection[data-contentsection="playqueue"] {
+    --elyric-panel-text: var(--elyric-v2-media-on, #fff);
+    --elyric-panel-muted: color-mix(in srgb, var(--elyric-v2-media-on, #fff) 62%, transparent);
+    --elyric-control-hover: color-mix(
+        in srgb,
+        var(--elyric-design-media-surface, #111827) 82%,
+        var(--elyric-v2-media-on, #fff) 18%
+    );
+    --elyric-border: color-mix(in srgb, var(--elyric-v2-media-on, #fff) 18%, transparent);
+    color: var(--elyric-v2-media-on, #fff) !important;
+    background: color-mix(
+        in srgb,
+        var(--elyric-design-media-surface, #111827) 96%,
+        transparent
+    ) !important;
+}
+
+.elyric-v2-designer-exit {
+    position: fixed;
+    z-index: 2147483700;
+    top: max(.85rem, calc(env(safe-area-inset-top, 0px) + .5rem));
+    left: 50%;
+    min-width: 7.5rem;
+    min-height: 2.75rem;
+    padding: .65rem 1rem;
+    border: 1px solid rgb(255 255 255 / .22);
+    border-radius: 999px;
+    color: #fff;
+    background: #101722;
+    box-shadow: 0 .75rem 2.4rem rgb(0 0 0 / .34), inset 0 1px rgb(255 255 255 / .12);
+    font: inherit;
+    font-size: .85rem;
+    font-weight: 750;
+    transform: translateX(-50%);
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.elyric-v2-designer-exit:hover,
+.elyric-v2-designer-exit:focus-visible {
+    border-color: #72d8ff;
+    background: #17283a;
+    outline: none;
+    box-shadow: 0 0 0 3px rgb(114 216 255 / .22), 0 .75rem 2.4rem rgb(0 0 0 / .34);
+}
+
+.elyric-player-active-page .osdLyricsItemsContainer .elyric-line-title-credit {
+    display: none !important;
+}
+
+[data-elyric-theme-v2="true"] .elyric-line-credit .elyric-subline {
+    font-size: clamp(.72rem, 1.05vw, .96rem) !important;
+    font-weight: 600 !important;
+    line-height: 1.32 !important;
+    letter-spacing: .025em !important;
+    opacity: .56 !important;
+    transform: none !important;
+}
+
+@media (min-width: 761px) {
+    .elyric-player-shell[data-elyric-parametric="true"][data-elyric-player-layout="album"]
+        .elyric-player-progress {
+        width: min(var(--elyric-design-progress-width, 46vw), calc(52vw - 2rem)) !important;
+    }
+
+    .elyric-player-active-page .osdContentSection[data-contentsection="playqueue"] {
+        bottom: max(8.1rem, calc(env(safe-area-inset-bottom, 0px) + 7.35rem)) !important;
+    }
+}
+
 @media (max-width: 760px) {
     .elyric-player-settings-panel {
         inset: 0 !important;
@@ -7030,6 +7171,16 @@
     .elyric-v2-geometry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .elyric-v2-inheritance-status { grid-column: 1 / -1; }
     .elyric-player-button { min-width: 2.75rem !important; min-height: 2.75rem !important; }
+
+    .elyric-v2-designer-exit {
+        top: max(.65rem, calc(env(safe-area-inset-top, 0px) + .35rem));
+        min-width: 8.5rem;
+        min-height: 3rem;
+    }
+
+    .elyric-player-active-page .osdContentSection[data-contentsection="playqueue"] {
+        bottom: max(10.75rem, calc(env(safe-area-inset-bottom, 0px) + 9.9rem)) !important;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {

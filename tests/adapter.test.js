@@ -233,6 +233,9 @@ const localStorage = {
     },
     setItem(key, value) {
         storedValues.set(key, String(value));
+    },
+    removeItem(key) {
+        storedValues.delete(key);
     }
 };
 
@@ -243,6 +246,8 @@ let displayPreferencesRequests = 0;
 let displayPreferencesUpdates = 0;
 let partialDisplayPreferencesUpdates = 0;
 let lastDisplayPreferences = null;
+let themeApiMode = "offline";
+const themeApiRequests = [];
 const userDisplayPreferences = {};
 const requestedConfigurationPaths = [];
 const ApiClient = {
@@ -269,6 +274,42 @@ const ApiClient = {
             showSecondLine: false,
             showThirdAndLaterLines: false
         });
+    },
+    ajax(request) {
+        themeApiRequests.push(request);
+        if (themeApiMode === "offline") {
+            return Promise.reject(new Error("theme api offline"));
+        }
+        if (themeApiMode === "not-found") {
+            const error = new Error("theme api route missing");
+            error.status = 404;
+            return Promise.reject(error);
+        }
+        if (themeApiMode === "healthy") {
+            const payload = request.data && typeof request.data === "string"
+                ? JSON.parse(request.data)
+                : {};
+            if (request.type === "POST") {
+                return Promise.resolve({
+                    Id: payload.Id,
+                    Name: payload.Name,
+                    Revision: 1,
+                    ThemeJson: payload.ThemeJson
+                });
+            }
+            if (request.type === "PUT") {
+                return Promise.resolve({ Value: {
+                    Id: payload.Id,
+                    Name: payload.Name,
+                    Revision: Number(payload.ExpectedRevision || 0) + 1,
+                    ThemeJson: payload.ThemeJson
+                } });
+            }
+            if (request.type === "DELETE") {
+                return Promise.resolve({ Deleted: true });
+            }
+        }
+        return Promise.resolve({});
     },
     getCurrentUserId() {
         return "test-user";
@@ -718,6 +759,10 @@ function createLyricElement(index) {
         "canvas editing should expose one editable box for every player layer");
     assert(renderer.__elyricThemeV2Boxes.every((box) => box.parentNode === document.body),
         "canvas handles should remain mounted after the settings drawer closes");
+    const designerExitButton = renderer.__elyricThemeV2ExitButton;
+    assert(designerExitButton && designerExitButton.parentNode === document.body,
+        "canvas editing should expose a touch-accessible completion button above every layer box");
+    assert.strictEqual(designerExitButton.getAttribute("aria-label"), "完成画布编辑并返回设置");
     renderer.__elyricThemeV2LayerButtons
         .find((button) => button.getAttribute("data-layer") === "auxiliary").click();
     renderer.__elyricThemeV2HideButton.click();
@@ -731,11 +776,14 @@ function createLyricElement(index) {
         '.elyric-player-v2-layer-auxiliary[data-elyric-v2-user-hidden="true"] .elyric-player-button-settings'
     ), "hiding auxiliary controls should keep only the settings recovery button visible");
     renderer.__elyricThemeV2HideButton.click();
-    renderer.__elyricSettingsButton.click();
+    designerExitButton.click();
     assert.strictEqual(renderer.__elyricThemeV2DesignerOpen, false,
-        "opening settings should automatically finish canvas editing");
+        "the canvas completion button should finish editing");
     assert.strictEqual(renderer.__elyricThemeV2Boxes.length, 0,
-        "opening settings should remove canvas handles before showing the modal drawer");
+        "finishing canvas editing should remove every handle before showing settings");
+    assert.strictEqual(settingsPanel.getAttribute("hidden"), null,
+        "finishing canvas editing should return directly to the settings drawer");
+    settingsPanel.querySelector(".elyric-player-settings-close").click();
     renderer.__elyricThemeV2DesignerToggle.click();
     let designerEscapePrevented = false;
     let designerEscapeStopped = false;
@@ -750,6 +798,15 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricThemeV2Boxes.length, 0);
     assert(designerEscapePrevented && designerEscapeStopped,
         "the canvas Escape shortcut should not leak to Emby's page-level shortcuts");
+    renderer.__elyricThemeV2DesignerToggle.click();
+    playbackPage.classList.add("hide");
+    renderer.onTimeUpdate(0, 20000000);
+    assert.strictEqual(renderer.__elyricThemeV2DesignerOpen, false,
+        "leaving the playback route should always finish canvas editing");
+    assert.strictEqual(renderer.__elyricThemeV2Boxes.length, 0,
+        "leaving the playback route should remove document-level canvas handles");
+    playbackPage.classList.remove("hide");
+    renderer.onTimeUpdate(0, 20000000);
     const layoutButtons = renderer.__elyricLayoutButtons;
     assert.strictEqual(layoutButtons.length, 10,
         "all nine supplied reference layouts and the custom composition should be selectable");
@@ -946,6 +1003,13 @@ function createLyricElement(index) {
     layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "lyrics").click();
     assert.strictEqual(artworkRotationButton.disabled, false,
         "the lyrics-first circular layout should also allow artwork rotation control");
+    layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "rose").click();
+    assert.strictEqual(renderer.__elyricSettingsPanel.style.getPropertyValue("--elyric-v2-panel-bg"), "#fff0f4",
+        "the settings drawer should use the active theme surface instead of an unrelated black/white surface");
+    assert.strictEqual(renderer.__elyricSettingsPanel.style.getPropertyValue("--elyric-v2-panel-on"), "#111318",
+        "the settings drawer should calculate a readable foreground for a light themed surface");
+    assert.strictEqual(document.body.style.getPropertyValue("--elyric-v2-panel-bg"), "#fff0f4",
+        "theme semantic colors should reach document-level Emby popups and queue cards");
     layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "stack").click();
     assert.strictEqual(renderer.__elyricPlayerThemeLibrarySelect.value, "builtin:stack",
         "the theme library should follow built-in theme buttons");
@@ -982,6 +1046,7 @@ function createLyricElement(index) {
     const themeNameInput = renderer.__elyricPlayerThemeNameInput;
     themeNameInput.value = "按钮弹卡主题";
     settingsPanel.querySelector(".elyric-theme-new").click();
+    await flushPromises();
     let storedPlayerThemes = JSON.parse(
         storedValues.get("emby-lyric-enhance.player-themes.v1")
     );
@@ -992,6 +1057,20 @@ function createLyricElement(index) {
             `${item.id} should be present in every V2 named-theme snapshot`);
     });
     const firstUserThemeId = storedPlayerThemes[0].id;
+    assert.strictEqual(storedPlayerThemes[0].revision, 0,
+        "a failed POST must keep a local theme unconfirmed instead of inventing a remote revision");
+    let offlineThemeOperations = JSON.parse(
+        storedValues.get("emby-lyric-enhance.theme-v2.offline-queue") || "[]"
+    );
+    assert(offlineThemeOperations.some((operation) => operation.kind === "theme-create"
+        && operation.themeId === firstUserThemeId && operation.method === "POST"),
+    "a failed create should retain one identifiable POST for later synchronization");
+    assert(themeApiRequests.some((request) => request.type === "POST"
+        && request.url === "/emby/EmbyLyricEnhance/Themes"
+        && request.contentType === "application/json"),
+    "theme writes should use Emby's authenticated ajax transport before relying on window.fetch");
+    assert(renderer.__elyricPlayerThemeLibraryStatus.textContent.includes("无法连接服务器主题库"),
+        "theme save failures should distinguish a network/API failure from a revision conflict");
     assert.strictEqual(themeLibrarySelect.value, `user:${firstUserThemeId}`);
     assert.strictEqual(document.body.getAttribute("data-elyric-player-layout"), "custom");
     themeLibrarySelect.value = `user:${firstUserThemeId}`;
@@ -1041,7 +1120,12 @@ function createLyricElement(index) {
     renderer.__elyricPlayerThemeRenameButton.click();
     assert.strictEqual(JSON.parse(storedValues.get("emby-lyric-enhance.player-themes.v1"))[0].name,
         "大屏锚定主题");
+    themeApiMode = "not-found";
     settingsPanel.querySelector(".elyric-theme-duplicate").click();
+    await flushPromises();
+    assert(renderer.__elyricPlayerThemeLibraryStatus.textContent.includes("服务器未加载主题同步接口（HTTP 404）"),
+        "a missing plugin route should be reported distinctly from offline and revision-conflict states");
+    themeApiMode = "offline";
     storedPlayerThemes = JSON.parse(storedValues.get("emby-lyric-enhance.player-themes.v1"));
     assert.strictEqual(storedPlayerThemes.length, 2, "user themes should be duplicable");
     assert.strictEqual(storedPlayerThemes[1].name, "大屏锚定主题 副本",
@@ -1058,14 +1142,43 @@ function createLyricElement(index) {
         "the active user theme should sync with its library");
     renderer.__elyricPlayerThemeDeleteButton.click();
     await flushPromises();
+    offlineThemeOperations = JSON.parse(
+        storedValues.get("emby-lyric-enhance.theme-v2.offline-queue") || "[]"
+    );
+    assert(!offlineThemeOperations.some((operation) => operation.themeId === duplicateUserThemeId),
+        "deleting an unconfirmed local theme should cancel its pending create instead of queuing revision 0 DELETE");
+    assert(renderer.__elyricPlayerThemeLibraryStatus.textContent.includes("不会再上传服务器"),
+        "deleting an offline-only theme should clearly confirm that the pending upload was cancelled");
     themeLibrarySelect.value = `user:${firstUserThemeId}`;
     themeLibrarySelect.dispatchEvent({ type: "change", stopPropagation() {} });
     renderer.__elyricPlayerThemeDeleteButton.click();
     await flushPromises();
+    offlineThemeOperations = JSON.parse(
+        storedValues.get("emby-lyric-enhance.theme-v2.offline-queue") || "[]"
+    );
+    assert(offlineThemeOperations.some((operation) => operation.kind === "theme-delete"
+        && operation.themeId === firstUserThemeId),
+    "deleting a server-confirmed theme while offline should retain one revisioned DELETE operation");
     assert.deepStrictEqual(JSON.parse(storedValues.get("emby-lyric-enhance.player-themes.v1")), [],
         "deleted user themes should be removed from persistent storage");
     assert.strictEqual(themeNameInput.value, "",
         "switching back to an immutable built-in theme should clear a stale user-theme name");
+
+    themeApiMode = "healthy";
+    themeNameInput.value = "服务器往返主题";
+    settingsPanel.querySelector(".elyric-theme-new").click();
+    await flushPromises();
+    storedPlayerThemes = JSON.parse(storedValues.get("emby-lyric-enhance.player-themes.v1"));
+    assert.strictEqual(storedPlayerThemes.length, 1);
+    assert.strictEqual(storedPlayerThemes[0].revision, 1,
+        "a successful authenticated POST should replace the local revision 0 record with the server revision");
+    assert(renderer.__elyricPlayerThemeLibraryStatus.textContent.includes("已同步到服务器（revision 1）"),
+        "a successful save should visibly confirm the server revision");
+    renderer.__elyricPlayerThemeDeleteButton.click();
+    await flushPromises();
+    assert.deepStrictEqual(JSON.parse(storedValues.get("emby-lyric-enhance.player-themes.v1")), [],
+        "a server-confirmed theme should complete its authenticated DELETE round trip");
+    themeApiMode = "offline";
     layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "custom").click();
     await new Promise((resolve) => setTimeout(resolve, 650));
 
@@ -1492,6 +1605,20 @@ function createLyricElement(index) {
     assert(adapterCss.includes(".elyric-player-settings-panel .elyric-player-settings-header")
         && adapterCss.includes("-webkit-backdrop-filter: none;"),
         "the settings header should not reintroduce blur inside the opaque drawer");
+    assert(adapterCss.includes(".elyric-player-settings-panel[data-elyric-background-mode]")
+        && adapterCss.includes("--elyric-panel-text: var(--elyric-v2-panel-on, #fff)")
+        && adapterCss.includes("background: var(--elyric-v2-panel-bg, #121722) !important")
+        && adapterCss.includes(".elyric-player-settings-panel option")
+        && adapterCss.includes("color: var(--elyric-v2-panel-on, #fff)"),
+    "the theme dropdown and every V2 setting control should share one readable theme-derived palette");
+    assert(adapterCss.includes(".elyric-player-media-panel[data-elyric-background-mode]")
+        && adapterCss.includes("--elyric-panel-text: var(--elyric-v2-media-on, #fff)")
+        && adapterCss.includes(".elyric-player-active-page .osdContentSection[data-contentsection=\"playqueue\"]")
+        && adapter.includes("targets.push(document.body)"),
+    "media cards and the play queue should receive the same auto-contrasted semantic theme colors");
+    assert(adapterCss.includes(".elyric-v2-designer-exit")
+        && adapter.includes("完成画布编辑并返回设置"),
+    "canvas editing should always provide an obvious mouse and touch exit");
     assert(adapterCss.includes(':not([data-elyric-player-layout="custom"]) .elyric-player-artwork-stage'),
         "saved custom artwork scale must not leak into the supplied layout presets");
     assert(adapterCss.includes('[data-elyric-player-layout="center"] .elyric-player-metadata')
@@ -1505,10 +1632,15 @@ function createLyricElement(index) {
     "the playback seek rail should expose a thicker rounded drag target");
     assert(adapterCss.includes("@starting-style") && adapterCss.includes("transition-behavior: allow-discrete"),
         "settings and media sheets should enter and leave with a discrete-safe easing transition");
+    assert(adapterCss.includes("calc(52vw - 2rem)")
+        && adapterCss.includes("bottom: max(8.1rem"),
+    "desktop presets and the queue should not push the seek rail off-screen or cover it");
     assert(adapterCss.includes("bottom: max(7.75rem"),
         "mobile lyrics, spectrum and the seek rail should occupy separate vertical safety zones");
     assert(adapterCss.includes(".elyric-line-credit") && adapter.includes("isLyricCreditLine"),
         "embedded title and production credits should not compete with the main song identity");
+    assert(adapterCss.includes(".elyric-line-title-credit") && adapter.includes("isLyricTitleCreditLine"),
+        "an embedded title credit should not repeat the player identity as an oversized lyric");
     assert(adapterCss.includes('[data-elyric-alignment="right"]'),
         "lyrics should support an explicit right text anchor without moving their container");
     assert(adapterCss.includes("@media (min-width: 761px) and (max-height: 520px)")
