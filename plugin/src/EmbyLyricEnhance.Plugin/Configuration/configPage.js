@@ -121,6 +121,9 @@ define(["apiClientResolver"], function (apiClientResolver) {
             setValue("elyricOtherLinesBlurPixels", display.OtherLinesBlurPixels, 0.4);
             setChecked("elyricShowSecondLine", display.ShowSecondLine, true);
             setChecked("elyricShowThirdAndLaterLines", display.ShowThirdAndLaterLines, true);
+            setValue("elyricMaxThemeJsonKilobytes", configuration.MaxThemeJsonKilobytes, 512);
+            setValue("elyricMaxAssetMegabytes", configuration.MaxAssetMegabytes, 8);
+            setValue("elyricUserStorageQuotaMegabytes", configuration.UserStorageQuotaMegabytes, 512);
             syncColorInput();
         }
 
@@ -246,6 +249,9 @@ define(["apiClientResolver"], function (apiClientResolver) {
                 display.OtherLinesBlurPixels = numberValue("elyricOtherLinesBlurPixels");
                 display.ShowSecondLine = element("elyricShowSecondLine").checked;
                 display.ShowThirdAndLaterLines = element("elyricShowThirdAndLaterLines").checked;
+                configuration.MaxThemeJsonKilobytes = numberValue("elyricMaxThemeJsonKilobytes");
+                configuration.MaxAssetMegabytes = numberValue("elyricMaxAssetMegabytes");
+                configuration.UserStorageQuotaMegabytes = numberValue("elyricUserStorageQuotaMegabytes");
                 return apiClient.updatePluginConfiguration(pluginId, configuration);
             }).then(function () {
                 return loadConfiguration({

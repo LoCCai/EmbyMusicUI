@@ -1,4 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
+/* ELYRIC_BUILD:2026.08.11-player-theme-v2 */
 .elyric-subline {
     display: block;
     max-width: 100%;
@@ -6660,6 +6661,382 @@
     .elyric-media-field-segments {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+}
+
+/* V5: complete PlayerThemeV2 canvas, semantic surfaces and responsive editor. */
+.elyric-player-v2-layer {
+    box-sizing: border-box !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    transition:
+        left 180ms cubic-bezier(.2, .8, .2, 1),
+        top 180ms cubic-bezier(.2, .8, .2, 1),
+        width 180ms cubic-bezier(.2, .8, .2, 1),
+        height 180ms cubic-bezier(.2, .8, .2, 1),
+        opacity 160ms ease !important;
+}
+
+.elyric-player-shell[data-elyric-designer-open="true"] .elyric-player-v2-layer {
+    transition: none !important;
+}
+
+.elyric-player-v2-layer-lyrics,
+.elyric-player-v2-layer-lyrics .lyricsList {
+    overflow: hidden auto !important;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+}
+
+.elyric-v2-layer-box {
+    position: fixed;
+    z-index: 2147481000;
+    box-sizing: border-box;
+    border: 1px solid rgba(133, 213, 255, .86);
+    border-radius: .65rem;
+    background: rgba(72, 172, 255, .055);
+    box-shadow: inset 0 0 0 1px rgba(8, 16, 28, .35), 0 .5rem 1.5rem rgba(0, 0, 0, .2);
+    color: #fff;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.elyric-v2-layer-box > span {
+    position: absolute;
+    top: .2rem;
+    left: .25rem;
+    max-width: calc(100% - .5rem);
+    overflow: hidden;
+    padding: .2rem .42rem;
+    border-radius: .38rem;
+    background: rgba(6, 13, 23, .88);
+    color: #fff;
+    font-size: .68rem;
+    font-weight: 700;
+    line-height: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.elyric-v2-layer-box[data-selected="true"] {
+    border-width: 2px;
+    border-color: #72d8ff;
+    background: rgba(74, 193, 255, .12);
+    box-shadow: 0 0 0 2px rgba(114, 216, 255, .2), 0 .75rem 2rem rgba(0, 0, 0, .28);
+}
+
+.elyric-v2-layer-box[data-locked="true"] {
+    border-style: dotted;
+    cursor: not-allowed;
+}
+
+.elyric-v2-layer-box[data-hidden-layer="true"] {
+    border-color: rgba(255, 165, 110, .9);
+    background: repeating-linear-gradient(135deg, rgba(255, 139, 91, .12) 0 8px, transparent 8px 16px);
+}
+
+.elyric-v2-resize-handle {
+    position: absolute;
+    right: -.45rem;
+    bottom: -.45rem;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid #0c1724;
+    border-radius: 50%;
+    background: #7fe1ff;
+    box-shadow: 0 .2rem .55rem rgba(0, 0, 0, .35);
+    cursor: nwse-resize;
+}
+
+.elyric-v2-alignment-guides {
+    position: fixed;
+    z-index: 2147480990;
+    inset: 0;
+    pointer-events: none;
+}
+
+.elyric-v2-alignment-guides i:first-child,
+.elyric-v2-alignment-guides i:last-child {
+    position: absolute;
+    background: rgba(118, 223, 255, .32);
+}
+
+.elyric-v2-alignment-guides i:first-child { top: 0; bottom: 0; left: 50%; width: 1px; }
+.elyric-v2-alignment-guides i:last-child { right: 0; left: 0; top: 50%; height: 1px; }
+
+.elyric-player-settings-panel {
+    z-index: 2147483600 !important;
+    color: var(--elyric-v2-panel-on, var(--elyric-panel-text, #fff)) !important;
+    background: var(--elyric-v2-panel-bg, #121722) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    isolation: isolate;
+}
+
+.elyric-player-overlay-scrim { z-index: 2147482000 !important; }
+.elyric-player-media-panel {
+    z-index: 2147483000 !important;
+    border-radius: var(--elyric-v2-popup-radius, 24px) !important;
+    background: var(--elyric-design-media-surface, #111827) !important;
+    background: color-mix(
+        in srgb,
+        var(--elyric-design-media-surface, #111827) var(--elyric-v2-popup-opacity, 100%),
+        transparent
+    ) !important;
+}
+.elyric-player-active-page .videoOsdBottom .osdPlaylist,
+.elyric-player-active-page .playlistSection,
+.elyric-player-active-page .queuePanel {
+    z-index: 2147480000 !important;
+    border-radius: var(--elyric-v2-popup-radius, 24px) !important;
+}
+
+.elyric-player-v2-layer-auxiliary {
+    min-height: var(--elyric-v2-safe-area, 64px) !important;
+    overflow: visible !important;
+}
+
+.elyric-player-v2-layer-auxiliary[data-elyric-v2-user-hidden="true"] > :not(.elyric-player-button-settings) {
+    display: none !important;
+}
+
+.elyric-player-v2-layer-auxiliary[data-elyric-v2-user-hidden="true"] .elyric-player-button-settings {
+    display: inline-flex !important;
+    min-width: max(2.75rem, var(--elyric-v2-safe-area, 64px)) !important;
+    min-height: max(2.75rem, var(--elyric-v2-safe-area, 64px)) !important;
+}
+
+[data-elyric-theme-v2="true"] .elyric-player-topbar {
+    min-height: var(--elyric-v2-safe-area, 64px);
+}
+
+.elyric-player-settings-panel .elyric-player-settings-section,
+.elyric-player-settings-panel input,
+.elyric-player-settings-panel select,
+.elyric-player-settings-panel button,
+.elyric-player-settings-panel summary {
+    color: inherit;
+}
+
+.elyric-v2-designer-settings {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: .7rem;
+    border-color: color-mix(in srgb, currentColor 18%, transparent) !important;
+}
+
+.elyric-v2-designer-settings > .elyric-player-settings-section-title,
+.elyric-v2-designer-settings > .elyric-v2-layer-list,
+.elyric-v2-designer-settings > .elyric-v2-geometry-grid,
+.elyric-v2-designer-settings > .elyric-v2-layer-actions,
+.elyric-v2-designer-settings > .elyric-v2-history-actions,
+.elyric-v2-designer-settings > details,
+.elyric-v2-designer-settings > label,
+.elyric-v2-designer-settings > .elyric-player-range-setting {
+    grid-column: 1 / -1;
+}
+
+.elyric-v2-profile-select,
+.elyric-v2-text-setting input,
+.elyric-v2-geometry-grid input,
+.elyric-v2-designer-settings details select,
+.elyric-v2-designer-settings details input[type="file"] {
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: 2.55rem;
+    border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+    border-radius: .72rem;
+    color: inherit;
+    background: color-mix(in srgb, var(--elyric-v2-panel-bg, #121722) 86%, currentColor 14%);
+}
+
+.elyric-v2-profile-select { width: 10rem; padding: .55rem .65rem; }
+
+.elyric-v2-inheritance-status {
+    min-width: 0;
+    align-self: center;
+    color: color-mix(in srgb, currentColor 68%, transparent);
+    font-size: .72rem;
+    line-height: 1.3;
+}
+
+.elyric-v2-inheritance-reset:disabled {
+    opacity: .42;
+    cursor: default;
+}
+
+.elyric-v2-layer-list,
+.elyric-v2-layer-actions,
+.elyric-v2-history-actions {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: .42rem;
+}
+
+.elyric-v2-layer-list button,
+.elyric-v2-layer-actions button,
+.elyric-v2-history-actions button {
+    min-width: 0;
+    min-height: 2.35rem;
+    padding: .45rem .35rem;
+    border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+    border-radius: .65rem;
+    background: color-mix(in srgb, var(--elyric-v2-panel-bg, #121722) 80%, currentColor 20%);
+    font: inherit;
+    font-size: .78rem;
+    line-height: 1.25;
+}
+
+.elyric-v2-layer-list button[aria-pressed="true"] {
+    border-color: var(--elyric-accent, #72d8ff);
+    box-shadow: inset 0 0 0 1px var(--elyric-accent, #72d8ff);
+}
+
+.elyric-v2-geometry-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: .5rem;
+}
+
+.elyric-v2-geometry-grid label,
+.elyric-v2-text-setting {
+    display: grid;
+    gap: .25rem;
+    min-width: 0;
+    font-size: .76rem;
+}
+
+.elyric-v2-geometry-grid input,
+.elyric-v2-text-setting input { width: 100%; padding: .42rem .5rem; }
+
+.elyric-v2-designer-settings details {
+    padding: .7rem;
+    border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+    border-radius: .8rem;
+    background: color-mix(in srgb, var(--elyric-v2-panel-bg, #121722) 94%, currentColor 6%);
+}
+
+.elyric-v2-designer-settings summary {
+    min-height: 2rem;
+    cursor: pointer;
+    font-weight: 700;
+}
+
+.elyric-v2-designer-settings details > * + * { margin-top: .6rem; }
+
+[data-elyric-theme-v2="true"] .elyric-subline {
+    font-family: var(--elyric-v2-primary-font, inherit) !important;
+    font-size: var(--elyric-v2-primary-size, 100%) !important;
+    font-weight: var(--elyric-v2-primary-weight, 700) !important;
+    font-style: var(--elyric-v2-primary-style, normal) !important;
+    letter-spacing: var(--elyric-v2-primary-spacing, 0) !important;
+    line-height: var(--elyric-v2-primary-line-height, 1.25) !important;
+    color: var(--elyric-v2-primary-color, #fff) !important;
+    opacity: var(--elyric-v2-primary-opacity, 1) !important;
+    -webkit-text-stroke: var(--elyric-v2-primary-stroke-width, 0) var(--elyric-v2-primary-stroke-color, #000) !important;
+    text-shadow: var(--elyric-v2-primary-shadow, none) !important;
+}
+
+[data-elyric-theme-v2="true"] .elyric-subline[data-elyric-subline-role="secondary"] {
+    font-family: var(--elyric-v2-secondary-font, inherit) !important;
+    font-size: var(--elyric-v2-secondary-size, 72%) !important;
+    font-weight: var(--elyric-v2-secondary-weight, 500) !important;
+    font-style: var(--elyric-v2-secondary-style, normal) !important;
+    letter-spacing: var(--elyric-v2-secondary-spacing, 0) !important;
+    line-height: var(--elyric-v2-secondary-line-height, 1.25) !important;
+    color: var(--elyric-v2-secondary-color, #fff) !important;
+    opacity: var(--elyric-v2-secondary-opacity, .72) !important;
+    -webkit-text-stroke: var(--elyric-v2-secondary-stroke-width, 0) var(--elyric-v2-secondary-stroke-color, #000) !important;
+    text-shadow: var(--elyric-v2-secondary-shadow, none) !important;
+}
+
+[data-elyric-theme-v2="true"] .elyric-subline[data-elyric-subline-role="tertiary"] {
+    font-family: var(--elyric-v2-tertiary-font, inherit) !important;
+    font-size: var(--elyric-v2-tertiary-size, 62%) !important;
+    font-weight: var(--elyric-v2-tertiary-weight, 450) !important;
+    font-style: var(--elyric-v2-tertiary-style, normal) !important;
+    letter-spacing: var(--elyric-v2-tertiary-spacing, 0) !important;
+    line-height: var(--elyric-v2-tertiary-line-height, 1.25) !important;
+    color: var(--elyric-v2-tertiary-color, #fff) !important;
+    opacity: var(--elyric-v2-tertiary-opacity, .58) !important;
+    -webkit-text-stroke: var(--elyric-v2-tertiary-stroke-width, 0) var(--elyric-v2-tertiary-stroke-color, #000) !important;
+    text-shadow: var(--elyric-v2-tertiary-shadow, none) !important;
+}
+
+[data-elyric-theme-v2="true"] .lyricsItem.elyric-line-past .elyric-subline { color: var(--elyric-v2-primary-past-color) !important; opacity: var(--elyric-v2-primary-past-opacity) !important; }
+[data-elyric-theme-v2="true"] .lyricsItem.elyric-line-current .elyric-subline { color: var(--elyric-v2-primary-current-color) !important; opacity: var(--elyric-v2-primary-current-opacity) !important; }
+[data-elyric-theme-v2="true"] .lyricsItem.elyric-line-future .elyric-subline { color: var(--elyric-v2-primary-future-color) !important; opacity: var(--elyric-v2-primary-future-opacity) !important; }
+[data-elyric-theme-v2="true"] .lyricsItem.elyric-line-past .elyric-subline[data-elyric-subline-role="secondary"] { color: var(--elyric-v2-secondary-past-color) !important; opacity: var(--elyric-v2-secondary-past-opacity) !important; }
+[data-elyric-theme-v2="true"] .lyricsItem.elyric-line-current .elyric-subline[data-elyric-subline-role="secondary"] { color: var(--elyric-v2-secondary-current-color) !important; opacity: var(--elyric-v2-secondary-current-opacity) !important; }
+[data-elyric-theme-v2="true"] .lyricsItem.elyric-line-future .elyric-subline[data-elyric-subline-role="secondary"] { color: var(--elyric-v2-secondary-future-color) !important; opacity: var(--elyric-v2-secondary-future-opacity) !important; }
+[data-elyric-theme-v2="true"] .lyricsItem.elyric-line-past .elyric-subline[data-elyric-subline-role="tertiary"] { color: var(--elyric-v2-tertiary-past-color) !important; opacity: var(--elyric-v2-tertiary-past-opacity) !important; }
+[data-elyric-theme-v2="true"] .lyricsItem.elyric-line-current .elyric-subline[data-elyric-subline-role="tertiary"] { color: var(--elyric-v2-tertiary-current-color) !important; opacity: var(--elyric-v2-tertiary-current-opacity) !important; }
+[data-elyric-theme-v2="true"] .lyricsItem.elyric-line-future .elyric-subline[data-elyric-subline-role="tertiary"] { color: var(--elyric-v2-tertiary-future-color) !important; opacity: var(--elyric-v2-tertiary-future-opacity) !important; }
+
+.elyric-player-metadata { color: var(--elyric-v2-metadata-on, var(--elyric-design-metadata-text, #fff)); }
+.elyric-player-media-panel { color: var(--elyric-v2-media-on, var(--elyric-panel-text, #fff)); }
+
+.elyric-player-progress-slider {
+    min-height: 1.65rem !important;
+    border-radius: 999px !important;
+}
+
+.elyric-player-progress-slider::-webkit-slider-runnable-track {
+    height: .62rem !important;
+    border-radius: 999px !important;
+}
+
+.elyric-player-progress-slider::-webkit-slider-thumb {
+    width: 1.25rem !important;
+    height: 1.25rem !important;
+    margin-top: -.315rem !important;
+    border-radius: 50% !important;
+    box-shadow: 0 .2rem .7rem rgba(0, 0, 0, .35) !important;
+}
+
+.elyric-player-segmented {
+    grid-auto-rows: minmax(2.4rem, auto);
+}
+
+.elyric-player-segment {
+    min-width: 0 !important;
+    height: auto !important;
+    min-height: 2.4rem;
+    overflow: visible !important;
+    padding: .48rem .42rem !important;
+    line-height: 1.25 !important;
+    white-space: normal !important;
+    text-overflow: clip !important;
+}
+
+@media (max-width: 760px) {
+    .elyric-player-settings-panel {
+        inset: 0 !important;
+        width: 100vw !important;
+        max-width: none !important;
+        height: 100dvh !important;
+        max-height: none !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        padding-right: max(.85rem, env(safe-area-inset-right, 0px)) !important;
+        padding-left: max(.85rem, env(safe-area-inset-left, 0px)) !important;
+    }
+
+    .elyric-v2-layer-list,
+    .elyric-v2-layer-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .elyric-v2-geometry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .elyric-v2-inheritance-status { grid-column: 1 / -1; }
+    .elyric-player-button { min-width: 2.75rem !important; min-height: 2.75rem !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .elyric-player-v2-layer,
+    .elyric-player-settings-panel,
+    .elyric-player-media-panel,
+    .elyric-player-button { transition-duration: 1ms !important; }
 }
 
 /* ELYRIC_ENHANCE_END:4.9.5.0 */

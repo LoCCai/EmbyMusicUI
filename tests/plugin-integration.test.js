@@ -33,9 +33,9 @@ assert(controllerSource.includes('define(["apiClientResolver"]'),
 assert(pluginSource.includes("IsMainConfigPage = true"), "Emby should register the settings page as the main plugin configuration page");
 assert(pluginSource.includes("EnableInMainMenu = true"), "the settings page should have a persistent server menu entry");
 assert(pluginSource.includes('MenuSection = "server"'), "the settings page should be grouped with server administration pages");
-assert(pageSource.includes('data-controller="__plugin/embylyricenhanceconfigjsv026"'),
+assert(pageSource.includes('data-controller="__plugin/embylyricenhanceconfigjsv030"'),
     "Emby should load the settings logic through an external plugin controller");
-assert(pluginSource.includes('Name = "EmbyLyricEnhanceV026"'),
+assert(pluginSource.includes('Name = "EmbyLyricEnhanceV030"'),
     "the main configuration resource name should change when its cached page payload changes");
 assert(!pageSource.includes("<script"), "the settings page should not rely on ignored inline scripts");
 assert(controllerSource.includes("document.querySelectorAll(pageSelector)"),
@@ -145,7 +145,7 @@ assert(!projectSource.includes('Include="MediaBrowser.Model"'));
 assert(projectSource.includes("4.9.1.90"), "the successfully restored Emby SDK should be pinned");
 assert(projectSource.includes('EmbeddedResource Include="Configuration\\configPage.js"'),
     "the external page controller should be embedded in the plugin DLL");
-assert(pluginSource.includes('Name = "embylyricenhanceconfigjsv026"'),
+assert(pluginSource.includes('Name = "embylyricenhanceconfigjsv030"'),
     "the external page controller should be registered with Emby");
 
 assert(!pageSource.includes("innerHTML"), "the configuration page should not use unsafe HTML assignment");

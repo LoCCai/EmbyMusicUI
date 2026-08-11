@@ -1,47 +1,65 @@
 param(
     [switch]$IncludeEmbyBuild,
-    [string]$EmbyApiVersion = "4.9.1.90"
+    [string]$EmbyApiVersion = "4.9.1.90",
+    [string]$NodePath = ""
 )
 
 $ErrorActionPreference = "Stop"
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
+$node = if ($NodePath) {
+    if (-not (Test-Path -LiteralPath $NodePath -PathType Leaf)) {
+        throw "Node.js executable was not found: $NodePath"
+    }
+    [IO.Path]::GetFullPath($NodePath)
+} else {
+    $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $nodeCommand) {
+        throw "Node.js was not found on PATH. Install Node.js or pass -NodePath <path-to-node.exe>."
+    }
+    $nodeCommand.Source
+}
 
 & (Join-Path $PSScriptRoot "test-core.ps1") -EmbyApiVersion $EmbyApiVersion
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& node (Join-Path $repositoryRoot "tests\adapter.test.js")
+& $node (Join-Path $repositoryRoot "tests\adapter.test.js")
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& node (Join-Path $repositoryRoot "tests\plugin-integration.test.js")
+& $node (Join-Path $repositoryRoot "tests\plugin-integration.test.js")
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& node (Join-Path $repositoryRoot "tests\plugin-config-page.test.js")
+& $node (Join-Path $repositoryRoot "tests\theme-v2-contract.test.js")
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& node (Join-Path $repositoryRoot "tests\docker-install.test.js")
+& $node (Join-Path $repositoryRoot "tests\plugin-config-page.test.js")
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& node (Join-Path $repositoryRoot "tests\docker-plugin-install.test.js")
+& $node (Join-Path $repositoryRoot "tests\docker-install.test.js")
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& node (Join-Path $repositoryRoot "tests\container-manager.test.js")
+& $node (Join-Path $repositoryRoot "tests\docker-plugin-install.test.js")
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& node --check (Join-Path $repositoryRoot "adapters\4.9.5.0\lyrics.inject.js")
+& $node (Join-Path $repositoryRoot "tests\container-manager.test.js")
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
+& $node --check (Join-Path $repositoryRoot "adapters\4.9.5.0\lyrics.inject.js")
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

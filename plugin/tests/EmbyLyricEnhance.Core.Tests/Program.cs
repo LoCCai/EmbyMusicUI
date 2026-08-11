@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
 using EmbyLyricEnhance.Core;
 
 var failures = new List<string>();
@@ -63,6 +66,274 @@ Check(ThemeIds.All.Count == 5, "the C# theme catalog should match the five front
 
 var nullOptions = DisplayOptionsSanitizer.Sanitize(null);
 Check(nullOptions.DefaultTheme == ThemeIds.Classic, "null configuration should use defaults");
+
+var validThemeJson = """
+{
+  "schemaVersion": 2,
+  "v2": {
+    "layoutOverrides": { "desktop": true },
+    "layouts": {
+      "desktop": {
+        "lyrics": { "x": 5, "y": 12, "width": 55, "height": 60, "rotation": 0, "z": 12, "opacity": 1, "hidden": false, "locked": false }
+      }
+    },
+    "artwork": { "url": "https://example.invalid/cover.webp" }
+  }
+}
+""";
+Check(PlayerThemeV2Validator.ValidateThemeJson(validThemeJson, 64 * 1024) == validThemeJson,
+    "valid PlayerThemeV2 JSON should be accepted");
+Check(PlayerThemeV2Schema.ParameterFamilies.Length >= 12,
+    "the server schema should cover all frontend parameter families");
+
+try
+{
+    PlayerThemeV2Validator.ValidateThemeJson(validThemeJson, 16);
+    Check(false, "oversized theme JSON should be rejected");
+}
+catch (ArgumentException)
+{
+    Check(true, "oversized theme JSON rejection");
+}
+
+try
+{
+    PlayerThemeV2Validator.ValidateThemeJson("{\"v2\":{\"controls\":{\"safeArea\":999}}}", 1024);
+    Check(false, "registered theme parameters outside their editor range should be rejected by the server");
+}
+catch (ArgumentException)
+{
+    Check(true, "registered theme parameter range rejection");
+}
+
+try
+{
+    PlayerThemeV2Validator.ValidateThemeJson("{\"tuning\":{\"unknownKnob\":1}}", 1024);
+    Check(false, "unknown tuning parameters should be rejected instead of silently persisting");
+}
+catch (ArgumentException)
+{
+    Check(true, "unknown tuning parameter rejection");
+}
+
+try
+{
+    PlayerThemeV2Validator.ValidateThemeJson("{\"tuning\":{\"backgroundBlur\":999}}", 1024);
+    Check(false, "every tuning value should use the same range as its editor");
+}
+catch (ArgumentException)
+{
+    Check(true, "tuning editor range parity");
+}
+
+try
+{
+    PlayerThemeV2Validator.ValidateThemeJson("{\"v2\":{\"artwork\":{\"clipPath\":\"url(javascript:bad)\"}}}", 2048);
+    Check(false, "artwork clipping should only accept a safe polygon");
+}
+catch (ArgumentException)
+{
+    Check(true, "safe artwork polygon rejection");
+}
+
+try
+{
+    PlayerThemeV2Validator.ValidateThemeJson("{\"v2\":{\"typography\":{\"secondary\":{\"fontUrl\":\"http://example.invalid/font.woff2\"}}}}", 2048);
+    Check(false, "remote fonts should require HTTPS at every lyric layer");
+}
+catch (ArgumentException)
+{
+    Check(true, "unsafe font URL rejection");
+}
+
+try
+{
+    PlayerThemeV2Validator.ValidateThemeJson("{\"v2\":{\"layoutOverrides\":{\"tablet\":\"yes\"}}}", 2048);
+    Check(false, "responsive inheritance markers should be boolean");
+}
+catch (ArgumentException)
+{
+    Check(true, "responsive inheritance marker rejection");
+}
+
+try
+{
+    PlayerThemeV2Validator.NormalizeId("../another-user");
+    Check(false, "path traversal ids should be rejected");
+}
+catch (ArgumentException)
+{
+    Check(true, "path traversal id rejection");
+}
+
+try
+{
+    PlayerThemeV2Validator.ValidateThemeJson("{\"filePath\":\"C:/secret\"}", 1024);
+    Check(false, "filesystem fields should be rejected");
+}
+catch (ArgumentException)
+{
+    Check(true, "filesystem field rejection");
+}
+
+try
+{
+    PlayerThemeV2Validator.NormalizeContentType("image/svg+xml", Encoding.UTF8.GetBytes("<svg>"));
+    Check(false, "active SVG content should be rejected");
+}
+catch (ArgumentException)
+{
+    Check(true, "dangerous MIME rejection");
+}
+
+var storeRoot = Path.Combine(Path.GetTempPath(), "emby-lyric-enhance-tests-" + Guid.NewGuid().ToString("N"));
+try
+{
+    var store = new UserThemeStore(storeRoot, new ThemeStoreOptions
+    {
+        MaxThemeJsonBytes = 64 * 1024,
+        MaxAssetBytes = 1024,
+        UserQuotaBytes = 16 * 1024 * 1024
+    });
+    var created = new List<StoredThemeRecord>();
+    for (var index = 0; index < 30; index++)
+    {
+        created.Add(store.CreateTheme(11, new ThemeCreateRequest
+        {
+            Name = "Theme " + index,
+            ThemeJson = validThemeJson
+        }));
+    }
+    Check(store.GetThemes(11).Count == 30, "theme storage should not impose an artificial count limit");
+    Check(store.GetThemes(22).Count == 0, "themes should be isolated by authenticated user id");
+    Check(store.GetTheme(22, created[0].Id) is null, "another user must not read a theme by guessing its id");
+    try
+    {
+        store.GetWorkspace(0);
+        Check(false, "an unauthenticated user id should be rejected");
+    }
+    catch (UnauthorizedAccessException)
+    {
+        Check(true, "unauthenticated access rejection");
+    }
+
+    var updated = store.UpdateTheme(11, created[0].Id, new ThemeUpdateRequest
+    {
+        ExpectedRevision = created[0].Revision,
+        Name = "Updated",
+        ThemeJson = validThemeJson
+    });
+    Check(!updated.Conflict && updated.Value.Revision == 2, "matching revisions should update atomically");
+    var conflict = store.UpdateTheme(11, created[0].Id, new ThemeUpdateRequest
+    {
+        ExpectedRevision = 1,
+        Name = "Concurrent edit",
+        ThemeJson = validThemeJson
+    });
+    Check(conflict.Conflict && conflict.ConflictCopy is not null,
+        "stale revisions should preserve both edits by creating a conflict copy");
+    Check(store.GetTheme(11, created[0].Id)?.Name == "Updated",
+        "revision conflicts must not silently overwrite the current theme");
+    try
+    {
+        store.DeleteTheme(11, created[0].Id, 1);
+        Check(false, "a stale revision must not delete the current theme");
+    }
+    catch (InvalidOperationException)
+    {
+        Check(store.GetTheme(11, created[0].Id) is not null,
+            "delete conflicts should preserve the current theme");
+    }
+
+    var workspace = store.PutWorkspace(11, new WorkspaceWriteRequest
+    {
+        ExpectedRevision = 0,
+        ActiveThemeId = created[0].Id,
+        DraftJson = validThemeJson,
+        GlobalStateJson = "{}",
+        LegacyImported = true
+    });
+    Check(workspace.Value.Revision == 1 && workspace.Value.LegacyImported,
+        "workspace drafts should be revisioned and record migration state");
+    var workspaceConflict = store.PutWorkspace(11, new WorkspaceWriteRequest
+    {
+        ExpectedRevision = 0,
+        DraftJson = validThemeJson,
+        GlobalStateJson = "{}"
+    });
+    Check(workspaceConflict.Conflict && workspaceConflict.ConflictCopy is not null,
+        "concurrent workspace drafts should be preserved as conflict themes");
+
+    var png = new byte[] { 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a };
+    using (var stream = new MemoryStream(png))
+    {
+        var asset = store.PutAsset(11, "cover-test", "cover.png", "image/png", stream, png.Length);
+        Check(asset.ContentType == "image/png" && store.GetAsset(11, asset.Id) is not null,
+            "private assets should validate signatures and remain readable by their owner");
+    }
+    Check(store.GetAsset(22, "cover-test") is null, "private assets should be isolated by user");
+    try
+    {
+        using var oversizedAsset = new MemoryStream(new byte[1025]);
+        store.PutAsset(11, "too-large", "large.png", "image/png", oversizedAsset, oversizedAsset.Length);
+        Check(false, "assets over the configured per-file limit should be rejected");
+    }
+    catch (ArgumentException)
+    {
+        Check(true, "oversized asset rejection");
+    }
+    try
+    {
+        using var disguisedSvg = new MemoryStream(Encoding.UTF8.GetBytes("<svg></svg>"));
+        store.PutAsset(11, "fake-png", "fake.png", "image/png", disguisedSvg, disguisedSvg.Length);
+        Check(false, "an allowed MIME with a dangerous file signature should be rejected");
+    }
+    catch (ArgumentException)
+    {
+        Check(true, "asset signature mismatch rejection");
+    }
+
+    var quotaStore = new UserThemeStore(Path.Combine(storeRoot, "quota-check"), new ThemeStoreOptions
+    {
+        MaxThemeJsonBytes = 64 * 1024,
+        MaxAssetBytes = 1024,
+        UserQuotaBytes = 256
+    });
+    using (var first = new MemoryStream(png))
+    {
+        quotaStore.PutAsset(33, "tight-cover", "cover.png", "image/png", first, png.Length);
+    }
+    try
+    {
+        using var replacement = new MemoryStream(png);
+        quotaStore.PutAsset(33, "tight-cover", "cover.png", "image/png", replacement, png.Length);
+        Check(false, "asset replacement should include its metadata backup in quota projection");
+    }
+    catch (InvalidOperationException)
+    {
+        Check(quotaStore.GetAsset(33, "tight-cover") is not null,
+            "a quota failure must preserve the previously stored private asset");
+    }
+
+    var themeDirectory = Path.Combine(storeRoot, "users", "u-" + 11L.ToString("x16"), "themes");
+    var recoverable = store.CreateTheme(11, new ThemeCreateRequest { Id = "recovery", Name = "Recovery 1", ThemeJson = validThemeJson });
+    store.UpdateTheme(11, recoverable.Id, new ThemeUpdateRequest
+    {
+        ExpectedRevision = recoverable.Revision,
+        Name = "Recovery 2",
+        ThemeJson = validThemeJson
+    });
+    File.WriteAllText(Path.Combine(themeDirectory, "recovery.json"), "{broken", Encoding.UTF8);
+    Check(store.GetTheme(11, "recovery") is not null,
+        "a damaged primary file should recover from the previous atomic backup");
+}
+finally
+{
+    if (Directory.Exists(storeRoot))
+    {
+        Directory.Delete(storeRoot, true);
+    }
+}
 
 if (failures.Count > 0)
 {

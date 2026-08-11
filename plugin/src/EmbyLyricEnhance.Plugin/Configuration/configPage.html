@@ -1,7 +1,7 @@
 <div id="EmbyLyricEnhanceConfigPage"
      data-role="page"
      class="page type-interior pluginConfigurationPage"
-     data-controller="__plugin/embylyricenhanceconfigjsv026"
+     data-controller="__plugin/embylyricenhanceconfigjsv030"
      data-require="emby-input,emby-button,emby-select,emby-checkbox">
     <style>
         #EmbyLyricEnhanceConfigPage {
@@ -142,6 +142,23 @@
                     <input is="emby-checkbox" type="checkbox" id="elyricShowThirdAndLaterLines" checked />
                     <span>显示第三行及更多子行</span>
                 </label>
+
+                <h3>用户主题资源存储</h3>
+                <div class="fieldDescription">
+                    主题数量不设人为上限；以下限制只保护单个文件和服务器磁盘。修改后请重启 Emby 使新限额生效。
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="elyricMaxThemeJsonKilobytes">单个主题 JSON 上限（64–4096 KB）</label>
+                    <input is="emby-input" type="number" id="elyricMaxThemeJsonKilobytes" min="64" max="4096" step="1" value="512" required />
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="elyricMaxAssetMegabytes">单个图片或字体上限（1–64 MB）</label>
+                    <input is="emby-input" type="number" id="elyricMaxAssetMegabytes" min="1" max="64" step="1" value="8" required />
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="elyricUserStorageQuotaMegabytes">每位用户资源配额（32–16384 MB）</label>
+                    <input is="emby-input" type="number" id="elyricUserStorageQuotaMegabytes" min="32" max="16384" step="1" value="512" required />
+                </div>
 
                 <div class="fieldDescription">
                     保存后，已打开的播放页会在下次进入歌词页面时读取新默认值。首次安装或更新 DLL 后仍需重启 Emby 以加载插件。

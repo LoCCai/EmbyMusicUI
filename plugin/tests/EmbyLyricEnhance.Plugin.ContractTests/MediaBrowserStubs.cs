@@ -59,6 +59,8 @@ namespace MediaBrowser.Common.Plugins
 
         public TConfiguration Configuration { get; }
 
+        public string DataFolderPath => System.IO.Path.GetTempPath();
+
         public abstract Guid Id { get; }
 
         public abstract string Name { get; }
@@ -93,5 +95,58 @@ namespace MediaBrowser.Model.Services
 
     public interface IService
     {
+    }
+
+    public interface IRequiresRequest
+    {
+        IRequest Request { get; set; }
+    }
+
+    public interface IRequest
+    {
+        IResponse Response { get; }
+
+        IHttpFile[] Files { get; }
+    }
+
+    public interface IResponse
+    {
+        int StatusCode { get; set; }
+
+        string ContentType { get; set; }
+
+        void AddHeader(string name, string value);
+    }
+
+    public interface IHttpFile
+    {
+        string FileName { get; }
+
+        long ContentLength { get; }
+
+        string ContentType { get; }
+
+        System.IO.Stream InputStream { get; }
+    }
+}
+
+namespace MediaBrowser.Controller.Net
+{
+    using System;
+    using MediaBrowser.Model.Services;
+
+    [AttributeUsage(AttributeTargets.Class)]
+    public sealed class AuthenticatedAttribute : Attribute
+    {
+    }
+
+    public sealed class AuthorizationInfo
+    {
+        public long UserId { get; set; }
+    }
+
+    public interface IAuthorizationContext
+    {
+        AuthorizationInfo GetAuthorizationInfo(IRequest request);
     }
 }

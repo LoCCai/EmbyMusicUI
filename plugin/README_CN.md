@@ -1,17 +1,17 @@
 # Emby Lyric Enhance C# 插件
 
-这是 EmbyLyricEnhance 的服务器设置层。它不会取代现有歌词解析器，而是向 Emby 管理后台增加显示设置页，并向 Emby Web 提供经过约束的只读显示配置。
+这是 EmbyLyricEnhance 0.3.0 的服务器设置与用户主题存储层。它不会取代现有歌词解析器，而是向 Emby 管理后台增加显示设置页，提供经过约束的公共显示配置，并为每个认证用户保存 `PlayerThemeV2` 工作区、命名主题和私有资源。
 
 ## 与前端适配器的关系
 
 完整功能由两部分组成：
 
-1. `EmbyLyricEnhance.dll` 内含配置核心，保存、校验并提供服务器默认设置。
+1. `EmbyLyricEnhance.dll` 内含配置核心、严格主题校验器和用户隔离存储，保存服务器默认值、主题草稿、命名主题与私有资源。
 2. `adapters/4.9.5.0/lyrics.inject.js` 与 `lyrics.inject.css` 继续负责逐字解析、平滑计时、主题渲染和播放页控件。
 
 只安装 DLL 不会自动修改 Emby Web 的歌词文件；只安装前端适配器时则继续使用内置默认值。前端访问插件失败、插件未安装或暂时不可用时，歌词不会被阻断。
 
-## 当前设置
+## 管理设置与服务接口
 
 - 默认歌词主题，以及是否允许浏览器本地主题覆盖
 - 字号、行距、字重
@@ -19,14 +19,24 @@
 - 未唱字透明度、辉光强度
 - 当前行缩放、其他行透明度和模糊
 - 第二行、第三行及更多子行显示开关
+- 单个主题 JSON 大小上限、单个资源大小上限、每用户资源存储配额
 
-公共读取接口为 `GET /EmbyLyricEnhance/PublicConfiguration`。Emby 4.9.5.0 实机在没有有效会话时返回 401，播放页因此通过歌词模块 `_connectionmanager` 取得当前服务器的认证 API 客户端后读取。接口只返回清洗后的非敏感显示字段，没有 POST、PUT 或 DELETE 路由，也不返回管理能力、路径、令牌或用户数据。管理员写入仍使用 Emby 内置且受保护的插件配置 API。
+公共读取接口为 `GET /EmbyLyricEnhance/PublicConfiguration`，只返回清洗后的非敏感显示字段。管理员写入仍使用 Emby 内置且受保护的插件配置 API。
+
+下列接口均要求有效 Emby 会话，用户身份只由服务端授权上下文取得：
+
+- `GET/PUT /EmbyLyricEnhance/UserWorkspace`
+- `GET/POST /EmbyLyricEnhance/Themes`
+- `GET/PUT/DELETE /EmbyLyricEnhance/Themes/{id}`
+- `POST/GET/DELETE /EmbyLyricEnhance/Assets/{id}`
+
+工作区与每个主题单独原子写入插件数据目录。更新和删除使用整数 `revision`；冲突返回 HTTP 409，并为工作草稿或命名主题创建冲突副本。主题数量不设人为上限，实际受磁盘和管理员配额约束。主题 JSON 使用逐字段白名单和精确范围校验，未知参数、非法路径、非 HTTPS URL、危险 MIME、伪造文件签名和超限资源都会被拒绝。
 
 0.2.2 起，管理设置页会以“歌词增强”注册到 Emby 服务器左侧菜单。0.2.6 使用 Emby `data-controller` 加载独立 AMD 页面控制器，并通过 `apiClientResolver` 获取认证客户端。HTML 和控制器使用新资源名，避免 Emby 继续返回旧版缓存页面。控制器不删除 Emby 路由持有的节点，只对本插件重复页做非侵入隐藏；页面背景透明继承当前 Emby 主题。保存期间禁止重复提交，成功后原地重新读取服务器配置并回显摘要；读取失败时禁止保存空白表单。
 
 ## 构建
 
-`codex/plugin-settings` 分支在 `plugin/artifacts/package/` 中附带单文件 Release DLL。只是在 Docker 宿主机安装现成版本时不需要安装 .NET SDK；修改 C# 源码或准备新版本时才需要重新构建并同步更新该 DLL。
+仓库在 `plugin/artifacts/package/` 中附带单文件 Release DLL。只是在 Docker 宿主机安装现成版本时不需要安装 .NET SDK；修改 C# 源码或准备新版本时才需要重新构建并同步更新该 DLL。
 
 需要 .NET 8 SDK 和可访问 NuGet 的网络：
 
@@ -48,7 +58,7 @@ plugin\scripts\build.ps1 -EmbyApiVersion <已验证的API包版本>
 
 服务器版本号与开发 API 包版本不一定完全相同；Emby Server 4.9.5.0 对应的已恢复开发 SDK 是 4.9.1.90。
 
-初版 0.2.0.0 已在 Windows x64、.NET SDK 8.0.423 上完成真实 Release 构建且设置页正确嵌入。随后 Emby 4.9.5.0 实机验证发现其插件加载上下文不能稳定解析同目录的独立 `EmbyLyricEnhance.Core.dll`，因此 0.2.1 起把 Core 源码直接编入主插件，只交付 `EmbyLyricEnhance.dll`。当前 0.2.6.0 已使用恢复好的官方 SDK 离线 Release 构建，结果为 0 警告、0 错误；产物不引用 Core 程序集，并同时嵌入了更名后的配置页 HTML 和认证页面控制器。
+初版 0.2.0.0 已在 Windows x64、.NET SDK 8.0.423 上完成真实 Release 构建且设置页正确嵌入。随后 Emby 4.9.5.0 实机验证发现其插件加载上下文不能稳定解析同目录的独立 `EmbyLyricEnhance.Core.dll`，因此 0.2.1 起把 Core 源码直接编入主插件，只交付 `EmbyLyricEnhance.dll`。当前 0.3.0 使用 `MediaBrowser.Common` 与 `MediaBrowser.Server.Core` 4.9.1.90 编译，仍为单 DLL 交付；产物不引用独立 Core 程序集，并嵌入配置页 HTML 与认证页面控制器。
 
 ## 本地验证
 
@@ -58,13 +68,19 @@ plugin\scripts\build.ps1 -EmbyApiVersion <已验证的API包版本>
 plugin\scripts\verify.ps1
 ```
 
+如果 Node.js 未加入 PATH，可显式传入可执行文件：
+
+```powershell
+plugin\scripts\verify.ps1 -NodePath <node.exe路径>
+```
+
 包含真实 `MediaBrowser.*` 恢复和插件编译：
 
 ```powershell
 plugin\scripts\verify.ps1 -IncludeEmbyBuild
 ```
 
-离线检查使用契约桩编译 C# 插件入口，并测试预编译 DLL 是否齐全、配置默认值、范围约束、前后端字段同步、插件缺失回退、主题锁定、页面生命周期和歌词计时。如果 `.packages` 中已有 4.9.1.90，它还会直接对官方真实程序集再次编译插件 API；源码发生变化后，正式 DLL 仍必须由 `build.ps1`、`build.sh` 或 CI 重新生成并更新。
+离线检查使用契约桩编译 C# 插件入口，并测试参数注册表、配置默认值、逐字段校验、用户隔离、无限主题 CRUD、原子备份恢复、revision 冲突、非法路径、危险 MIME、资源限制、页面生命周期和歌词计时。如果 `.packages` 中已有 4.9.1.90，它还会直接对官方真实程序集再次编译插件 API；源码发生变化后，正式 DLL 仍必须由 `build.ps1`、`build.sh` 或 CI 重新生成并更新。
 
 ## Docker 安装
 
@@ -136,7 +152,9 @@ DLL 安装脚本会检查活动 `lyrics.js`。若尚未包含 `EmbyLyricEnhance/
 - Release 插件能被 Emby 4.9.5.0 加载，且服务器日志无类型加载错误
 - 管理后台能打开、保存并重新读取设置页
 - 公共配置接口只允许 GET，并且只返回文档列出的非敏感显示字段
-- 播放页能取得设置；删除或停用插件后仍安全回退
+- 未认证请求不能访问用户工作区、主题和资源；两个 Emby 用户的数据互不可见
+- 命名主题 CRUD、草稿自动同步、跨设备 revision 冲突副本、私有图片和 WOFF2 字体均在真实服务端通过
+- 播放页能取得设置；删除或停用插件后仍安全回退到本地缓存
 - 插件目录只有 `EmbyLyricEnhance.dll`，没有旧版独立 `EmbyLyricEnhance.Core.dll`
 - Docker 自动发现/手动选择、更新、成组备份、失败恢复和容器重启行为符合预期
 

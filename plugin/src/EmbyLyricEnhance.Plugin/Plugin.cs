@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using EmbyLyricEnhance.Core;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
@@ -15,9 +17,14 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
+        ThemeStore = new UserThemeStore(
+            Path.Combine(DataFolderPath, "player-theme-v2"),
+            CreateThemeStoreOptions(Configuration));
     }
 
     public static Plugin? Instance { get; private set; }
+
+    public UserThemeStore ThemeStore { get; }
 
     public override Guid Id => PluginId;
 
@@ -25,11 +32,21 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public override string Description => "Provides server defaults for enhanced Emby Web lyric themes.";
 
+    private static ThemeStoreOptions CreateThemeStoreOptions(PluginConfiguration configuration)
+    {
+        return new ThemeStoreOptions
+        {
+            MaxThemeJsonBytes = Math.Clamp(configuration.MaxThemeJsonKilobytes, 64, 4096) * 1024,
+            MaxAssetBytes = Math.Clamp(configuration.MaxAssetMegabytes, 1, 64) * 1024 * 1024,
+            UserQuotaBytes = (long)Math.Clamp(configuration.UserStorageQuotaMegabytes, 32, 16384) * 1024 * 1024
+        };
+    }
+
     public IEnumerable<PluginPageInfo> GetPages()
     {
         yield return new PluginPageInfo
         {
-            Name = "EmbyLyricEnhanceV026",
+            Name = "EmbyLyricEnhanceV030",
             DisplayName = "歌词增强",
             EnableInMainMenu = true,
             MenuSection = "server",
@@ -40,7 +57,7 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         yield return new PluginPageInfo
         {
-            Name = "embylyricenhanceconfigjsv026",
+            Name = "embylyricenhanceconfigjsv030",
             EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.js"
         };
     }

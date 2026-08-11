@@ -7,9 +7,12 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
+$workspaceDotnet = Join-Path $repositoryRoot ".packages\dotnet\dotnet.exe"
 $installedDotnet = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "Microsoft\dotnet\dotnet.exe"
 $dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
-$dotnet = if (Test-Path -LiteralPath $installedDotnet) {
+$dotnet = if (Test-Path -LiteralPath $workspaceDotnet) {
+    $workspaceDotnet
+} elseif (Test-Path -LiteralPath $installedDotnet) {
     $installedDotnet
 } elseif ($dotnetCommand) {
     $dotnetCommand.Source
@@ -106,9 +109,15 @@ if ($contractReferences -contains "EmbyLyricEnhance.Core") {
 
 Write-Output "plugin API contract stubs compile: ok"
 
-$realApiDirectory = Join-Path $repositoryRoot ".packages\mediabrowser.common\$EmbyApiVersion\lib\netstandard2.0"
-if (Test-Path -LiteralPath $realApiDirectory) {
-    $realApiReferences = @(Get-ChildItem -LiteralPath $realApiDirectory -Filter "*.dll" -File |
+$realApiDirectories = @(
+    (Join-Path $repositoryRoot ".packages\mediabrowser.common\$EmbyApiVersion\lib\netstandard2.0"),
+    (Join-Path $repositoryRoot ".packages\mediabrowser.server.core\$EmbyApiVersion\lib\netstandard2.0"),
+    (Join-Path $repositoryRoot ".packages\nuget-cache\mediabrowser.common\$EmbyApiVersion\lib\netstandard2.0"),
+    (Join-Path $repositoryRoot ".packages\nuget-cache\mediabrowser.server.core\$EmbyApiVersion\lib\netstandard2.0")
+) | Where-Object { Test-Path -LiteralPath $_ }
+if ($realApiDirectories.Count -ge 2) {
+    $realApiReferences = @(Get-ChildItem -LiteralPath $realApiDirectories -Filter "*.dll" -File |
+        Sort-Object Name -Unique |
         ForEach-Object { "/reference:$($_.FullName)" })
     $realApiOutput = Join-Path $artifactRoot "EmbyLyricEnhance.Plugin.RealApi.dll"
 
@@ -129,9 +138,9 @@ if (Test-Path -LiteralPath $realApiDirectory) {
         exit $LASTEXITCODE
     }
 
-    Write-Output "plugin real MediaBrowser.Common $EmbyApiVersion API compile: ok"
+    Write-Output "plugin real MediaBrowser.Common and Server.Core $EmbyApiVersion API compile: ok"
 } else {
-    Write-Output "plugin real API compile skipped: MediaBrowser.Common $EmbyApiVersion is not restored locally."
+    Write-Output "plugin real API compile skipped: both MediaBrowser.Common and Server.Core $EmbyApiVersion are required locally."
 }
 
 $runtimeConfig = @{

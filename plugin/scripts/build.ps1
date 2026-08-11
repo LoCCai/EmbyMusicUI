@@ -8,9 +8,12 @@ $ErrorActionPreference = "Stop"
 
 $pluginRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $pluginRoot ".."))
+$workspaceDotnet = Join-Path $repositoryRoot ".packages\dotnet\dotnet.exe"
 $installedDotnet = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "Microsoft\dotnet\dotnet.exe"
 $dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
-$dotnet = if (Test-Path -LiteralPath $installedDotnet) {
+$dotnet = if (Test-Path -LiteralPath $workspaceDotnet) {
+    $workspaceDotnet
+} elseif (Test-Path -LiteralPath $installedDotnet) {
     $installedDotnet
 } elseif ($dotnetCommand) {
     $dotnetCommand.Source

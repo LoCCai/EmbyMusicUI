@@ -2,7 +2,7 @@
   <PropertyGroup>
     <AssemblyName>EmbyLyricEnhance</AssemblyName>
     <RootNamespace>EmbyLyricEnhance.Plugin</RootNamespace>
-    <Version>0.2.6</Version>
+    <Version>0.3.0</Version>
     <Description>Server defaults and configuration API for EmbyLyricEnhance.</Description>
     <IsPackable>false</IsPackable>
     <EmbyApiVersion Condition="'$(EmbyApiVersion)' == ''">4.9.1.90</EmbyApiVersion>
@@ -10,6 +10,7 @@
   <ItemGroup>
     <Compile Include="..\EmbyLyricEnhance.Core\*.cs" Link="Core\%(Filename)%(Extension)" />
     <PackageReference Include="MediaBrowser.Common" Version="$(EmbyApiVersion)" PrivateAssets="all" />
+    <PackageReference Include="MediaBrowser.Server.Core" Version="$(EmbyApiVersion)" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Configuration\configPage.html" />

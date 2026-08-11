@@ -1,4 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
+/* ELYRIC_BUILD:2026.08.11-player-theme-v2 */
 ;(function () {
     "use strict";
 
@@ -31,9 +32,13 @@
     var PLAYER_THEME_LIBRARY_STORAGE_KEY = "emby-lyric-enhance.player-themes.v1";
     var PLAYER_THEME_DESIGN_STORAGE_KEY = "emby-lyric-enhance.player-theme-design.v1";
     var PLAYER_PREFERENCES_VERSION = 3;
-    var PLAYER_THEME_SCHEMA_VERSION = 1;
-    var MAX_USER_PLAYER_THEMES = 24;
-    var PLAYER_PREFERENCES_SAVE_DELAY = 320;
+    var PLAYER_THEME_SCHEMA_VERSION = 2;
+    var MAX_LEGACY_USER_PLAYER_THEMES = 24;
+    var PLAYER_PREFERENCES_SAVE_DELAY = 500;
+    var PLAYER_WORKSPACE_PATH = "EmbyLyricEnhance/UserWorkspace";
+    var PLAYER_THEMES_PATH = "EmbyLyricEnhance/Themes";
+    var PLAYER_ASSETS_PATH = "EmbyLyricEnhance/Assets";
+    var PLAYER_THEME_V2_OFFLINE_QUEUE_KEY = "emby-lyric-enhance.theme-v2.offline-queue";
     var PUBLIC_CONFIGURATION_PATH = "EmbyLyricEnhance/PublicConfiguration";
     var NATIVE_PLAYER_SELECTORS = {
         back: [".headerBackButton"],
@@ -503,6 +508,691 @@
             percentage: true, valueUnit: "%"
         }
     ];
+    var PLAYER_THEME_V2_PROFILE_IDS = ["desktop", "tablet", "phonePortrait", "phoneLandscape"];
+    var PLAYER_THEME_V2_LAYER_IDS = [
+        "artwork", "metadata", "lyrics", "visualizer",
+        "progress", "transport", "volume", "auxiliary"
+    ];
+    var PLAYER_THEME_V2_LAYER_LABELS = {
+        artwork: "专辑图", metadata: "歌曲信息", lyrics: "歌词",
+        visualizer: "频谱", progress: "进度", transport: "播放控制",
+        volume: "音量", auxiliary: "辅助按钮"
+    };
+    var PLAYER_THEME_V2_REGISTRY = [];
+
+    function normalizePlayerThemeV2Number(value, minimum, maximum, fallback) {
+        value = Number(value);
+        return isFinite(value) ? Math.min(maximum, Math.max(minimum, value)) : fallback;
+    }
+
+    function normalizePlayerThemeV2Boolean(value) {
+        return true === value || "true" === value || 1 === value;
+    }
+
+    function normalizePlayerThemeV2Enum(value, allowed, fallback) {
+        value = String(null == value ? "" : value);
+        return allowed.indexOf(value) >= 0 ? value : fallback;
+    }
+
+    function normalizePlayerThemeV2String(value, fallback, maximumLength) {
+        value = String(null == value ? (fallback || "") : value)
+            .replace(/[\u0000-\u001f\u007f]/g, " ").trim();
+        return value.slice(0, maximumLength || 160) || fallback || "";
+    }
+
+    function normalizePlayerThemeV2Id(value) {
+        value = String(value || "").trim();
+        return /^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : "";
+    }
+
+    function normalizePlayerThemeV2HttpsUrl(value) {
+        value = String(value || "").trim();
+        return !value || /^https:\/\/[^\s]+$/i.test(value) ? value.slice(0, 2048) : "";
+    }
+
+    function normalizePlayerThemeV2ClipPath(value) {
+        value = String(value || "none").trim();
+        return "none" === value || /^polygon\([\d\s.,%+-]+\)$/i.test(value) ? value : "none";
+    }
+
+    function playerThemeV2ChoiceValues(choiceId) {
+        var definitions = {
+            artworkMode: PLAYER_ARTWORK_MODES,
+            metadataAnchor: PLAYER_METADATA_ANCHORS,
+            metadataAlign: LYRIC_ALIGNMENTS,
+            metadataSurface: PLAYER_SURFACE_STYLES,
+            lyricsSurface: PLAYER_SURFACE_STYLES,
+            mediaSurface: PLAYER_SURFACE_STYLES
+        };
+        return (definitions[choiceId] || []).map(function (item) { return item.id; });
+    }
+
+    function registerPlayerThemeV2Parameter(definition) {
+        if (!definition || !definition.id
+            || !Object.prototype.hasOwnProperty.call(definition, "defaultValue")
+            || "function" !== typeof definition.validate
+            || !definition.editor || !definition.binding || !definition.serverRule) {
+            throw new Error("PlayerThemeV2 parameter registration is incomplete");
+        }
+        if (PLAYER_THEME_V2_REGISTRY.some(function (item) { return item.id === definition.id; })) {
+            throw new Error("Duplicate PlayerThemeV2 parameter: " + definition.id);
+        }
+        definition.serialize = true;
+        definition.serverValidate = true;
+        definition.migrate = definition.migrate || function (value) { return value; };
+        var rootFamily = definition.id.split(".")[0];
+        definition.themePath = ["tuning", "colors", "choices", "player", "mediaFields"].indexOf(rootFamily) >= 0
+            ? definition.id
+            : "v2." + definition.id;
+        PLAYER_THEME_V2_REGISTRY.push(definition);
+    }
+
+    PLAYER_TUNING_DEFINITIONS.forEach(function (definition) {
+        registerPlayerThemeV2Parameter({
+            id: "tuning." + definition.id,
+            defaultValue: definition.fallback,
+            validate: function (value) { return normalizePlayerTuningValue(definition, value); },
+            editor: "range",
+            binding: definition.cssProperty,
+            serverRule: "tuning-range"
+        });
+    });
+    PLAYER_THEME_COLOR_DEFINITIONS.forEach(function (definition) {
+        registerPlayerThemeV2Parameter({
+            id: "colors." + definition.id,
+            defaultValue: definition.fallback,
+            validate: function (value) { return normalizeHexColor(value, definition.fallback); },
+            editor: "color",
+            binding: definition.cssProperty,
+            serverRule: "hex-color"
+        });
+    });
+    ["artworkMode", "metadataAnchor", "metadataAlign", "metadataSurface", "lyricsSurface", "mediaSurface"]
+        .forEach(function (choiceId) {
+            registerPlayerThemeV2Parameter({
+                id: "choices." + choiceId,
+                defaultValue: defaultPlayerThemeChoices()[choiceId],
+                validate: function (value) {
+                    return normalizePlayerThemeV2Enum(
+                        value,
+                        playerThemeV2ChoiceValues(choiceId),
+                        defaultPlayerThemeChoices()[choiceId]
+                    );
+                },
+                editor: "segmented", binding: "data-elyric-" + choiceId,
+                serverRule: "choice-enum"
+            });
+        });
+    PLAYER_MEDIA_FIELDS.forEach(function (field) {
+        registerPlayerThemeV2Parameter({
+            id: "mediaFields." + field.id,
+            defaultValue: defaultPlayerMediaFields()[field.id],
+            validate: normalizePlayerThemeV2Boolean,
+            editor: "toggle", binding: "media-card-field",
+            serverRule: "boolean"
+        });
+    });
+    [
+        ["theme", "classic", "segmented", "data-elyric-theme", function (value) { return normalizePlayerThemeV2Enum(value, THEMES.map(function (item) { return item.id; }), "classic"); }, "player-enum"],
+        ["backgroundMode", "blur", "segmented", "data-elyric-background-mode", function (value) { return normalizePlayerThemeV2Enum(value, BACKGROUND_MODES.map(function (item) { return item.id; }), "blur"); }, "player-enum"],
+        ["visualizerStyle", "spectrum", "segmented", "canvas-renderer", function (value) { return normalizePlayerThemeV2Enum(value, VISUALIZER_STYLES.map(function (item) { return item.id; }), "spectrum"); }, "player-enum"],
+        ["visualizerWidth", 62, "range", "canvas-size", function (value) { return normalizePlayerThemeV2Number(value, 10, 100, 62); }, "player-range"],
+        ["visualizerHeight", 8, "range", "canvas-size", function (value) { return normalizePlayerThemeV2Number(value, 2, 30, 8); }, "player-range"],
+        ["visualizerAmplitude", 70, "range", "canvas-amplitude", function (value) { return normalizePlayerThemeV2Number(value, 25, 140, 70); }, "player-range"],
+        ["visualizerColorMode", "dual", "segmented", "canvas-paint", function (value) { return normalizePlayerThemeV2Enum(value, VISUALIZER_COLOR_MODES.map(function (item) { return item.id; }), "dual"); }, "player-enum"],
+        ["visualizerColors", ["#a8e063", "#56d6c9", "#8b9dff"], "color-list", "canvas-paint", function (value) {
+            return Array.isArray(value) && value.length
+                ? value.slice(0, 8).map(function (color, index) { return normalizeHexColor(color, ["#a8e063", "#56d6c9", "#8b9dff"][index] || "#ffffff"); })
+                : ["#a8e063", "#56d6c9", "#8b9dff"];
+        }, "color-list"],
+        ["lyricAlignment", "left", "segmented", "text-align", function (value) { return normalizePlayerThemeV2Enum(value, LYRIC_ALIGNMENTS.map(function (item) { return item.id; }), "left"); }, "player-enum"],
+        ["lyricScale", 100, "range", "font-size", function (value) { return normalizePlayerThemeV2Number(value, 70, 170, 100); }, "player-range"],
+        ["artworkRotation", true, "toggle", "animation-play-state", normalizePlayerThemeV2Boolean, "boolean"]
+    ].forEach(function (item) {
+        registerPlayerThemeV2Parameter({
+            id: "player." + item[0], defaultValue: item[1],
+            validate: item[4], editor: item[2], binding: item[3], serverRule: item[5]
+        });
+    });
+    [
+        ["lyrics.showSecondLine", true, "toggle", "data-elyric-show-second", normalizePlayerThemeV2Boolean, "boolean"],
+        ["lyrics.showThirdAndLaterLines", true, "toggle", "data-elyric-show-third-plus", normalizePlayerThemeV2Boolean, "boolean"],
+        ["lyrics.followDelayMs", LYRIC_FOLLOW_IDLE_MS, "range", "lyric-follow-timer", function (value) { return normalizePlayerThemeV2Number(value, 1000, 60000, LYRIC_FOLLOW_IDLE_MS); }, "player-range"],
+        ["artwork.source", "emby", "select", "artwork-src", function (value) { return normalizePlayerThemeV2Enum(value, ["emby", "url", "asset"], "emby"); }, "player-enum"],
+        ["artwork.url", "", "url", "artwork-src", normalizePlayerThemeV2HttpsUrl, "https-url"],
+        ["artwork.assetId", "", "asset", "artwork-src", normalizePlayerThemeV2Id, "safe-id"],
+        ["artwork.fit", "cover", "select", "object-fit", function (value) { return normalizePlayerThemeV2Enum(value, ["cover", "contain", "fill", "none", "scale-down"], "cover"); }, "player-enum"],
+        ["artwork.focusX", 50, "range", "object-position", function (value) { return normalizePlayerThemeV2Number(value, 0, 100, 50); }, "player-range"],
+        ["artwork.focusY", 50, "range", "object-position", function (value) { return normalizePlayerThemeV2Number(value, 0, 100, 50); }, "player-range"],
+        ["artwork.clipPath", "none", "text", "clip-path", normalizePlayerThemeV2ClipPath, "clip-path"],
+        ["popupStyle.surfaceOpacity", 100, "range", "popup-surface", function (value) { return normalizePlayerThemeV2Number(value, 35, 100, 100); }, "player-range"],
+        ["popupStyle.radius", 24, "range", "popup-radius", function (value) { return normalizePlayerThemeV2Number(value, 0, 64, 24); }, "player-range"],
+        ["controls.safeArea", 64, "range", "safe-area", function (value) { return normalizePlayerThemeV2Number(value, 44, 180, 64); }, "player-range"]
+    ].forEach(function (item) {
+        registerPlayerThemeV2Parameter({
+            id: item[0], defaultValue: item[1],
+            validate: item[4], editor: item[2], binding: item[3], serverRule: item[5]
+        });
+    });
+    VISUALIZER_ANALYSIS_DEFINITIONS.forEach(function (definition) {
+        registerPlayerThemeV2Parameter({
+            id: "visualizer.analysis." + definition.id,
+            defaultValue: definition.fallback,
+            validate: function (value) {
+                value = Number(value);
+                return isFinite(value)
+                    ? Math.min(definition.maximum, Math.max(definition.minimum, value))
+                    : definition.fallback;
+            },
+            editor: "range",
+            binding: "canvas-analyser",
+            serverRule: "visualizer-analysis-range"
+        });
+    });
+    ["primary", "secondary", "tertiary"].forEach(function (lineId) {
+        [
+            ["fontFamily", "inherit", "font", "font-family", function (value) { return normalizePlayerThemeV2String(value, "inherit", 160); }, "safe-string"],
+            ["fontAssetId", "", "asset", "font-face", normalizePlayerThemeV2Id, "safe-id"],
+            ["fontUrl", "", "url", "font-face", normalizePlayerThemeV2HttpsUrl, "https-url"],
+            ["size", "primary" === lineId ? 100 : 72, "range", "font-size", function (value) { return normalizePlayerThemeV2Number(value, 40, 300, "primary" === lineId ? 100 : 72); }, "typography-range"],
+            ["weight", "primary" === lineId ? 700 : 500, "range", "font-weight", function (value) { return normalizePlayerThemeV2Number(value, 100, 900, "primary" === lineId ? 700 : 500); }, "typography-range"],
+            ["italic", false, "toggle", "font-style", normalizePlayerThemeV2Boolean, "boolean"],
+            ["letterSpacing", 0, "range", "letter-spacing", function (value) { return normalizePlayerThemeV2Number(value, -5, 20, 0); }, "typography-range"],
+            ["lineHeight", 1.25, "range", "line-height", function (value) { return normalizePlayerThemeV2Number(value, .8, 3, 1.25); }, "typography-range"],
+            ["color", "#ffffff", "color", "color", function (value) { return normalizeHexColor(value, "#ffffff"); }, "hex-color"],
+            ["opacity", "primary" === lineId ? 1 : .72, "range", "opacity", function (value) { return normalizePlayerThemeV2Number(value, 0, 1, "primary" === lineId ? 1 : .72); }, "typography-range"],
+            ["strokeWidth", 0, "range", "text-stroke", function (value) { return normalizePlayerThemeV2Number(value, 0, 8, 0); }, "typography-range"],
+            ["strokeColor", "#000000", "color", "text-stroke", function (value) { return normalizeHexColor(value, "#000000"); }, "hex-color"],
+            ["shadowX", 0, "range", "text-shadow", function (value) { return normalizePlayerThemeV2Number(value, -30, 30, 0); }, "typography-range"],
+            ["shadowY", 4, "range", "text-shadow", function (value) { return normalizePlayerThemeV2Number(value, -30, 30, 4); }, "typography-range"],
+            ["shadowBlur", 18, "range", "text-shadow", function (value) { return normalizePlayerThemeV2Number(value, 0, 60, 18); }, "typography-range"],
+            ["shadowColor", "#000000", "color", "text-shadow", function (value) { return normalizeHexColor(value, "#000000"); }, "hex-color"],
+            ["glow", 0, "range", "text-shadow", function (value) { return normalizePlayerThemeV2Number(value, 0, 60, 0); }, "typography-range"]
+        ].forEach(function (item) {
+            registerPlayerThemeV2Parameter({
+                id: "typography." + lineId + "." + item[0],
+                defaultValue: item[1],
+                validate: item[4], editor: item[2], binding: item[3], serverRule: item[5]
+            });
+        });
+        ["past", "current", "future"].forEach(function (stateId) {
+            registerPlayerThemeV2Parameter({
+                id: "typography." + lineId + ".states." + stateId + ".color",
+                defaultValue: "current" === stateId ? "#ffffff" : "#8993a5",
+                validate: function (value) { return normalizeHexColor(value, "#ffffff"); },
+                editor: "color", binding: "lyric-state-color", serverRule: "hex-color"
+            });
+            registerPlayerThemeV2Parameter({
+                id: "typography." + lineId + ".states." + stateId + ".opacity",
+                defaultValue: "current" === stateId ? 1 : .55,
+                validate: function (value) { return normalizePlayerThemeV2Number(value, 0, 1, "current" === stateId ? 1 : .55); },
+                editor: "range", binding: "lyric-state-opacity", serverRule: "typography-range"
+            });
+        });
+    });
+    PLAYER_THEME_V2_PROFILE_IDS.forEach(function (profileId) {
+        PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+            [
+                ["x", 0, "position"], ["y", 0, "position"],
+                ["width", 10, "size"], ["height", 10, "size"],
+                ["rotation", 0, "transform"], ["z", 10, "z-index"],
+                ["opacity", 1, "opacity"], ["hidden", false, "display"],
+                ["locked", false, "editor-lock"]
+            ].forEach(function (item) {
+                registerPlayerThemeV2Parameter({
+                    id: "layouts." + profileId + "." + layerId + "." + item[0],
+                    defaultValue: defaultPlayerThemeV2Layouts()[profileId][layerId][item[0]],
+                    validate: "hidden" === item[0] || "locked" === item[0]
+                        ? normalizePlayerThemeV2Boolean
+                        : function (value) {
+                            var ranges = {
+                                x: [-100, 200], y: [-100, 200], width: [1, 200], height: [1, 200],
+                                rotation: [-360, 360], z: [0, 1000], opacity: [0, 1]
+                            };
+                            return normalizePlayerThemeV2Number(
+                                value, ranges[item[0]][0], ranges[item[0]][1], item[1]
+                            );
+                        },
+                    editor: "hidden" === item[0] || "locked" === item[0] ? "toggle" : "number",
+                    binding: item[2],
+                    serverRule: "hidden" === item[0] || "locked" === item[0] ? "boolean" : "layer-range"
+                });
+            });
+        });
+    });
+    PLAYER_THEME_V2_PROFILE_IDS.forEach(function (profileId) {
+        registerPlayerThemeV2Parameter({
+            id: "layoutOverrides." + profileId,
+            defaultValue: false,
+            validate: normalizePlayerThemeV2Boolean,
+            editor: "inheritance",
+            binding: "responsive-profile",
+            serverRule: "boolean"
+        });
+    });
+
+    function playerThemeV2PathValue(source, path) {
+        return String(path).split(".").reduce(function (value, part) {
+            return null == value ? undefined : value[part];
+        }, source);
+    }
+
+    function setPlayerThemeV2PathValue(target, path, value) {
+        var parts = String(path).split(".");
+        var host = target;
+        parts.slice(0, -1).forEach(function (part) {
+            if (!host[part] || "object" !== typeof host[part]) { host[part] = {}; }
+            host = host[part];
+        });
+        host[parts[parts.length - 1]] = clonePlayerThemeV2Value(value);
+    }
+
+    function normalizeRegisteredPlayerThemeV2Snapshot(theme) {
+        PLAYER_THEME_V2_REGISTRY.forEach(function (definition) {
+            if (0 === definition.themePath.indexOf("v2.") && !theme.v2) { return; }
+            var current = playerThemeV2PathValue(theme, definition.themePath);
+            var migrated = definition.migrate(
+                undefined === current ? clonePlayerThemeV2Value(definition.defaultValue) : current
+            );
+            setPlayerThemeV2PathValue(theme, definition.themePath, definition.validate(migrated));
+        });
+        return theme;
+    }
+
+    if ("undefined" !== typeof window) {
+        window.__elyricPlayerThemeV2Registry = PLAYER_THEME_V2_REGISTRY.map(function (definition) {
+            return {
+                id: definition.id,
+                themePath: definition.themePath,
+                editor: definition.editor,
+                binding: definition.binding,
+                serialize: definition.serialize,
+                serverValidate: definition.serverValidate,
+                serverRule: definition.serverRule,
+                hasDefault: Object.prototype.hasOwnProperty.call(definition, "defaultValue"),
+                hasValidator: "function" === typeof definition.validate,
+                hasMigration: "function" === typeof definition.migrate
+            };
+        });
+    }
+
+    function clonePlayerThemeV2Value(value) {
+        return JSON.parse(JSON.stringify(value));
+    }
+
+    function defaultPlayerThemeV2Layer(x, y, width, height, z, hidden) {
+        return {
+            x: x, y: y, width: width, height: height,
+            rotation: 0, z: z, opacity: 1, hidden: !!hidden, locked: false
+        };
+    }
+
+    function defaultPlayerThemeV2Layouts() {
+        var desktop = {
+            artwork: defaultPlayerThemeV2Layer(62, 20, 28, 46, 12),
+            metadata: defaultPlayerThemeV2Layer(62, 6, 32, 12, 14),
+            lyrics: defaultPlayerThemeV2Layer(5, 15, 50, 58, 11),
+            visualizer: defaultPlayerThemeV2Layer(12, 74, 76, 8, 9),
+            progress: defaultPlayerThemeV2Layer(15, 84, 70, 5, 16),
+            transport: defaultPlayerThemeV2Layer(39, 89, 22, 8, 17),
+            volume: defaultPlayerThemeV2Layer(68, 90, 18, 6, 17),
+            auxiliary: defaultPlayerThemeV2Layer(4, 89, 30, 7, 17)
+        };
+        var tablet = clonePlayerThemeV2Value(desktop);
+        tablet.artwork = defaultPlayerThemeV2Layer(58, 16, 34, 40, 12);
+        tablet.metadata = defaultPlayerThemeV2Layer(57, 5, 38, 10, 14);
+        tablet.lyrics = defaultPlayerThemeV2Layer(5, 14, 49, 62, 11);
+        var portrait = {
+            artwork: defaultPlayerThemeV2Layer(22, 7, 56, 34, 12),
+            metadata: defaultPlayerThemeV2Layer(8, 42, 84, 11, 14),
+            lyrics: defaultPlayerThemeV2Layer(7, 53, 86, 27, 11),
+            visualizer: defaultPlayerThemeV2Layer(10, 80, 80, 6, 9),
+            progress: defaultPlayerThemeV2Layer(7, 86, 86, 5, 16),
+            transport: defaultPlayerThemeV2Layer(27, 91, 46, 8, 17),
+            volume: defaultPlayerThemeV2Layer(76, 92, 17, 6, 17, true),
+            auxiliary: defaultPlayerThemeV2Layer(4, 92, 20, 6, 17, true)
+        };
+        var landscape = clonePlayerThemeV2Value(desktop);
+        landscape.artwork = defaultPlayerThemeV2Layer(7, 14, 31, 55, 12);
+        landscape.metadata = defaultPlayerThemeV2Layer(6, 3, 36, 10, 14);
+        landscape.lyrics = defaultPlayerThemeV2Layer(43, 10, 52, 62, 11);
+        landscape.visualizer = defaultPlayerThemeV2Layer(12, 72, 76, 8, 9);
+        landscape.volume.hidden = true;
+        return { desktop: desktop, tablet: tablet, phonePortrait: portrait, phoneLandscape: landscape };
+    }
+
+    function defaultPlayerThemeV2Typography() {
+        function style(size, weight, opacity) {
+            return {
+                fontFamily: "inherit", fontAssetId: "", fontUrl: "", size: size,
+                weight: weight, italic: false, letterSpacing: 0, lineHeight: 1.25,
+                color: "#ffffff", opacity: opacity, strokeWidth: 0, strokeColor: "#000000",
+                shadowX: 0, shadowY: 4, shadowBlur: 18, shadowColor: "#000000", glow: 0,
+                states: {
+                    past: { color: "#b8c1d1", opacity: .62 },
+                    current: { color: "#ffffff", opacity: 1 },
+                    future: { color: "#8993a5", opacity: .48 }
+                }
+            };
+        }
+        return { primary: style(100, 700, 1), secondary: style(72, 500, .72), tertiary: style(62, 450, .58) };
+    }
+
+    function defaultPlayerThemeV2State() {
+        var analysis = {};
+        VISUALIZER_ANALYSIS_DEFINITIONS.forEach(function (definition) {
+            analysis[definition.id] = definition.fallback;
+        });
+        return {
+            schemaVersion: 2,
+            layouts: defaultPlayerThemeV2Layouts(),
+            layoutOverrides: {
+                desktop: false, tablet: false, phonePortrait: false, phoneLandscape: false
+            },
+            artwork: {
+                source: "emby", url: "", assetId: "", fit: "cover",
+                focusX: 50, focusY: 50, clipPath: "none"
+            },
+            typography: defaultPlayerThemeV2Typography(),
+            lyrics: { showSecondLine: true, showThirdAndLaterLines: true, followDelayMs: LYRIC_FOLLOW_IDLE_MS },
+            visualizer: { analysis: analysis },
+            popupStyle: { surfaceOpacity: 100, radius: 24 },
+            controls: { safeArea: 64 }
+        };
+    }
+
+    function mergePlayerThemeV2Object(target, source) {
+        if (!source || "object" !== typeof source) {
+            return target;
+        }
+        Object.keys(source).forEach(function (key) {
+            if (source[key] && "object" === typeof source[key] && !Array.isArray(source[key])) {
+                if (!target[key] || "object" !== typeof target[key]) {
+                    target[key] = {};
+                }
+                mergePlayerThemeV2Object(target[key], source[key]);
+            } else {
+                target[key] = source[key];
+            }
+        });
+        return target;
+    }
+
+    function normalizePlayerThemeV2State(source) {
+        var incoming = source && "object" === typeof source ? source : {};
+        var state = mergePlayerThemeV2Object(defaultPlayerThemeV2State(), incoming);
+        if (incoming.layouts && !incoming.layoutOverrides) {
+            PLAYER_THEME_V2_PROFILE_IDS.forEach(function (profileId) {
+                state.layoutOverrides[profileId] = true;
+            });
+        }
+        var sourceRoot = { v2: state };
+        var sanitizedRoot = { v2: defaultPlayerThemeV2State() };
+        PLAYER_THEME_V2_REGISTRY.forEach(function (definition) {
+            if (0 !== definition.themePath.indexOf("v2.")) { return; }
+            var value = playerThemeV2PathValue(sourceRoot, definition.themePath);
+            setPlayerThemeV2PathValue(
+                sanitizedRoot,
+                definition.themePath,
+                definition.validate(undefined === value ? definition.defaultValue : value)
+            );
+        });
+        sanitizedRoot.v2.schemaVersion = 2;
+        return sanitizedRoot.v2;
+    }
+
+    function currentPlayerThemeV2Profile() {
+        var width = "undefined" !== typeof window ? window.innerWidth : 1366;
+        var height = "undefined" !== typeof window ? window.innerHeight : 768;
+        if (width <= 960 && height < width && height <= 600) { return "phoneLandscape"; }
+        if (width <= 600) { return "phonePortrait"; }
+        if (width <= 1100) { return "tablet"; }
+        return "desktop";
+    }
+
+    function resolvedPlayerThemeV2Profile(state, profileId) {
+        var nearest = {
+            desktop: ["desktop", "tablet", "phoneLandscape", "phonePortrait"],
+            tablet: ["tablet", "desktop", "phoneLandscape", "phonePortrait"],
+            phonePortrait: ["phonePortrait", "tablet", "phoneLandscape", "desktop"],
+            phoneLandscape: ["phoneLandscape", "tablet", "desktop", "phonePortrait"]
+        };
+        var candidates = nearest[profileId] || [profileId];
+        for (var i = 0; i < candidates.length; i++) {
+            if (state.layoutOverrides && state.layoutOverrides[candidates[i]]) {
+                return candidates[i];
+            }
+        }
+        return profileId;
+    }
+
+    function resolvedPlayerThemeV2Layout(renderer, profileId) {
+        ensurePlayerThemeV2State(renderer);
+        var resolvedProfile = resolvedPlayerThemeV2Profile(renderer.__elyricThemeV2, profileId);
+        return renderer.__elyricThemeV2.layouts[resolvedProfile];
+    }
+
+    function ensurePlayerThemeV2ProfileOverride(renderer) {
+        ensurePlayerThemeV2State(renderer);
+        var profileId = renderer.__elyricThemeV2Profile;
+        if (renderer.__elyricThemeV2.layoutOverrides[profileId]) { return; }
+        renderer.__elyricThemeV2.layouts[profileId] = clonePlayerThemeV2Value(
+            resolvedPlayerThemeV2Layout(renderer, profileId)
+        );
+        renderer.__elyricThemeV2.layoutOverrides[profileId] = true;
+    }
+
+    function playerThemeV2LayerElement(renderer, layerId) {
+        if ("lyrics" === layerId) {
+            var section = renderer.itemsContainer && renderer.itemsContainer.closest
+                ? renderer.itemsContainer.closest('.osdContentSection[data-contentsection="lyrics"]')
+                : null;
+            return section || renderer.itemsContainer;
+        }
+        var properties = {
+            artwork: "__elyricPlayerArtworkStage",
+            metadata: "__elyricPlayerMetadata",
+            visualizer: "__elyricVisualizer",
+            progress: "__elyricPlayerProgress",
+            transport: "__elyricPlayerTransport",
+            volume: "__elyricPlayerVolume",
+            auxiliary: "__elyricPlayerTools"
+        };
+        return renderer[properties[layerId]] || null;
+    }
+
+    function applyPlayerThemeV2Layer(renderer, layerId, layer) {
+        var element = playerThemeV2LayerElement(renderer, layerId);
+        if (!element || !element.style) { return; }
+        var displayedLayer = layer;
+        if ("auxiliary" === layerId) {
+            displayedLayer = clonePlayerThemeV2Value(layer);
+            var safeAreaPercent = renderer.__elyricThemeV2 && renderer.__elyricThemeV2.controls
+                ? renderer.__elyricThemeV2.controls.safeArea / Math.max(1, window.innerHeight || 768) * 100
+                : 0;
+            displayedLayer.x = Math.max(0, Math.min(100 - displayedLayer.width, displayedLayer.x));
+            displayedLayer.y = Math.max(0, Math.min(100 - Math.max(displayedLayer.height, safeAreaPercent), displayedLayer.y));
+            setAttributeIfChanged(element, "data-elyric-v2-user-hidden", layer.hidden ? "true" : "false");
+            displayedLayer.hidden = false;
+        }
+        element.classList.add("elyric-player-v2-layer", "elyric-player-v2-layer-" + layerId);
+        element.style.setProperty("position", "fixed", "important");
+        element.style.setProperty("left", displayedLayer.x + "vw", "important");
+        element.style.setProperty("top", displayedLayer.y + "vh", "important");
+        element.style.setProperty("width", displayedLayer.width + "vw", "important");
+        element.style.setProperty("height", displayedLayer.height + "vh", "important");
+        element.style.setProperty("transform", "rotate(" + displayedLayer.rotation + "deg)", "important");
+        element.style.setProperty("transform-origin", "center", "important");
+        element.style.setProperty("z-index", String(displayedLayer.z), "important");
+        element.style.setProperty("opacity", String(displayedLayer.opacity), "important");
+        if (displayedLayer.hidden) { element.style.setProperty("display", "none", "important"); }
+        else { element.style.removeProperty("display"); }
+        element.setAttribute("data-elyric-v2-layer", layerId);
+    }
+
+    function applyPlayerThemeV2SemanticControls(renderer) {
+        var state = renderer.__elyricThemeV2;
+        if (!state) { return; }
+        var popupOpacity = Math.min(100, Math.max(35, Number(state.popupStyle.surfaceOpacity) || 100));
+        var popupRadius = Math.min(64, Math.max(0, Number(state.popupStyle.radius) || 0));
+        var safeArea = Math.min(180, Math.max(44, Number(state.controls.safeArea) || 64));
+        var hosts = [renderer.__elyricThemeControl, renderer.__elyricMediaPanel, renderer.__elyricSettingsPanel];
+        if (document.body && document.body.__elyricPlayerPageOwner === renderer) { hosts.push(document.body); }
+        hosts.forEach(function (host) {
+            if (!host || !host.style) { return; }
+            setDisplayStyle(host, "--elyric-v2-popup-opacity", popupOpacity + "%");
+            setDisplayStyle(host, "--elyric-v2-popup-radius", popupRadius + "px");
+            setDisplayStyle(host, "--elyric-v2-safe-area", safeArea + "px");
+        });
+    }
+
+    function clearPlayerThemeV2Layout(renderer) {
+        PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+            var element = playerThemeV2LayerElement(renderer, layerId);
+            if (!element || !element.style) { return; }
+            ["position", "left", "top", "width", "height", "transform", "transform-origin", "z-index", "opacity", "display"]
+                .forEach(function (property) { element.style.removeProperty(property); });
+            element.removeAttribute("data-elyric-v2-layer");
+            element.removeAttribute("data-elyric-v2-user-hidden");
+            element.classList.remove("elyric-player-v2-layer", "elyric-player-v2-layer-" + layerId);
+        });
+        removeAttributeIfPresent(renderer.__elyricThemeControl, "data-elyric-theme-v2");
+        removeAttributeIfPresent(renderer.itemsContainer, "data-elyric-theme-v2");
+        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
+            removeAttributeIfPresent(document.body, "data-elyric-theme-v2");
+        }
+        removePlayerThemeV2DesignerBoxes(renderer);
+    }
+
+    function applyPlayerThemeV2Typography(renderer) {
+        if (!renderer.__elyricThemeV2 || !renderer.__elyricThemeControl) { return; }
+        var styleHosts = [renderer.__elyricThemeControl, renderer.itemsContainer];
+        if (document.body && document.body.__elyricPlayerPageOwner === renderer) { styleHosts.push(document.body); }
+        ["primary", "secondary", "tertiary"].forEach(function (lineId) {
+            var style = renderer.__elyricThemeV2.typography[lineId];
+            var prefix = "--elyric-v2-" + lineId + "-";
+            styleHosts.forEach(function (styleHost) {
+                setDisplayStyle(styleHost, prefix + "font", style.fontFamily || "inherit");
+                setDisplayStyle(styleHost, prefix + "size", Number(style.size) + "%");
+                setDisplayStyle(styleHost, prefix + "weight", String(style.weight));
+                setDisplayStyle(styleHost, prefix + "style", style.italic ? "italic" : "normal");
+                setDisplayStyle(styleHost, prefix + "spacing", Number(style.letterSpacing) + "px");
+                setDisplayStyle(styleHost, prefix + "line-height", String(style.lineHeight));
+                setDisplayStyle(styleHost, prefix + "color", normalizeHexColor(style.color, "#ffffff"));
+                setDisplayStyle(styleHost, prefix + "opacity", String(style.opacity));
+                setDisplayStyle(styleHost, prefix + "stroke-width", Number(style.strokeWidth) + "px");
+                setDisplayStyle(styleHost, prefix + "stroke-color", normalizeHexColor(style.strokeColor, "#000000"));
+                setDisplayStyle(styleHost, prefix + "shadow",
+                    Number(style.shadowX) + "px " + Number(style.shadowY) + "px " + Number(style.shadowBlur) + "px "
+                    + normalizeHexColor(style.shadowColor, "#000000") + ", 0 0 " + Number(style.glow) + "px "
+                    + normalizeHexColor(style.color, "#ffffff"));
+                ["past", "current", "future"].forEach(function (stateId) {
+                    var stateStyle = style.states && style.states[stateId] ? style.states[stateId] : {};
+                    setDisplayStyle(styleHost, prefix + stateId + "-color", normalizeHexColor(stateStyle.color, style.color));
+                    setDisplayStyle(styleHost, prefix + stateId + "-opacity", String(null == stateStyle.opacity ? style.opacity : stateStyle.opacity));
+                });
+            });
+        });
+    }
+
+    function playerThemeV2AssetUrl(renderer, assetId) {
+        var apiClient = activeApiClient(renderer);
+        if (!apiClient || !apiClient.getUrl || !assetId) { return ""; }
+        var options = {};
+        var token = apiClient.accessToken ? apiClient.accessToken() : "";
+        if (token) { options.api_key = token; }
+        return apiClient.getUrl(PLAYER_ASSETS_PATH + "/" + encodeURIComponent(assetId), options);
+    }
+
+    function applyPlayerThemeV2Artwork(renderer) {
+        var state = renderer.__elyricThemeV2;
+        var artwork = renderer.__elyricPlayerArtwork;
+        if (!state || !artwork) { return; }
+        var source = state.artwork;
+        var applied = false;
+        if ("emby" === source.source && renderer.__elyricPlayerEmbyArtworkUrl) {
+            artwork.src = renderer.__elyricPlayerEmbyArtworkUrl;
+            applied = true;
+        } else if ("url" === source.source && /^https:\/\//i.test(source.url || "")) {
+            artwork.src = source.url;
+            applied = true;
+        } else if ("asset" === source.source && source.assetId) {
+            var assetUrl = playerThemeV2AssetUrl(renderer, source.assetId);
+            if (assetUrl) {
+                artwork.src = assetUrl;
+                applied = true;
+            }
+        }
+        if (applied) {
+            artwork.removeAttribute("hidden");
+        } else {
+            artwork.removeAttribute("src");
+            artwork.setAttribute("hidden", "hidden");
+        }
+        artwork.style.objectFit = source.fit;
+        artwork.style.objectPosition = Number(source.focusX) + "% " + Number(source.focusY) + "%";
+        artwork.style.clipPath = normalizePlayerThemeV2ClipPath(source.clipPath);
+    }
+
+    function setThirdLineOverride(renderer, show, persist) {
+        renderer.__elyricLocalShowThird = !!show;
+        setAttributeIfChanged(renderer.itemsContainer, "data-elyric-show-third-plus", show ? "true" : "false");
+        if (persist) {
+            storeCurrentPlayerThemeDesign(renderer);
+            scheduleUserPlayerPreferencesSave(renderer);
+        }
+    }
+
+    function collectPlayerThemeV2State(renderer) {
+        var state = normalizePlayerThemeV2State(
+            renderer.__elyricThemeV2 || captureRenderedPlayerThemeV2State(renderer) || defaultPlayerThemeV2State()
+        );
+        state.lyrics.showSecondLine = false !== renderer.__elyricLocalShowSecond;
+        state.lyrics.showThirdAndLaterLines = false !== renderer.__elyricLocalShowThird;
+        VISUALIZER_ANALYSIS_DEFINITIONS.forEach(function (definition) {
+            state.visualizer.analysis[definition.id] = isFinite(Number(renderer[definition.property]))
+                ? Number(renderer[definition.property]) : definition.fallback;
+        });
+        return clonePlayerThemeV2Value(state);
+    }
+
+    function applyPlayerThemeV2State(renderer, source, profileOverride) {
+        if (!source || "object" !== typeof source) { return; }
+        renderer.__elyricThemeV2 = normalizePlayerThemeV2State(source);
+        renderer.__elyricThemeV2Profile = PLAYER_THEME_V2_PROFILE_IDS.indexOf(profileOverride) >= 0
+            ? profileOverride
+            : currentPlayerThemeV2Profile();
+        var profile = resolvedPlayerThemeV2Layout(renderer, renderer.__elyricThemeV2Profile);
+        PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+            applyPlayerThemeV2Layer(renderer, layerId, profile[layerId]);
+        });
+        setSecondLineOverride(renderer, renderer.__elyricThemeV2.lyrics.showSecondLine, false);
+        setThirdLineOverride(renderer, renderer.__elyricThemeV2.lyrics.showThirdAndLaterLines, false);
+        VISUALIZER_ANALYSIS_DEFINITIONS.forEach(function (definition) {
+            setVisualizerAnalysisSetting(
+                renderer,
+                definition.id,
+                renderer.__elyricThemeV2.visualizer.analysis[definition.id],
+                false
+            );
+        });
+        applyPlayerThemeV2Typography(renderer);
+        ["primary", "secondary", "tertiary"].forEach(function (lineId) {
+            var typography = renderer.__elyricThemeV2.typography[lineId];
+            if (typography.fontAssetId || typography.fontUrl) {
+                installPlayerThemeV2Font(renderer, lineId);
+            }
+        });
+        applyPlayerThemeV2Artwork(renderer);
+        applyPlayerThemeV2SemanticControls(renderer);
+        setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-theme-v2", "true");
+        setAttributeIfChanged(renderer.itemsContainer, "data-elyric-theme-v2", "true");
+        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
+            setAttributeIfChanged(document.body, "data-elyric-theme-v2", "true");
+        }
+        syncPlayerThemeV2Designer(renderer);
+    }
+
     var PLAYER_PARAMETRIC_PRESETS = {
         album: {
             choices: {
@@ -1244,9 +1934,15 @@
             colors: normalizePlayerThemeColors(source.colors),
             mediaFields: normalizePlayerMediaFields(source.mediaFields),
             player: source.player && "object" === typeof source.player ? shallowCopy(source.player) : {},
+            v2: source.v2 && "object" === typeof source.v2
+                ? normalizePlayerThemeV2State(source.v2)
+                : null,
+            revision: isFinite(Number(source.revision))
+                ? Math.max(0, Math.round(Number(source.revision)))
+                : 0,
             updatedAt: isFinite(Number(source.updatedAt)) ? Number(source.updatedAt) : Date.now()
         };
-        return theme;
+        return theme.v2 ? normalizeRegisteredPlayerThemeV2Snapshot(theme) : theme;
     }
 
     function loadStoredPlayerThemes() {
@@ -1255,7 +1951,7 @@
                 var serialized = localStorage.getItem(PLAYER_THEME_LIBRARY_STORAGE_KEY);
                 var parsed = serialized ? JSON.parse(serialized) : [];
                 if (Array.isArray(parsed)) {
-                    return parsed.slice(0, MAX_USER_PLAYER_THEMES).map(normalizeSavedPlayerTheme).filter(Boolean);
+                    return parsed.map(normalizeSavedPlayerTheme).filter(Boolean);
                 }
             }
         } catch (error) {
@@ -1269,7 +1965,7 @@
             if ("undefined" !== typeof localStorage) {
                 localStorage.setItem(
                     PLAYER_THEME_LIBRARY_STORAGE_KEY,
-                    JSON.stringify((renderer.__elyricUserPlayerThemes || []).slice(0, MAX_USER_PLAYER_THEMES))
+                    JSON.stringify(renderer.__elyricUserPlayerThemes || [])
                 );
             }
         } catch (error) {
@@ -1334,6 +2030,7 @@
                 lyricScale: renderer.__elyricLyricScale || 100,
                 artworkRotation: false !== renderer.__elyricArtworkRotation
             },
+            v2: collectPlayerThemeV2State(renderer),
             updatedAt: Date.now()
         }, 0);
     }
@@ -1413,6 +2110,32 @@
         }
     }
 
+    function readablePlayerThemeForeground(hexColor) {
+        var hex = normalizeHexColor(hexColor, "#111111").slice(1);
+        var r = parseInt(hex.slice(0, 2), 16) / 255;
+        var g = parseInt(hex.slice(2, 4), 16) / 255;
+        var b = parseInt(hex.slice(4, 6), 16) / 255;
+        function channel(value) { return value <= .03928 ? value / 12.92 : Math.pow((value + .055) / 1.055, 2.4); }
+        var luminance = .2126 * channel(r) + .7152 * channel(g) + .0722 * channel(b);
+        return luminance > .42 ? "#111318" : "#ffffff";
+    }
+
+    function syncPlayerThemeSemanticColors(renderer) {
+        ensurePlayerThemeLibrary(renderer);
+        var colors = renderer.__elyricPlayerThemeColors;
+        var values = {
+            "--elyric-v2-metadata-on": readablePlayerThemeForeground(colors.metadataSurface),
+            "--elyric-v2-lyrics-on": readablePlayerThemeForeground(colors.lyricsSurface),
+            "--elyric-v2-media-on": readablePlayerThemeForeground(colors.mediaSurface),
+            "--elyric-v2-panel-bg": colors.metadataSurface,
+            "--elyric-v2-panel-on": readablePlayerThemeForeground(colors.metadataSurface)
+        };
+        [renderer.__elyricThemeControl, renderer.itemsContainer, renderer.__elyricSettingsPanel,
+            renderer.__elyricMediaPanel].forEach(function (element) {
+            Object.keys(values).forEach(function (property) { setDisplayStyle(element, property, values[property]); });
+        });
+    }
+
     function setPlayerThemeColor(renderer, colorId, value, persist) {
         ensurePlayerThemeLibrary(renderer);
         var definition = themeColorDefinition(colorId);
@@ -1440,6 +2163,7 @@
         if (swatch && swatch.style) {
             swatch.style.background = value;
         }
+        syncPlayerThemeSemanticColors(renderer);
         if (persist) {
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
@@ -1568,6 +2292,13 @@
         if ("boolean" === typeof player.artworkRotation) {
             setArtworkRotation(renderer, player.artworkRotation, false);
         }
+        if (theme.v2) {
+            applyPlayerThemeV2State(renderer, theme.v2);
+        } else {
+            renderer.__elyricThemeV2 = null;
+            renderer.__elyricThemeV2Profile = null;
+            clearPlayerThemeV2Layout(renderer);
+        }
         renderer.__elyricThemeBaseLayout = theme.baseLayout;
         syncPlayerThemeLibraryControls(renderer);
     }
@@ -1689,7 +2420,7 @@
         });
         if (Array.isArray(source.playerThemes)) {
             preferences.playerThemes = source.playerThemes
-                .slice(0, MAX_USER_PLAYER_THEMES)
+                .slice(0, MAX_LEGACY_USER_PLAYER_THEMES)
                 .map(normalizeSavedPlayerTheme)
                 .filter(Boolean);
         }
@@ -1728,7 +2459,7 @@
             lyricAlignment: renderer.__elyricLyricAlignment || "left",
             lyricScale: renderer.__elyricLyricScale || 100,
             tuning: tuning,
-            playerThemes: (renderer.__elyricUserPlayerThemes || []).slice(0, MAX_USER_PLAYER_THEMES),
+            playerThemes: [],
             activePlayerThemeId: renderer.__elyricActiveUserPlayerThemeId || null,
             playerThemeDesign: collectCurrentPlayerTheme(renderer, "当前设计", "draft")
         };
@@ -1752,6 +2483,248 @@
         }
     }
 
+    function playerThemeV2ResponseValue(source, camelName, pascalName, fallback) {
+        if (!source) { return fallback; }
+        if (Object.prototype.hasOwnProperty.call(source, camelName)) { return source[camelName]; }
+        if (Object.prototype.hasOwnProperty.call(source, pascalName)) { return source[pascalName]; }
+        return fallback;
+    }
+
+    function playerThemeV2ApiRequest(renderer, method, path, body, formData) {
+        var apiClient = activeApiClient(renderer);
+        if (!apiClient || !apiClient.getUrl || "undefined" === typeof fetch) {
+            return Promise.reject(new Error("当前 Emby 连接不支持主题库接口"));
+        }
+        var headers = { Accept: "application/json" };
+        var token = apiClient.accessToken ? apiClient.accessToken() : "";
+        if (token) { headers["X-Emby-Token"] = token; }
+        var options = { method: method, headers: headers, credentials: "same-origin" };
+        if (formData) {
+            options.body = formData;
+        } else if (null != body) {
+            headers["Content-Type"] = "application/json";
+            options.body = JSON.stringify(body);
+        }
+        return fetch(apiClient.getUrl(path), options).then(function (response) {
+            return response.text().then(function (text) {
+                var payload = null;
+                try { payload = text ? JSON.parse(text) : {}; } catch (error) { payload = {}; }
+                if (!response.ok && 409 !== response.status) {
+                    var requestError = new Error("主题服务请求失败（HTTP " + response.status + "）");
+                    requestError.status = response.status;
+                    requestError.payload = payload;
+                    throw requestError;
+                }
+                return payload;
+            });
+        });
+    }
+
+    function normalizeRemotePlayerTheme(record) {
+        var serialized = playerThemeV2ResponseValue(record, "themeJson", "ThemeJson", "{}");
+        var source = {};
+        try { source = JSON.parse(serialized); } catch (error) { source = {}; }
+        source.id = playerThemeV2ResponseValue(record, "id", "Id", source.id);
+        source.name = playerThemeV2ResponseValue(record, "name", "Name", source.name);
+        var theme = normalizeSavedPlayerTheme(source, 0);
+        if (theme) {
+            theme.revision = Number(playerThemeV2ResponseValue(record, "revision", "Revision", 0));
+            theme.remoteOnly = false;
+        }
+        return theme;
+    }
+
+    function mergeRemotePlayerThemeSummaries(renderer, summaries) {
+        ensurePlayerThemeLibrary(renderer);
+        (summaries || []).forEach(function (summary) {
+            var id = String(playerThemeV2ResponseValue(summary, "id", "Id", ""));
+            if (!id) { return; }
+            var existing = renderer.__elyricUserPlayerThemes.find(function (theme) { return theme.id === id; });
+            if (!existing) {
+                existing = normalizeSavedPlayerTheme({
+                    id: id,
+                    name: playerThemeV2ResponseValue(summary, "name", "Name", "远程主题"),
+                    baseLayout: "album"
+                }, renderer.__elyricUserPlayerThemes.length);
+                existing.remoteOnly = true;
+                renderer.__elyricUserPlayerThemes.push(existing);
+            }
+            existing.name = playerThemeV2ResponseValue(summary, "name", "Name", existing.name);
+            existing.revision = Number(playerThemeV2ResponseValue(summary, "revision", "Revision", existing.revision || 0));
+        });
+        storePlayerThemeLibrary(renderer);
+        syncPlayerThemeLibraryControls(renderer);
+    }
+
+    function requestPlayerThemeV2Workspace(renderer) {
+        return Promise.all([
+            playerThemeV2ApiRequest(renderer, "GET", PLAYER_WORKSPACE_PATH),
+            playerThemeV2ApiRequest(renderer, "GET", PLAYER_THEMES_PATH)
+        ]).then(function (results) {
+            var workspace = results[0] || {};
+            var summaries = Array.isArray(results[1]) ? results[1] : [];
+            renderer.__elyricWorkspaceRevision = Number(
+                playerThemeV2ResponseValue(workspace, "revision", "Revision", 0)
+            );
+            renderer.__elyricWorkspaceLegacyImported = !!playerThemeV2ResponseValue(
+                workspace, "legacyImported", "LegacyImported", false
+            );
+            renderer.__elyricActiveUserPlayerThemeId = playerThemeV2ResponseValue(
+                workspace, "activeThemeId", "ActiveThemeId", renderer.__elyricActiveUserPlayerThemeId || null
+            );
+            mergeRemotePlayerThemeSummaries(renderer, summaries);
+            return workspace;
+        });
+    }
+
+    function applyPlayerThemeV2WorkspaceToPreferences(renderer, workspace, preferences) {
+        preferences = preferences || {};
+        var draftJson = playerThemeV2ResponseValue(workspace, "draftJson", "DraftJson", "{}");
+        var globalJson = playerThemeV2ResponseValue(workspace, "globalStateJson", "GlobalStateJson", "{}");
+        try {
+            var globalState = JSON.parse(globalJson);
+            Object.keys(globalState).forEach(function (key) { preferences[key] = globalState[key]; });
+        } catch (error) {}
+        try {
+            var draft = normalizeSavedPlayerTheme(JSON.parse(draftJson), 0);
+            if (draft) { preferences.playerThemeDesign = draft; }
+        } catch (error) {}
+        preferences.activePlayerThemeId = renderer.__elyricActiveUserPlayerThemeId || null;
+        return preferences;
+    }
+
+    function queuePlayerThemeV2Operation(operation) {
+        try {
+            var queue = JSON.parse(localStorage.getItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY) || "[]");
+            if (!Array.isArray(queue)) { queue = []; }
+            if ("workspace" === operation.kind) {
+                queue = queue.filter(function (item) { return "workspace" !== item.kind; });
+            }
+            queue.push(operation);
+            localStorage.setItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY, JSON.stringify(queue.slice(-100)));
+        } catch (error) {}
+    }
+
+    function flushPlayerThemeV2OfflineQueue(renderer) {
+        var queue = [];
+        try { queue = JSON.parse(localStorage.getItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY) || "[]"); } catch (error) {}
+        if (!Array.isArray(queue) || !queue.length) { return Promise.resolve(); }
+        var chain = Promise.resolve();
+        queue.forEach(function (operation) {
+            chain = chain.then(function () {
+                return playerThemeV2ApiRequest(renderer, operation.method, operation.path, operation.body);
+            });
+        });
+        return chain.then(function () {
+            localStorage.removeItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY);
+            return requestPlayerThemeV2Workspace(renderer);
+        }).catch(function () {});
+    }
+
+    function persistPlayerThemeV2Workspace(renderer) {
+        var preferences = collectUserPlayerPreferences(renderer);
+        delete preferences.playerThemes;
+        delete preferences.playerThemeDesign;
+        var body = {
+            ExpectedRevision: Number(renderer.__elyricWorkspaceRevision || 0),
+            ActiveThemeId: renderer.__elyricActiveUserPlayerThemeId || null,
+            DraftJson: JSON.stringify(collectCurrentPlayerTheme(renderer, "当前设计", "draft")),
+            GlobalStateJson: JSON.stringify(preferences),
+            LegacyImported: true
+        };
+        return playerThemeV2ApiRequest(renderer, "PUT", PLAYER_WORKSPACE_PATH, body).then(function (result) {
+            var value = playerThemeV2ResponseValue(result, "value", "Value", result);
+            renderer.__elyricWorkspaceRevision = Number(playerThemeV2ResponseValue(value, "revision", "Revision", renderer.__elyricWorkspaceRevision || 0));
+            var conflictCopy = playerThemeV2ResponseValue(result, "conflictCopy", "ConflictCopy", null);
+            if (conflictCopy) {
+                var theme = normalizeRemotePlayerTheme(conflictCopy);
+                if (theme) { renderer.__elyricUserPlayerThemes.push(theme); storePlayerThemeLibrary(renderer); }
+                updatePlayerThemeLibraryStatus(renderer, "检测到跨设备修改，已保留为冲突副本", "error");
+            }
+            return true;
+        }).catch(function () {
+            queuePlayerThemeV2Operation({ kind: "workspace", method: "PUT", path: PLAYER_WORKSPACE_PATH, body: body });
+            updatePreferenceStatus(renderer, "local", "离线修改已进入待同步队列");
+            return false;
+        });
+    }
+
+    function syncNamedPlayerThemeV2(renderer, theme, create) {
+        if (!theme) { return Promise.resolve(null); }
+        var path = create ? PLAYER_THEMES_PATH : PLAYER_THEMES_PATH + "/" + encodeURIComponent(theme.id);
+        var method = create ? "POST" : "PUT";
+        var body = {
+            Id: theme.id,
+            ExpectedRevision: Number(theme.revision || 0),
+            Name: theme.name,
+            ThemeJson: JSON.stringify(theme)
+        };
+        return playerThemeV2ApiRequest(renderer, method, path, body).then(function (record) {
+            var resultRecord = playerThemeV2ResponseValue(record, "value", "Value", record);
+            var synced = normalizeRemotePlayerTheme(resultRecord);
+            if (synced) {
+                var index = renderer.__elyricUserPlayerThemes.findIndex(function (item) { return item.id === synced.id; });
+                if (index >= 0) { renderer.__elyricUserPlayerThemes[index] = synced; }
+                else { renderer.__elyricUserPlayerThemes.push(synced); }
+            }
+            var conflictCopy = playerThemeV2ResponseValue(record, "conflictCopy", "ConflictCopy", null);
+            if (conflictCopy) {
+                var copy = normalizeRemotePlayerTheme(conflictCopy);
+                if (copy) { renderer.__elyricUserPlayerThemes.push(copy); }
+            }
+            storePlayerThemeLibrary(renderer);
+            syncPlayerThemeLibraryControls(renderer);
+            return synced;
+        }).catch(function () {
+            queuePlayerThemeV2Operation({ kind: "theme", method: method, path: path, body: body });
+            updatePlayerThemeLibraryStatus(renderer, "服务器暂不可用，主题已保存在本地待同步", "error");
+            return null;
+        });
+    }
+
+    function uploadPlayerThemeV2Asset(renderer, file, kind, lineId) {
+        var id = ("font" === kind ? "font-" : "image-") + Date.now().toString(36)
+            + "-" + Math.random().toString(36).slice(2, 8);
+        var form = new FormData();
+        form.append("file", file, file.name);
+        updatePreferenceStatus(renderer, "saving", "正在上传私有主题资源…");
+        return playerThemeV2ApiRequest(renderer, "POST", PLAYER_ASSETS_PATH + "/" + id, null, form).then(function () {
+            ensurePlayerThemeV2State(renderer);
+            if ("artwork" === kind) {
+                renderer.__elyricThemeV2.artwork.source = "asset";
+                renderer.__elyricThemeV2.artwork.assetId = id;
+                applyPlayerThemeV2Artwork(renderer);
+            } else {
+                renderer.__elyricThemeV2.typography[lineId].fontAssetId = id;
+                renderer.__elyricThemeV2.typography[lineId].fontUrl = "";
+                installPlayerThemeV2Font(renderer, lineId);
+            }
+            storeCurrentPlayerThemeDesign(renderer);
+            scheduleUserPlayerPreferencesSave(renderer);
+            updatePreferenceStatus(renderer, "synced", "主题资源已加密隔离到当前 Emby 用户");
+        }).catch(function (error) {
+            updatePreferenceStatus(renderer, "local", "资源上传失败；未改变当前主题");
+            return Promise.reject(error);
+        });
+    }
+
+    function installPlayerThemeV2Font(renderer, lineId) {
+        ensurePlayerThemeV2State(renderer);
+        var style = renderer.__elyricThemeV2.typography[lineId];
+        var url = style.fontAssetId ? playerThemeV2AssetUrl(renderer, style.fontAssetId) : style.fontUrl;
+        if (!url || (style.fontUrl && !/^https:\/\//i.test(style.fontUrl))) { return; }
+        var family = "ElyricUserFont-" + lineId + "-" + (style.fontAssetId || "url").replace(/[^a-z0-9_-]/gi, "");
+        var styleElement = renderer.__elyricThemeV2FontStyle || document.createElement("style");
+        renderer.__elyricThemeV2FontStyle = styleElement;
+        if (!styleElement.parentNode) { document.head.appendChild(styleElement); }
+        var rules = renderer.__elyricThemeV2FontRules || {};
+        rules[lineId] = "@font-face{font-family:'" + family + "';src:url('" + String(url).replace(/[\"'()\\]/g, "") + "') format('woff2');font-display:swap;}";
+        renderer.__elyricThemeV2FontRules = rules;
+        styleElement.textContent = Object.keys(rules).map(function (key) { return rules[key]; }).join("\n");
+        style.fontFamily = "'" + family + "'";
+        applyPlayerThemeV2Typography(renderer);
+    }
+
     function requestUserPlayerPreferences(renderer) {
         if (renderer.__elyricUserPreferencesPromise) {
             return renderer.__elyricUserPreferencesPromise;
@@ -1765,7 +2738,7 @@
             return renderer.__elyricUserPreferencesPromise;
         }
         updatePreferenceStatus(renderer, "loading", "正在读取 Emby 账户设置…");
-        renderer.__elyricUserPreferencesPromise = Promise.resolve(
+        var legacyPreferencesPromise = Promise.resolve(
             apiClient.getDisplayPreferences(userId)
         ).then(function (displayPreferences) {
             var preferenceMap = displayPreferences
@@ -1792,6 +2765,38 @@
         }, function () {
             updatePreferenceStatus(renderer, "local", "账户同步暂不可用；当前设置保存在本浏览器");
             return null;
+        });
+        renderer.__elyricUserPreferencesPromise = legacyPreferencesPromise.then(function (preferences) {
+            ensurePlayerThemeLibrary(renderer);
+            var localLegacyThemes = (renderer.__elyricUserPlayerThemes || []).filter(function (theme) {
+                return !theme.remoteOnly;
+            }).slice(0, MAX_LEGACY_USER_PLAYER_THEMES);
+            return requestPlayerThemeV2Workspace(renderer).then(function (workspace) {
+                var merged = applyPlayerThemeV2WorkspaceToPreferences(renderer, workspace, preferences || {});
+                var legacyThemes = [];
+                var legacyIds = {};
+                var preferenceThemes = preferences && Array.isArray(preferences.playerThemes)
+                    ? preferences.playerThemes
+                    : [];
+                preferenceThemes.concat(localLegacyThemes).some(function (theme) {
+                    if (legacyThemes.length >= MAX_LEGACY_USER_PLAYER_THEMES) { return true; }
+                    var normalized = normalizeSavedPlayerTheme(theme, legacyThemes.length);
+                    if (!normalized || legacyIds[normalized.id]) { return false; }
+                    legacyIds[normalized.id] = true;
+                    legacyThemes.push(normalized);
+                    return false;
+                });
+                if (!renderer.__elyricWorkspaceLegacyImported && legacyThemes.length) {
+                    Promise.all(legacyThemes.map(function (theme) {
+                        return syncNamedPlayerThemeV2(renderer, theme, true);
+                    })).then(function () { return persistPlayerThemeV2Workspace(renderer); });
+                }
+                flushPlayerThemeV2OfflineQueue(renderer);
+                updatePreferenceStatus(renderer, "synced", "已从当前 Emby 用户主题库恢复并同步");
+                return merged;
+            }, function () {
+                return preferences;
+            });
         });
         return renderer.__elyricUserPreferencesPromise;
     }
@@ -1827,8 +2832,14 @@
                 saveRequest = apiClient.updateDisplayPreferences(displayPreferences, userId);
             }
             return Promise.resolve(saveRequest).then(function () {
-                updatePreferenceStatus(renderer, "synced", "已同步到 Emby 账户");
-                return true;
+                return persistPlayerThemeV2Workspace(renderer).then(function (workspaceSaved) {
+                    updatePreferenceStatus(
+                        renderer,
+                        workspaceSaved ? "synced" : "local",
+                        workspaceSaved ? "已同步到当前 Emby 用户主题库" : "已保存本地，等待网络恢复后同步"
+                    );
+                    return workspaceSaved;
+                });
             }, function () {
                 updatePreferenceStatus(renderer, "local", "同步失败；当前设置仍保存在本浏览器");
                 return false;
@@ -1861,7 +2872,7 @@
         }
         renderer.__elyricApplyingUserPreferences = true;
         if (Array.isArray(preferences.playerThemes)) {
-            renderer.__elyricUserPlayerThemes = preferences.playerThemes.slice(0, MAX_USER_PLAYER_THEMES);
+            renderer.__elyricUserPlayerThemes = preferences.playerThemes.slice(0, MAX_LEGACY_USER_PLAYER_THEMES);
             storePlayerThemeLibrary(renderer);
         }
         if (preferences.activePlayerThemeId) {
@@ -2565,10 +3576,13 @@
         return true;
     }
 
-    function setSettingsPanelOpen(renderer, open) {
+    function setSettingsPanelOpen(renderer, open, preserveDesigner) {
         open = !!open;
         var wasOpen = !!renderer.__elyricSettingsOpen;
         if (open) {
+            if (renderer.__elyricThemeV2DesignerOpen) {
+                setPlayerThemeV2DesignerOpen(renderer, false);
+            }
             setMediaPanelOpen(renderer, false);
             if (renderer.__elyricQueueOpen) {
                 setQueueOpen(renderer, false, true);
@@ -2599,6 +3613,9 @@
             focusPlayerOverlay(renderer.__elyricSettingsPanel);
         }
         if (wasOpen && !open) {
+            if (renderer.__elyricThemeV2DesignerOpen && !preserveDesigner) {
+                setPlayerThemeV2DesignerOpen(renderer, false);
+            }
             resumeLyricFollowing(renderer, false);
             restorePlayerOverlayFocus(renderer.__elyricSettingsPanel, renderer.__elyricSettingsButton);
         }
@@ -2879,6 +3896,9 @@
 
     function applyPlayerLayout(renderer, layoutId, persist) {
         layoutId = isKnownPlayerLayout(layoutId) ? layoutId : "album";
+        if ("custom" !== layoutId && renderer.__elyricThemeV2) {
+            clearPlayerThemeV2Layout(renderer);
+        }
         renderer.__elyricPlayerLayout = layoutId;
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-player-layout", layoutId);
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-player-layout", layoutId);
@@ -4393,6 +5413,7 @@
         replaceElementText(renderer.__elyricPlayerAlbum, item && item.Album || "");
 
         var artworkUrl = playerArtworkUrl(renderer, item);
+        renderer.__elyricPlayerEmbyArtworkUrl = artworkUrl || "";
         [renderer.__elyricPlayerArtwork, renderer.__elyricPlayerBackground]
             .concat(renderer.__elyricCoverflowArtworks || [])
             .forEach(function (imageElement) {
@@ -4408,6 +5429,9 @@
                     imageElement.setAttribute("hidden", "hidden");
                 }
             });
+        if (renderer.__elyricThemeV2) {
+            applyPlayerThemeV2Artwork(renderer);
+        }
         (renderer.__elyricCoverflowCaptions || []).forEach(function (caption, index) {
             replaceElementText(
                 caption,
@@ -4794,6 +5818,22 @@
             syncPlayerThemeLibraryControls(renderer);
             return;
         }
+        if (theme.remoteOnly) {
+            playerThemeV2ApiRequest(
+                renderer,
+                "GET",
+                PLAYER_THEMES_PATH + "/" + encodeURIComponent(theme.id)
+            ).then(function (record) {
+                var loaded = normalizeRemotePlayerTheme(record);
+                if (!loaded) { return; }
+                var index = renderer.__elyricUserPlayerThemes.indexOf(theme);
+                renderer.__elyricUserPlayerThemes[index] = loaded;
+                selectPlayerThemeLibraryEntry(renderer, "user:" + loaded.id);
+            }).catch(function () {
+                updatePlayerThemeLibraryStatus(renderer, "远程主题暂时无法读取，请检查网络", "error");
+            });
+            return;
+        }
         renderer.__elyricThemeBaseLayout = theme.baseLayout;
         renderer.__elyricPlayerLayout = "custom";
         applyPlayerLayout(renderer, "custom", false);
@@ -4826,10 +5866,6 @@
 
     function createUserPlayerTheme(renderer, duplicate) {
         ensurePlayerThemeLibrary(renderer);
-        if (renderer.__elyricUserPlayerThemes.length >= MAX_USER_PLAYER_THEMES) {
-            updatePlayerThemeLibraryStatus(renderer, "最多保存 " + MAX_USER_PLAYER_THEMES + " 套用户主题", "error");
-            return;
-        }
         var active = activeUserPlayerTheme(renderer);
         var fallbackName = duplicate && active ? active.name + " 副本" : "我的主题 " + (renderer.__elyricUserPlayerThemes.length + 1);
         var id = newPlayerThemeId(renderer);
@@ -4848,6 +5884,7 @@
         scheduleUserPlayerPreferencesSave(renderer);
         updatePlayerThemeLibraryStatus(renderer, "已新建“" + theme.name + "”", "synced");
         syncPlayerThemeLibraryControls(renderer);
+        syncNamedPlayerThemeV2(renderer, theme, true);
     }
 
     function saveActiveUserPlayerTheme(renderer) {
@@ -4861,6 +5898,7 @@
             playerThemeNameFromInput(renderer, active.name),
             active.id
         );
+        saved.revision = Number(active.revision || 0);
         var index = renderer.__elyricUserPlayerThemes.indexOf(active);
         renderer.__elyricUserPlayerThemes[index] = saved;
         renderer.__elyricActiveUserPlayerThemeId = saved.id;
@@ -4869,6 +5907,7 @@
         scheduleUserPlayerPreferencesSave(renderer);
         updatePlayerThemeLibraryStatus(renderer, "已保存“" + saved.name + "”", "synced");
         syncPlayerThemeLibraryControls(renderer);
+        syncNamedPlayerThemeV2(renderer, saved, false);
     }
 
     function renameActiveUserPlayerTheme(renderer) {
@@ -4882,6 +5921,7 @@
         scheduleUserPlayerPreferencesSave(renderer);
         updatePlayerThemeLibraryStatus(renderer, "已重命名为“" + active.name + "”", "synced");
         syncPlayerThemeLibraryControls(renderer);
+        syncNamedPlayerThemeV2(renderer, active, false);
     }
 
     function deleteActiveUserPlayerTheme(renderer) {
@@ -4893,15 +5933,648 @@
             && !window.confirm("删除用户主题“" + active.name + "”？此操作不可撤销。")) {
             return;
         }
-        renderer.__elyricUserPlayerThemes = renderer.__elyricUserPlayerThemes.filter(function (theme) {
-            return theme.id !== active.id;
+        var finishLocalDelete = function () {
+            renderer.__elyricUserPlayerThemes = renderer.__elyricUserPlayerThemes.filter(function (theme) {
+                return theme.id !== active.id;
+            });
+            renderer.__elyricActiveUserPlayerThemeId = null;
+            storePlayerThemeLibrary(renderer);
+            applyPlayerLayout(renderer, active.baseLayout || "album", true);
+            scheduleUserPlayerPreferencesSave(renderer);
+            updatePlayerThemeLibraryStatus(renderer, "已删除“" + active.name + "”并恢复内置主题", "ready");
+            syncPlayerThemeLibraryControls(renderer);
+        };
+        playerThemeV2ApiRequest(
+            renderer,
+            "DELETE",
+            PLAYER_THEMES_PATH + "/" + encodeURIComponent(active.id)
+                + "?ExpectedRevision=" + encodeURIComponent(active.revision || 0)
+        ).then(function (result) {
+            if (playerThemeV2ResponseValue(result, "conflict", "Conflict", false)) {
+                updatePlayerThemeLibraryStatus(renderer, "主题已在其他设备修改，未执行删除并已重新读取主题库", "error");
+                requestPlayerThemeV2Workspace(renderer).catch(function () {});
+                return;
+            }
+            finishLocalDelete();
+        }).catch(function () {
+            queuePlayerThemeV2Operation({
+                kind: "theme-delete",
+                method: "DELETE",
+                path: PLAYER_THEMES_PATH + "/" + encodeURIComponent(active.id)
+                    + "?ExpectedRevision=" + encodeURIComponent(active.revision || 0)
+            });
+            finishLocalDelete();
         });
-        renderer.__elyricActiveUserPlayerThemeId = null;
-        storePlayerThemeLibrary(renderer);
-        applyPlayerLayout(renderer, active.baseLayout || "album", true);
+    }
+
+    function ensurePlayerThemeV2State(renderer) {
+        if (!renderer.__elyricThemeV2) {
+            renderer.__elyricThemeV2 = captureRenderedPlayerThemeV2State(renderer) || defaultPlayerThemeV2State();
+        }
+        renderer.__elyricThemeV2 = normalizePlayerThemeV2State(renderer.__elyricThemeV2);
+        renderer.__elyricThemeV2Profile = renderer.__elyricThemeV2Profile || currentPlayerThemeV2Profile();
+        renderer.__elyricThemeV2SelectedLayer = renderer.__elyricThemeV2SelectedLayer || "lyrics";
+        renderer.__elyricThemeV2Undo = renderer.__elyricThemeV2Undo || [];
+        renderer.__elyricThemeV2Redo = renderer.__elyricThemeV2Redo || [];
+        return renderer.__elyricThemeV2;
+    }
+
+    function captureRenderedPlayerThemeV2State(renderer) {
+        if (!renderer || "undefined" === typeof window || !window.innerWidth || !window.innerHeight) {
+            return null;
+        }
+        var state = defaultPlayerThemeV2State();
+        var profileId = currentPlayerThemeV2Profile();
+        var captured = false;
+        PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+            var element = playerThemeV2LayerElement(renderer, layerId);
+            if (!element || !element.getBoundingClientRect) { return; }
+            var rect = element.getBoundingClientRect();
+            if (!rect || !isFinite(rect.width) || !isFinite(rect.height) || rect.width < 1 || rect.height < 1) {
+                return;
+            }
+            var computed = window.getComputedStyle ? window.getComputedStyle(element) : null;
+            var layer = state.layouts[profileId][layerId];
+            layer.x = Math.round(rect.left / window.innerWidth * 1000) / 10;
+            layer.y = Math.round(rect.top / window.innerHeight * 1000) / 10;
+            layer.width = Math.round(rect.width / window.innerWidth * 1000) / 10;
+            layer.height = Math.round(rect.height / window.innerHeight * 1000) / 10;
+            layer.z = computed && isFinite(Number(computed.zIndex)) ? Number(computed.zIndex) : layer.z;
+            layer.opacity = computed && isFinite(Number(computed.opacity)) ? Number(computed.opacity) : 1;
+            layer.hidden = false;
+            captured = true;
+        });
+        if (!captured) { return null; }
+        state.layoutOverrides[profileId] = true;
+        return normalizePlayerThemeV2State(state);
+    }
+
+    function pushPlayerThemeV2History(renderer) {
+        ensurePlayerThemeV2State(renderer);
+        renderer.__elyricThemeV2Undo.push(clonePlayerThemeV2Value(renderer.__elyricThemeV2));
+        if (renderer.__elyricThemeV2Undo.length > 80) {
+            renderer.__elyricThemeV2Undo.shift();
+        }
+        renderer.__elyricThemeV2Redo = [];
+    }
+
+    function restorePlayerThemeV2History(renderer, direction) {
+        ensurePlayerThemeV2State(renderer);
+        var source = "undo" === direction ? renderer.__elyricThemeV2Undo : renderer.__elyricThemeV2Redo;
+        var destination = "undo" === direction ? renderer.__elyricThemeV2Redo : renderer.__elyricThemeV2Undo;
+        if (!source.length) { return; }
+        destination.push(clonePlayerThemeV2Value(renderer.__elyricThemeV2));
+        renderer.__elyricThemeV2 = source.pop();
+        applyPlayerThemeV2State(renderer, renderer.__elyricThemeV2, renderer.__elyricThemeV2Profile);
+        storeCurrentPlayerThemeDesign(renderer);
         scheduleUserPlayerPreferencesSave(renderer);
-        updatePlayerThemeLibraryStatus(renderer, "已删除“" + active.name + "”并恢复内置主题", "ready");
-        syncPlayerThemeLibraryControls(renderer);
+    }
+
+    function activePlayerThemeV2Layer(renderer) {
+        ensurePlayerThemeV2State(renderer);
+        return resolvedPlayerThemeV2Layout(renderer, renderer.__elyricThemeV2Profile)
+            [renderer.__elyricThemeV2SelectedLayer];
+    }
+
+    function snapPlayerThemeV2Value(value, anchors) {
+        var snapped = value;
+        var distance = .8;
+        anchors.forEach(function (anchor) {
+            if (Math.abs(value - anchor) <= distance) { snapped = anchor; }
+        });
+        return Math.round(snapped * 10) / 10;
+    }
+
+    function updatePlayerThemeV2Layer(renderer, patch, recordHistory) {
+        var inheritedLayer = activePlayerThemeV2Layer(renderer);
+        if (inheritedLayer.locked && !Object.prototype.hasOwnProperty.call(patch, "locked")) { return; }
+        if (false !== recordHistory) { pushPlayerThemeV2History(renderer); }
+        ensurePlayerThemeV2ProfileOverride(renderer);
+        var layer = activePlayerThemeV2Layer(renderer);
+        Object.keys(patch).forEach(function (key) { layer[key] = patch[key]; });
+        renderer.__elyricThemeV2 = normalizePlayerThemeV2State(renderer.__elyricThemeV2);
+        applyPlayerThemeV2Layer(renderer, renderer.__elyricThemeV2SelectedLayer, activePlayerThemeV2Layer(renderer));
+        syncPlayerThemeV2Designer(renderer);
+        storeCurrentPlayerThemeDesign(renderer);
+        scheduleUserPlayerPreferencesSave(renderer);
+    }
+
+    function selectPlayerThemeV2Layer(renderer, layerId) {
+        if (PLAYER_THEME_V2_LAYER_IDS.indexOf(layerId) < 0) { return; }
+        renderer.__elyricThemeV2SelectedLayer = layerId;
+        syncPlayerThemeV2Designer(renderer);
+    }
+
+    function playerThemeV2Align(renderer, mode) {
+        var layer = activePlayerThemeV2Layer(renderer);
+        var patch = {};
+        if ("left" === mode) { patch.x = 0; }
+        if ("center" === mode) { patch.x = (100 - layer.width) / 2; }
+        if ("right" === mode) { patch.x = 100 - layer.width; }
+        if ("top" === mode) { patch.y = 0; }
+        if ("middle" === mode) { patch.y = (100 - layer.height) / 2; }
+        if ("bottom" === mode) { patch.y = 100 - layer.height; }
+        updatePlayerThemeV2Layer(renderer, patch, true);
+    }
+
+    function removePlayerThemeV2DesignerBoxes(renderer) {
+        (renderer.__elyricThemeV2Boxes || []).forEach(function (box) {
+            if (box.parentNode) { box.parentNode.removeChild(box); }
+        });
+        renderer.__elyricThemeV2Boxes = [];
+        if (renderer.__elyricThemeV2Guides && renderer.__elyricThemeV2Guides.parentNode) {
+            renderer.__elyricThemeV2Guides.parentNode.removeChild(renderer.__elyricThemeV2Guides);
+        }
+        renderer.__elyricThemeV2Guides = null;
+    }
+
+    function installPlayerThemeV2BoxPointer(renderer, box, layerId, handle) {
+        box.addEventListener("pointerdown", function (event) {
+            if (!renderer.__elyricThemeV2DesignerOpen) { return; }
+            selectPlayerThemeV2Layer(renderer, layerId);
+            var layer = activePlayerThemeV2Layer(renderer);
+            if (layer.locked) { return; }
+            stopControlEvent(event);
+            pushPlayerThemeV2History(renderer);
+            ensurePlayerThemeV2ProfileOverride(renderer);
+            layer = activePlayerThemeV2Layer(renderer);
+            var startX = event.clientX;
+            var startY = event.clientY;
+            var original = clonePlayerThemeV2Value(layer);
+            if (box.setPointerCapture) { box.setPointerCapture(event.pointerId); }
+            var move = function (moveEvent) {
+                var dx = (moveEvent.clientX - startX) / Math.max(1, window.innerWidth) * 100;
+                var dy = (moveEvent.clientY - startY) / Math.max(1, window.innerHeight) * 100;
+                if (handle) {
+                    layer.width = snapPlayerThemeV2Value(Math.max(1, original.width + dx), [25, 33.3, 50, 66.7, 75, 100]);
+                    layer.height = snapPlayerThemeV2Value(Math.max(1, original.height + dy), [25, 33.3, 50, 66.7, 75, 100]);
+                } else {
+                    layer.x = snapPlayerThemeV2Value(original.x + dx, [0, 5, 10, 25, 50, 75, 90, 95, 100 - original.width]);
+                    layer.y = snapPlayerThemeV2Value(original.y + dy, [0, 5, 10, 25, 50, 75, 90, 95, 100 - original.height]);
+                }
+                applyPlayerThemeV2Layer(renderer, layerId, layer);
+                syncPlayerThemeV2Designer(renderer);
+            };
+            var end = function () {
+                box.removeEventListener("pointermove", move);
+                box.removeEventListener("pointerup", end);
+                box.removeEventListener("pointercancel", end);
+                storeCurrentPlayerThemeDesign(renderer);
+                scheduleUserPlayerPreferencesSave(renderer);
+            };
+            box.addEventListener("pointermove", move);
+            box.addEventListener("pointerup", end);
+            box.addEventListener("pointercancel", end);
+        });
+    }
+
+    function buildPlayerThemeV2DesignerBoxes(renderer) {
+        removePlayerThemeV2DesignerBoxes(renderer);
+        if (!renderer.__elyricThemeV2DesignerOpen || !document.body) { return; }
+        ensurePlayerThemeV2State(renderer);
+        renderer.__elyricThemeV2Boxes = [];
+        var guideHost = document.createElement("div");
+        guideHost.className = "elyric-v2-alignment-guides";
+        guideHost.setAttribute("aria-hidden", "true");
+        guideHost.appendChild(document.createElement("i"));
+        guideHost.appendChild(document.createElement("i"));
+        document.body.appendChild(guideHost);
+        renderer.__elyricThemeV2Guides = guideHost;
+        var profileLayout = resolvedPlayerThemeV2Layout(renderer, renderer.__elyricThemeV2Profile);
+        PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+            var layer = profileLayout[layerId];
+            var box = document.createElement("div");
+            box.className = "elyric-v2-layer-box";
+            box.setAttribute("data-elyric-v2-box", layerId);
+            box.setAttribute("data-selected", layerId === renderer.__elyricThemeV2SelectedLayer ? "true" : "false");
+            box.setAttribute("data-locked", layer.locked ? "true" : "false");
+            box.setAttribute("data-hidden-layer", layer.hidden ? "true" : "false");
+            var label = document.createElement("span");
+            label.appendChild(document.createTextNode(PLAYER_THEME_V2_LAYER_LABELS[layerId]));
+            box.appendChild(label);
+            var handle = document.createElement("b");
+            handle.className = "elyric-v2-resize-handle";
+            handle.setAttribute("aria-hidden", "true");
+            box.appendChild(handle);
+            document.body.appendChild(box);
+            installPlayerThemeV2BoxPointer(renderer, box, layerId, false);
+            installPlayerThemeV2BoxPointer(renderer, handle, layerId, true);
+            renderer.__elyricThemeV2Boxes.push(box);
+        });
+        syncPlayerThemeV2Designer(renderer);
+    }
+
+    function setPlayerThemeV2DesignerOpen(renderer, open) {
+        renderer.__elyricThemeV2DesignerOpen = !!open;
+        ensurePlayerThemeV2State(renderer);
+        setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-designer-open", open ? "true" : "false");
+        setAttributeIfChanged(renderer.__elyricSettingsPanel, "data-elyric-designer-open", open ? "true" : "false");
+        if (renderer.__elyricThemeV2DesignerToggle) {
+            setAttributeIfChanged(renderer.__elyricThemeV2DesignerToggle, "aria-pressed", open ? "true" : "false");
+        }
+        buildPlayerThemeV2DesignerBoxes(renderer);
+    }
+
+    function syncPlayerThemeV2Designer(renderer) {
+        if (!renderer.__elyricThemeV2) { return; }
+        var layer = activePlayerThemeV2Layer(renderer);
+        if (renderer.__elyricThemeV2ProfileSelect) {
+            renderer.__elyricThemeV2ProfileSelect.value = renderer.__elyricThemeV2Profile;
+        }
+        var resolvedProfile = resolvedPlayerThemeV2Profile(
+            renderer.__elyricThemeV2,
+            renderer.__elyricThemeV2Profile
+        );
+        var hasOverride = !!renderer.__elyricThemeV2.layoutOverrides[renderer.__elyricThemeV2Profile];
+        if (renderer.__elyricThemeV2InheritanceStatus) {
+            replaceElementText(
+                renderer.__elyricThemeV2InheritanceStatus,
+                hasOverride ? "此尺寸使用独立布局" : resolvedProfile === renderer.__elyricThemeV2Profile
+                    ? "此尺寸使用安全默认布局" : "继承自 " + resolvedProfile
+            );
+        }
+        if (renderer.__elyricThemeV2InheritanceReset) {
+            renderer.__elyricThemeV2InheritanceReset.disabled = !hasOverride;
+        }
+        (renderer.__elyricThemeV2LayerButtons || []).forEach(function (button) {
+            var selected = button.getAttribute("data-layer") === renderer.__elyricThemeV2SelectedLayer;
+            setAttributeIfChanged(button, "aria-pressed", selected ? "true" : "false");
+        });
+        var controls = renderer.__elyricThemeV2GeometryInputs || {};
+        ["x", "y", "width", "height", "rotation", "z", "opacity"].forEach(function (key) {
+            if (!controls[key]) { return; }
+            controls[key].value = "opacity" === key ? Math.round(layer[key] * 100) : layer[key];
+            controls[key].setAttribute("value", controls[key].value);
+        });
+        if (renderer.__elyricThemeV2LockButton) {
+            setAttributeIfChanged(renderer.__elyricThemeV2LockButton, "aria-pressed", layer.locked ? "true" : "false");
+            replaceElementText(renderer.__elyricThemeV2LockButton, layer.locked ? "解锁" : "锁定");
+        }
+        if (renderer.__elyricThemeV2HideButton) {
+            setAttributeIfChanged(renderer.__elyricThemeV2HideButton, "aria-pressed", layer.hidden ? "true" : "false");
+            replaceElementText(renderer.__elyricThemeV2HideButton, layer.hidden ? "显示" : "隐藏");
+        }
+        var artwork = renderer.__elyricThemeV2.artwork;
+        if (renderer.__elyricThemeV2ArtworkSource) { renderer.__elyricThemeV2ArtworkSource.value = artwork.source; }
+        if (renderer.__elyricThemeV2ArtworkUrl) { renderer.__elyricThemeV2ArtworkUrl.value = artwork.url || ""; }
+        if (renderer.__elyricThemeV2ArtworkFit) { renderer.__elyricThemeV2ArtworkFit.value = artwork.fit; }
+        if (renderer.__elyricThemeV2ArtworkClip) { renderer.__elyricThemeV2ArtworkClip.value = artwork.clipPath || "none"; }
+        if (renderer.__elyricThemeV2ArtworkFocusX) { renderer.__elyricThemeV2ArtworkFocusX.value = artwork.focusX; }
+        if (renderer.__elyricThemeV2ArtworkFocusY) { renderer.__elyricThemeV2ArtworkFocusY.value = artwork.focusY; }
+        if (renderer.__elyricThemeV2FollowInput) {
+            renderer.__elyricThemeV2FollowInput.value = Math.round(renderer.__elyricThemeV2.lyrics.followDelayMs / 1000);
+        }
+        if (renderer.__elyricThemeV2PopupOpacity) {
+            renderer.__elyricThemeV2PopupOpacity.value = renderer.__elyricThemeV2.popupStyle.surfaceOpacity;
+        }
+        if (renderer.__elyricThemeV2PopupRadius) {
+            renderer.__elyricThemeV2PopupRadius.value = renderer.__elyricThemeV2.popupStyle.radius;
+        }
+        if (renderer.__elyricThemeV2SafeArea) {
+            renderer.__elyricThemeV2SafeArea.value = renderer.__elyricThemeV2.controls.safeArea;
+        }
+        if (renderer.__elyricThemeV2ThirdLineInput) {
+            renderer.__elyricThemeV2ThirdLineInput.checked = renderer.__elyricThemeV2.lyrics.showThirdAndLaterLines;
+        }
+        var typographyInputs = renderer.__elyricThemeV2TypographyInputs || {};
+        ["primary", "secondary", "tertiary"].forEach(function (lineId) {
+            var inputs = typographyInputs[lineId];
+            var style = renderer.__elyricThemeV2.typography[lineId];
+            if (!inputs) { return; }
+            Object.keys(inputs).forEach(function (key) {
+                var stateMatch = /^(past|current|future)(Color|Opacity)$/.exec(key);
+                if (stateMatch) {
+                    var stateValue = style.states[stateMatch[1]]["Color" === stateMatch[2] ? "color" : "opacity"];
+                    inputs[key].value = stateValue;
+                } else if ("italic" === key) { inputs[key].checked = !!style[key]; }
+                else { inputs[key].value = null == style[key] ? "" : style[key]; }
+            });
+        });
+        (renderer.__elyricThemeV2Boxes || []).forEach(function (box) {
+            var id = box.getAttribute("data-elyric-v2-box");
+            var boxLayer = resolvedPlayerThemeV2Layout(renderer, renderer.__elyricThemeV2Profile)[id];
+            box.style.left = boxLayer.x + "vw";
+            box.style.top = boxLayer.y + "vh";
+            box.style.width = boxLayer.width + "vw";
+            box.style.height = boxLayer.height + "vh";
+            box.style.transform = "rotate(" + boxLayer.rotation + "deg)";
+            box.setAttribute("data-selected", id === renderer.__elyricThemeV2SelectedLayer ? "true" : "false");
+            box.setAttribute("data-locked", boxLayer.locked ? "true" : "false");
+            box.setAttribute("data-hidden-layer", boxLayer.hidden ? "true" : "false");
+        });
+    }
+
+    function createPlayerThemeV2TextInput(section, label, value, onChange, type) {
+        var row = document.createElement("label");
+        row.className = "elyric-v2-text-setting";
+        var caption = document.createElement("span");
+        caption.appendChild(document.createTextNode(label));
+        var input = document.createElement("input");
+        input.type = type || "text";
+        input.value = value || "";
+        input.addEventListener("change", function (event) { stopControlEvent(event); onChange(input.value); });
+        input.addEventListener("pointerdown", stopControlEvent);
+        row.appendChild(caption);
+        row.appendChild(input);
+        section.appendChild(row);
+        return input;
+    }
+
+    function createPlayerThemeV2DesignerSection(renderer, settingsPanel) {
+        var section = createSettingsSection(settingsPanel, "自由画布与完整样式", "elyric-v2-designer-settings");
+        var toggle = createSettingsActionButton("画布编辑", "edit", function () {
+            var open = !renderer.__elyricThemeV2DesignerOpen;
+            setPlayerThemeV2DesignerOpen(renderer, open);
+            if (open) {
+                setSettingsPanelOpen(renderer, false, true);
+            }
+        }, "elyric-v2-designer-toggle");
+        toggle.setAttribute("aria-pressed", "false");
+        section.appendChild(toggle);
+
+        var profileSelect = document.createElement("select");
+        profileSelect.className = "elyric-v2-profile-select";
+        [
+            ["desktop", "桌面"], ["tablet", "平板"],
+            ["phonePortrait", "手机竖屏"], ["phoneLandscape", "手机横屏"]
+        ].forEach(function (item) {
+            var option = document.createElement("option");
+            option.value = item[0];
+            option.appendChild(document.createTextNode(item[1]));
+            profileSelect.appendChild(option);
+        });
+        profileSelect.addEventListener("change", function () {
+            renderer.__elyricThemeV2Profile = profileSelect.value;
+            applyPlayerThemeV2State(renderer, renderer.__elyricThemeV2, profileSelect.value);
+            buildPlayerThemeV2DesignerBoxes(renderer);
+        });
+        section.appendChild(profileSelect);
+        var inheritanceStatus = document.createElement("span");
+        inheritanceStatus.className = "elyric-v2-inheritance-status";
+        section.appendChild(inheritanceStatus);
+        var inheritanceReset = createSettingsActionButton("恢复尺寸继承", "undo", function () {
+            ensurePlayerThemeV2State(renderer);
+            var profileId = renderer.__elyricThemeV2Profile;
+            if (!renderer.__elyricThemeV2.layoutOverrides[profileId]) { return; }
+            pushPlayerThemeV2History(renderer);
+            renderer.__elyricThemeV2.layoutOverrides[profileId] = false;
+            applyPlayerThemeV2State(renderer, renderer.__elyricThemeV2, profileId);
+            buildPlayerThemeV2DesignerBoxes(renderer);
+            storeCurrentPlayerThemeDesign(renderer);
+            scheduleUserPlayerPreferencesSave(renderer);
+        }, "elyric-v2-inheritance-reset");
+        section.appendChild(inheritanceReset);
+
+        var layers = document.createElement("div");
+        layers.className = "elyric-v2-layer-list";
+        var layerButtons = [];
+        PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+            var button = document.createElement("button");
+            button.type = "button";
+            button.setAttribute("data-layer", layerId);
+            button.setAttribute("aria-pressed", "false");
+            button.appendChild(document.createTextNode(PLAYER_THEME_V2_LAYER_LABELS[layerId]));
+            button.addEventListener("click", function (event) { stopControlEvent(event); selectPlayerThemeV2Layer(renderer, layerId); });
+            layers.appendChild(button);
+            layerButtons.push(button);
+        });
+        section.appendChild(layers);
+
+        var geometry = document.createElement("div");
+        geometry.className = "elyric-v2-geometry-grid";
+        var geometryInputs = {};
+        [
+            ["x", "X", -100, 200, .1], ["y", "Y", -100, 200, .1],
+            ["width", "宽", 1, 200, .1], ["height", "高", 1, 200, .1],
+            ["rotation", "旋转", -360, 360, 1], ["z", "层级", 0, 1000, 1],
+            ["opacity", "透明度", 0, 100, 1]
+        ].forEach(function (item) {
+            var label = document.createElement("label");
+            label.appendChild(document.createTextNode(item[1]));
+            var input = document.createElement("input");
+            input.type = "number";
+            input.min = item[2]; input.max = item[3]; input.step = item[4];
+            input.addEventListener("change", function () {
+                var value = Number(input.value);
+                var patch = {};
+                patch[item[0]] = "opacity" === item[0] ? value / 100 : value;
+                updatePlayerThemeV2Layer(renderer, patch, true);
+            });
+            label.appendChild(input);
+            geometry.appendChild(label);
+            geometryInputs[item[0]] = input;
+        });
+        section.appendChild(geometry);
+
+        var actions = document.createElement("div");
+        actions.className = "elyric-v2-layer-actions";
+        [
+            ["左", function () { playerThemeV2Align(renderer, "left"); }],
+            ["中", function () { playerThemeV2Align(renderer, "center"); }],
+            ["右", function () { playerThemeV2Align(renderer, "right"); }],
+            ["顶", function () { playerThemeV2Align(renderer, "top"); }],
+            ["垂中", function () { playerThemeV2Align(renderer, "middle"); }],
+            ["底", function () { playerThemeV2Align(renderer, "bottom"); }],
+            ["上移层级", function () { updatePlayerThemeV2Layer(renderer, { z: activePlayerThemeV2Layer(renderer).z + 1 }, true); }],
+            ["下移层级", function () { updatePlayerThemeV2Layer(renderer, { z: Math.max(0, activePlayerThemeV2Layer(renderer).z - 1) }, true); }]
+        ].forEach(function (item) {
+            var button = document.createElement("button");
+            button.type = "button";
+            button.appendChild(document.createTextNode(item[0]));
+            button.addEventListener("click", function (event) { stopControlEvent(event); item[1](); });
+            actions.appendChild(button);
+        });
+        var lockButton = document.createElement("button");
+        lockButton.type = "button";
+        lockButton.addEventListener("click", function () { updatePlayerThemeV2Layer(renderer, { locked: !activePlayerThemeV2Layer(renderer).locked }, true); });
+        actions.appendChild(lockButton);
+        var hideButton = document.createElement("button");
+        hideButton.type = "button";
+        hideButton.addEventListener("click", function () { updatePlayerThemeV2Layer(renderer, { hidden: !activePlayerThemeV2Layer(renderer).hidden }, true); });
+        actions.appendChild(hideButton);
+        section.appendChild(actions);
+
+        var history = document.createElement("div");
+        history.className = "elyric-v2-history-actions";
+        [
+            ["撤销", function () { restorePlayerThemeV2History(renderer, "undo"); }],
+            ["重做", function () { restorePlayerThemeV2History(renderer, "redo"); }]
+        ].forEach(function (item) {
+            var button = document.createElement("button");
+            button.type = "button";
+            button.appendChild(document.createTextNode(item[0]));
+            button.addEventListener("click", item[1]);
+            history.appendChild(button);
+        });
+        section.appendChild(history);
+
+        var artworkDetails = document.createElement("details");
+        var artworkSummary = document.createElement("summary");
+        artworkSummary.appendChild(document.createTextNode("封面来源、焦点与裁切"));
+        artworkDetails.appendChild(artworkSummary);
+        var artworkSource = document.createElement("select");
+        [["emby", "当前 Emby 图片"], ["url", "HTTPS URL"], ["asset", "私有上传"]].forEach(function (item) {
+            var option = document.createElement("option"); option.value = item[0];
+            option.appendChild(document.createTextNode(item[1])); artworkSource.appendChild(option);
+        });
+        artworkSource.addEventListener("change", function () {
+            pushPlayerThemeV2History(renderer); renderer.__elyricThemeV2.artwork.source = artworkSource.value;
+            applyPlayerThemeV2Artwork(renderer); storeCurrentPlayerThemeDesign(renderer); scheduleUserPlayerPreferencesSave(renderer);
+        });
+        artworkDetails.appendChild(artworkSource);
+        var artworkUrl = createPlayerThemeV2TextInput(artworkDetails, "HTTPS 图片 URL", "", function (value) {
+            if (value && !/^https:\/\//i.test(value)) { return; }
+            pushPlayerThemeV2History(renderer); renderer.__elyricThemeV2.artwork.url = value; renderer.__elyricThemeV2.artwork.source = "url";
+            applyPlayerThemeV2Artwork(renderer); storeCurrentPlayerThemeDesign(renderer); scheduleUserPlayerPreferencesSave(renderer);
+        }, "url");
+        var upload = document.createElement("input");
+        upload.type = "file"; upload.accept = "image/png,image/jpeg,image/webp,image/avif";
+        upload.addEventListener("change", function () {
+            if (upload.files && upload.files[0]) { uploadPlayerThemeV2Asset(renderer, upload.files[0], "artwork"); }
+        });
+        artworkDetails.appendChild(upload);
+        var fit = document.createElement("select");
+        ["cover", "contain", "fill", "none", "scale-down"].forEach(function (value) {
+            var option = document.createElement("option"); option.value = value;
+            option.appendChild(document.createTextNode(value)); fit.appendChild(option);
+        });
+        fit.addEventListener("change", function () { renderer.__elyricThemeV2.artwork.fit = fit.value; applyPlayerThemeV2Artwork(renderer); scheduleUserPlayerPreferencesSave(renderer); });
+        artworkDetails.appendChild(fit);
+        var focusX = createRangeSetting(artworkDetails, "封面焦点 X", "elyric-v2-artwork-focus-x", 0, 100, 1, "封面焦点 X", function (value) {
+            renderer.__elyricThemeV2.artwork.focusX = Number(value); applyPlayerThemeV2Artwork(renderer); scheduleUserPlayerPreferencesSave(renderer);
+        });
+        var focusY = createRangeSetting(artworkDetails, "封面焦点 Y", "elyric-v2-artwork-focus-y", 0, 100, 1, "封面焦点 Y", function (value) {
+            renderer.__elyricThemeV2.artwork.focusY = Number(value); applyPlayerThemeV2Artwork(renderer); scheduleUserPlayerPreferencesSave(renderer);
+        });
+        var clip = createPlayerThemeV2TextInput(artworkDetails, "多边形裁切 polygon(...) ", "none", function (value) {
+            renderer.__elyricThemeV2.artwork.clipPath = value; applyPlayerThemeV2Artwork(renderer); scheduleUserPlayerPreferencesSave(renderer);
+        });
+        section.appendChild(artworkDetails);
+
+        var typographyInputs = {};
+        ["primary", "secondary", "tertiary"].forEach(function (lineId, lineIndex) {
+            var details = document.createElement("details");
+            var summary = document.createElement("summary");
+            summary.appendChild(document.createTextNode(["主歌词", "第二行", "第三行及以后"][lineIndex] + "完整字体样式"));
+            details.appendChild(summary);
+            var inputs = {};
+            inputs.fontFamily = createPlayerThemeV2TextInput(details, "字体名称", "inherit", function (value) {
+                renderer.__elyricThemeV2.typography[lineId].fontFamily = value || "inherit"; applyPlayerThemeV2Typography(renderer); scheduleUserPlayerPreferencesSave(renderer);
+            });
+            inputs.fontUrl = createPlayerThemeV2TextInput(details, "HTTPS WOFF2 URL", "", function (value) {
+                if (value && !/^https:\/\//i.test(value)) { return; }
+                renderer.__elyricThemeV2.typography[lineId].fontAssetId = "";
+                renderer.__elyricThemeV2.typography[lineId].fontUrl = value;
+                installPlayerThemeV2Font(renderer, lineId);
+                scheduleUserPlayerPreferencesSave(renderer);
+            }, "url");
+            var fontUpload = document.createElement("input");
+            fontUpload.type = "file"; fontUpload.accept = "font/woff2,.woff2";
+            fontUpload.addEventListener("change", function () {
+                if (fontUpload.files && fontUpload.files[0]) { uploadPlayerThemeV2Asset(renderer, fontUpload.files[0], "font", lineId); }
+            });
+            details.appendChild(fontUpload);
+            [
+                ["size", 40, 300, 1], ["weight", 100, 900, 50], ["letterSpacing", -5, 20, .5],
+                ["lineHeight", .8, 3, .05], ["opacity", 0, 1, .05], ["strokeWidth", 0, 8, .25],
+                ["shadowX", -30, 30, 1], ["shadowY", -30, 30, 1], ["shadowBlur", 0, 60, 1], ["glow", 0, 60, 1]
+            ].forEach(function (item) {
+                var setting = createRangeSetting(details, item[0], "elyric-v2-type-" + lineId + "-" + item[0], item[1], item[2], item[3], item[0], function (value) {
+                    renderer.__elyricThemeV2.typography[lineId][item[0]] = Number(value); applyPlayerThemeV2Typography(renderer); scheduleUserPlayerPreferencesSave(renderer);
+                });
+                inputs[item[0]] = setting.input;
+            });
+            ["color", "strokeColor", "shadowColor"].forEach(function (property) {
+                inputs[property] = createPlayerThemeV2TextInput(details, property, "#ffffff", function (value) {
+                    renderer.__elyricThemeV2.typography[lineId][property] = normalizeHexColor(value, "#ffffff"); applyPlayerThemeV2Typography(renderer); scheduleUserPlayerPreferencesSave(renderer);
+                });
+            });
+            ["past", "current", "future"].forEach(function (stateId) {
+                var title = { past: "已播", current: "当前", future: "未播" }[stateId];
+                inputs[stateId + "Color"] = createPlayerThemeV2TextInput(details, title + "颜色", "#ffffff", function (value) {
+                    renderer.__elyricThemeV2.typography[lineId].states[stateId].color = normalizeHexColor(value, "#ffffff");
+                    applyPlayerThemeV2Typography(renderer); scheduleUserPlayerPreferencesSave(renderer);
+                });
+                var stateOpacity = createRangeSetting(
+                    details, title + "透明度", "elyric-v2-type-" + lineId + "-" + stateId + "-opacity",
+                    0, 1, .05, title + "透明度", function (value) {
+                        renderer.__elyricThemeV2.typography[lineId].states[stateId].opacity = Number(value);
+                        applyPlayerThemeV2Typography(renderer); scheduleUserPlayerPreferencesSave(renderer);
+                    }
+                );
+                inputs[stateId + "Opacity"] = stateOpacity.input;
+            });
+            var italic = document.createElement("label");
+            var italicInput = document.createElement("input"); italicInput.type = "checkbox";
+            italicInput.addEventListener("change", function () { renderer.__elyricThemeV2.typography[lineId].italic = italicInput.checked; applyPlayerThemeV2Typography(renderer); scheduleUserPlayerPreferencesSave(renderer); });
+            italic.appendChild(italicInput); italic.appendChild(document.createTextNode("斜体")); details.appendChild(italic);
+            inputs.italic = italicInput;
+            typographyInputs[lineId] = inputs;
+            section.appendChild(details);
+        });
+
+        var popupDetails = document.createElement("details");
+        var popupSummary = document.createElement("summary");
+        popupSummary.appendChild(document.createTextNode("弹层样式与交互安全区"));
+        popupDetails.appendChild(popupSummary);
+        var popupOpacity = createRangeSetting(
+            popupDetails, "弹层表面不透明度", "elyric-v2-popup-opacity", 35, 100, 1,
+            "弹层表面不透明度", function (value) {
+                renderer.__elyricThemeV2.popupStyle.surfaceOpacity = Number(value);
+                applyPlayerThemeV2SemanticControls(renderer);
+                storeCurrentPlayerThemeDesign(renderer);
+                scheduleUserPlayerPreferencesSave(renderer);
+            }
+        );
+        var popupRadius = createRangeSetting(
+            popupDetails, "弹层圆角", "elyric-v2-popup-radius", 0, 64, 1,
+            "弹层圆角", function (value) {
+                renderer.__elyricThemeV2.popupStyle.radius = Number(value);
+                applyPlayerThemeV2SemanticControls(renderer);
+                storeCurrentPlayerThemeDesign(renderer);
+                scheduleUserPlayerPreferencesSave(renderer);
+            }
+        );
+        var safeArea = createRangeSetting(
+            popupDetails, "设置与退出按钮安全区", "elyric-v2-safe-area", 44, 180, 2,
+            "设置与退出按钮安全区", function (value) {
+                renderer.__elyricThemeV2.controls.safeArea = Number(value);
+                applyPlayerThemeV2SemanticControls(renderer);
+                storeCurrentPlayerThemeDesign(renderer);
+                scheduleUserPlayerPreferencesSave(renderer);
+            }
+        );
+        section.appendChild(popupDetails);
+
+        var follow = createRangeSetting(section, "歌词自动跟随等待", "elyric-v2-follow-delay", 1, 60, 1, "歌词自动跟随等待秒数", function (value) {
+            renderer.__elyricThemeV2.lyrics.followDelayMs = Number(value) * 1000; scheduleUserPlayerPreferencesSave(renderer);
+        });
+        var thirdLine = document.createElement("label");
+        var thirdLineInput = document.createElement("input"); thirdLineInput.type = "checkbox"; thirdLineInput.checked = true;
+        thirdLineInput.addEventListener("change", function () { setThirdLineOverride(renderer, thirdLineInput.checked, true); renderer.__elyricThemeV2.lyrics.showThirdAndLaterLines = thirdLineInput.checked; });
+        thirdLine.appendChild(thirdLineInput); thirdLine.appendChild(document.createTextNode("显示第三行及以后")); section.appendChild(thirdLine);
+
+        renderer.__elyricThemeV2DesignerToggle = toggle;
+        renderer.__elyricThemeV2ProfileSelect = profileSelect;
+        renderer.__elyricThemeV2InheritanceStatus = inheritanceStatus;
+        renderer.__elyricThemeV2InheritanceReset = inheritanceReset;
+        renderer.__elyricThemeV2LayerButtons = layerButtons;
+        renderer.__elyricThemeV2GeometryInputs = geometryInputs;
+        renderer.__elyricThemeV2LockButton = lockButton;
+        renderer.__elyricThemeV2HideButton = hideButton;
+        renderer.__elyricThemeV2ArtworkSource = artworkSource;
+        renderer.__elyricThemeV2ArtworkUrl = artworkUrl;
+        renderer.__elyricThemeV2ArtworkFit = fit;
+        renderer.__elyricThemeV2ArtworkFocusX = focusX.input;
+        renderer.__elyricThemeV2ArtworkFocusY = focusY.input;
+        renderer.__elyricThemeV2ArtworkClip = clip;
+        renderer.__elyricThemeV2TypographyInputs = typographyInputs;
+        renderer.__elyricThemeV2PopupOpacity = popupOpacity.input;
+        renderer.__elyricThemeV2PopupRadius = popupRadius.input;
+        renderer.__elyricThemeV2SafeArea = safeArea.input;
+        renderer.__elyricThemeV2FollowInput = follow.input;
+        renderer.__elyricThemeV2ThirdLineInput = thirdLineInput;
+        return section;
     }
 
     function createSettingsActionButton(label, icon, onClick, className) {
@@ -5021,7 +6694,10 @@
     }
 
     function suspendLyricFollowing(renderer) {
-        renderer.__elyricManualScrollUntil = Date.now() + LYRIC_FOLLOW_IDLE_MS;
+        var followDelay = renderer.__elyricThemeV2 && renderer.__elyricThemeV2.lyrics
+            ? renderer.__elyricThemeV2.lyrics.followDelayMs
+            : LYRIC_FOLLOW_IDLE_MS;
+        renderer.__elyricManualScrollUntil = Date.now() + followDelay;
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-manual-scroll", "true");
         if (renderer.__elyricLyricFollowButton) {
             renderer.__elyricLyricFollowButton.removeAttribute("hidden");
@@ -5032,7 +6708,7 @@
         renderer.__elyricLyricFollowTimer = setTimeout(function () {
             renderer.__elyricLyricFollowTimer = 0;
             resumeLyricFollowing(renderer, true);
-        }, LYRIC_FOLLOW_IDLE_MS);
+        }, followDelay);
     }
 
     function installLyricFollowTracking(renderer) {
@@ -5419,6 +7095,8 @@
         themeLibraryStatus.setAttribute("aria-live", "polite");
         themeLibraryStatus.appendChild(document.createTextNode("内置主题不可覆盖；调整后可另存为用户主题。"));
         librarySection.appendChild(themeLibraryStatus);
+
+        createPlayerThemeV2DesignerSection(renderer, settingsPanel);
 
         var backgroundSection = createSettingsSection(settingsPanel, "1. 背景", "elyric-background-settings");
         var backgroundChoices = createSegmentedControl(
@@ -5832,6 +7510,11 @@
         renderer.__elyricPlayerBackground = background;
         renderer.__elyricPlayerArtworkStage = artworkStage;
         renderer.__elyricPlayerArtwork = artwork;
+        renderer.__elyricPlayerMetadata = metadata;
+        renderer.__elyricPlayerTransport = transport;
+        renderer.__elyricPlayerProgress = progress;
+        renderer.__elyricPlayerVolume = volume;
+        renderer.__elyricPlayerTools = tools;
         renderer.__elyricPlayerCoverflow = coverflow;
         renderer.__elyricCoverflowArtworks = coverflowArtworks;
         renderer.__elyricCoverflowCaptions = coverflowCaptions;
@@ -5910,6 +7593,12 @@
                     applyPlayerLayoutPresetDefaults(renderer, renderer.__elyricPlayerLayout || "album");
                 }
             }
+            var v2Profile = currentPlayerThemeV2Profile();
+            if (renderer.__elyricThemeV2 && v2Profile !== renderer.__elyricThemeV2Profile) {
+                renderer.__elyricThemeV2Profile = v2Profile;
+                applyPlayerThemeV2State(renderer, renderer.__elyricThemeV2);
+                buildPlayerThemeV2DesignerBoxes(renderer);
+            }
             if (renderer.__elyricMediaOpen) {
                 positionMediaPanelNearTrigger(renderer);
             }
@@ -5918,10 +7607,36 @@
             window.addEventListener("resize", parametricViewportHandler);
             window.addEventListener("orientationchange", parametricViewportHandler);
             renderer.__elyricParametricViewportHandler = parametricViewportHandler;
+            renderer.__elyricThemeV2OnlineHandler = function () { flushPlayerThemeV2OfflineQueue(renderer); };
+            window.addEventListener("online", renderer.__elyricThemeV2OnlineHandler);
         }
         var overlayKeyHandler = function (event) {
+            if (event && renderer.__elyricThemeV2DesignerOpen
+                && (event.ctrlKey || event.metaKey) && !event.altKey
+                && ("z" === String(event.key).toLowerCase() || "y" === String(event.key).toLowerCase())) {
+                event.preventDefault();
+                restorePlayerThemeV2History(
+                    renderer,
+                    "y" === String(event.key).toLowerCase() || event.shiftKey ? "redo" : "undo"
+                );
+                return;
+            }
+            if (event && renderer.__elyricThemeV2DesignerOpen
+                && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].indexOf(event.key) >= 0
+                && !(event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName))) {
+                event.preventDefault();
+                var step = event.shiftKey ? 2 : .2;
+                var layer = activePlayerThemeV2Layer(renderer);
+                var patch = {};
+                if ("ArrowLeft" === event.key) { patch.x = layer.x - step; }
+                if ("ArrowRight" === event.key) { patch.x = layer.x + step; }
+                if ("ArrowUp" === event.key) { patch.y = layer.y - step; }
+                if ("ArrowDown" === event.key) { patch.y = layer.y + step; }
+                updatePlayerThemeV2Layer(renderer, patch, true);
+                return;
+            }
             if (event && "Escape" === event.key
-                && (renderer.__elyricSettingsOpen || renderer.__elyricMediaOpen)) {
+                && (renderer.__elyricSettingsOpen || renderer.__elyricMediaOpen || renderer.__elyricThemeV2DesignerOpen)) {
                 if (event.preventDefault) {
                     event.preventDefault();
                 }
@@ -5930,6 +7645,9 @@
                 }
                 setSettingsPanelOpen(renderer, false);
                 setMediaPanelOpen(renderer, false);
+                if (renderer.__elyricThemeV2DesignerOpen) {
+                    setPlayerThemeV2DesignerOpen(renderer, false);
+                }
                 return;
             }
             if (event && "Tab" === event.key) {
@@ -5962,6 +7680,10 @@
                 : DEFAULT_DISPLAY_CONFIGURATION.showSecondLine
         );
         setSecondLineOverride(renderer, renderer.__elyricLocalShowSecond);
+        renderer.__elyricLocalShowThird = renderer.__elyricDisplayConfiguration
+            ? renderer.__elyricDisplayConfiguration.showThirdAndLaterLines
+            : DEFAULT_DISPLAY_CONFIGURATION.showThirdAndLaterLines;
+        setThirdLineOverride(renderer, renderer.__elyricLocalShowThird, false);
         syncSegmentedButtons(
             renderer.__elyricThemeButtons,
             renderer.__elyricTheme,
@@ -6260,6 +7982,15 @@
             window.removeEventListener("orientationchange", renderer.__elyricParametricViewportHandler);
             renderer.__elyricParametricViewportHandler = null;
         }
+        if (renderer.__elyricThemeV2OnlineHandler
+            && "undefined" !== typeof window && window.removeEventListener) {
+            window.removeEventListener("online", renderer.__elyricThemeV2OnlineHandler);
+            renderer.__elyricThemeV2OnlineHandler = null;
+        }
+        removePlayerThemeV2DesignerBoxes(renderer);
+        if (renderer.__elyricThemeV2FontStyle && renderer.__elyricThemeV2FontStyle.parentNode) {
+            renderer.__elyricThemeV2FontStyle.parentNode.removeChild(renderer.__elyricThemeV2FontStyle);
+        }
         if (renderer.__elyricLyricFollowTimer) {
             clearTimeout(renderer.__elyricLyricFollowTimer);
             renderer.__elyricLyricFollowTimer = 0;
@@ -6352,6 +8083,12 @@
         renderer.__elyricPlayerBackground = null;
         renderer.__elyricPlayerArtworkStage = null;
         renderer.__elyricPlayerArtwork = null;
+        renderer.__elyricPlayerEmbyArtworkUrl = null;
+        renderer.__elyricPlayerMetadata = null;
+        renderer.__elyricPlayerTransport = null;
+        renderer.__elyricPlayerProgress = null;
+        renderer.__elyricPlayerVolume = null;
+        renderer.__elyricPlayerTools = null;
         renderer.__elyricPlayerCoverflow = null;
         renderer.__elyricCoverflowArtworks = null;
         renderer.__elyricCoverflowCaptions = null;
@@ -6430,6 +8167,17 @@
         renderer.__elyricPreferenceState = null;
         renderer.__elyricApplyingUserPreferences = false;
         renderer.__elyricPreferenceSaveTimer = 0;
+        renderer.__elyricThemeV2 = null;
+        renderer.__elyricThemeV2Profile = null;
+        renderer.__elyricThemeV2SelectedLayer = null;
+        renderer.__elyricThemeV2InheritanceStatus = null;
+        renderer.__elyricThemeV2InheritanceReset = null;
+        renderer.__elyricThemeV2Undo = null;
+        renderer.__elyricThemeV2Redo = null;
+        renderer.__elyricThemeV2DesignerOpen = false;
+        renderer.__elyricThemeV2Boxes = null;
+        renderer.__elyricThemeV2FontStyle = null;
+        renderer.__elyricThemeV2FontRules = null;
         renderer.__elyricPlayerButtons = null;
         renderer.__elyricQueueOpen = false;
         renderer.__elyricQueueDismissHost = null;

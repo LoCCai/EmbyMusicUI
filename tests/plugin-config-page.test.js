@@ -55,6 +55,9 @@ async function main() {
         "elyricOtherLinesBlurPixels",
         "elyricShowSecondLine",
         "elyricShowThirdAndLaterLines",
+        "elyricMaxThemeJsonKilobytes",
+        "elyricMaxAssetMegabytes",
+        "elyricUserStorageQuotaMegabytes",
         "elyricSaveStatus",
         "elyricReloadButton",
         "elyricSubmitLabel"
@@ -123,6 +126,9 @@ async function main() {
     }
 
     let configuration = {
+        MaxThemeJsonKilobytes: 512,
+        MaxAssetMegabytes: 8,
+        UserStorageQuotaMegabytes: 512,
         Display: {
             DefaultTheme: "classic",
             AllowUserThemeOverride: true,
@@ -240,6 +246,9 @@ async function main() {
     current.controls.elyricOtherLinesBlurPixels.value = "0.8";
     current.controls.elyricShowSecondLine.checked = false;
     current.controls.elyricShowThirdAndLaterLines.checked = false;
+    current.controls.elyricMaxThemeJsonKilobytes.value = "768";
+    current.controls.elyricMaxAssetMegabytes.value = "16";
+    current.controls.elyricUserStorageQuotaMegabytes.value = "1024";
 
     const submitEvent = { preventDefault() {} };
     current.formListeners.submit(submitEvent);
@@ -251,6 +260,9 @@ async function main() {
     assert.strictEqual(configuration.Display.DefaultTheme, "apple");
     assert.strictEqual(configuration.Display.FontSizePercent, 125);
     assert.strictEqual(configuration.Display.HighlightColor, "#123456");
+    assert.strictEqual(configuration.MaxThemeJsonKilobytes, 768);
+    assert.strictEqual(configuration.MaxAssetMegabytes, 16);
+    assert.strictEqual(configuration.UserStorageQuotaMegabytes, 1024);
     assert.strictEqual(getCalls, 6, "save should read the current configuration and then verify the persisted result");
     assert(current.controls.elyricSaveStatus.textContent.includes("保存成功，服务器已回读确认"));
     assert.strictEqual(current.controls.elyricSaveStatus.attributes["data-state"], "success");

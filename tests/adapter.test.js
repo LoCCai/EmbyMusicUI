@@ -159,7 +159,12 @@ class FakeNode {
         return false;
     }
     get textContent() {
+        if (undefined !== this._textContent) return this._textContent;
         return this.tagName ? this.children.map((child) => child.textContent).join("") : this.nodeText;
+    }
+    set textContent(value) {
+        this._textContent = String(value);
+        this.children = [];
     }
     matches(selector) {
         if (selector === "audio" || selector === "video") return this.tagName === selector;
@@ -193,6 +198,7 @@ class FakeNode {
 const createdTags = [];
 const document = {
     hidden: false,
+    head: new FakeNode("head"),
     body: new FakeNode("body"),
     activeElement: null,
     frontElement: null,
@@ -444,6 +450,14 @@ const normalizeLineEndings = (value) => value.replace(/\r\n?/g, "\n");
 const adapter = normalizeLineEndings(fs.readFileSync(adapterPath, "utf8"));
 const adapterCssPath = path.join(__dirname, "..", "adapters", "4.9.5.0", "lyrics.inject.css");
 const adapterCss = normalizeLineEndings(fs.readFileSync(adapterCssPath, "utf8"));
+const playerThemeV2Models = fs.readFileSync(path.join(
+    __dirname, "..", "plugin", "src", "EmbyLyricEnhance.Core", "PlayerThemeV2Models.cs"
+), "utf8");
+const validationRuleBlock = playerThemeV2Models.match(/ValidationRuleIds\s*=\s*\{([\s\S]*?)\};/);
+assert(validationRuleBlock, "the server should publish its PlayerThemeV2 validation rule catalog");
+const serverValidationRules = new Set(
+    [...validationRuleBlock[1].matchAll(/"([^"]+)"/g)].map((match) => match[1])
+);
 new Function(
     "LyricsRenderer",
     "document",
@@ -466,6 +480,24 @@ new Function(
     ApiClient,
     connectionManager
 );
+
+const playerThemeV2Registry = window.__elyricPlayerThemeV2Registry;
+assert(Array.isArray(playerThemeV2Registry) && playerThemeV2Registry.length > 400,
+    "the V2 registry should enumerate every scalar and responsive layer parameter");
+assert.strictEqual(new Set(playerThemeV2Registry.map((item) => item.id)).size,
+    playerThemeV2Registry.length, "registered PlayerThemeV2 ids should be unique");
+playerThemeV2Registry.forEach((item) => {
+    assert(item.hasDefault && item.hasValidator && item.hasMigration,
+        `${item.id} should declare defaults, validation and migration`);
+    assert(item.editor && item.binding && item.serialize && item.serverValidate,
+        `${item.id} should declare editor, renderer, serialization and server validation bindings`);
+    assert(item.serverRule && serverValidationRules.has(item.serverRule),
+        `${item.id} should reference a concrete validation rule enforced by the server`);
+});
+
+function valueAtPath(source, dottedPath) {
+    return dottedPath.split(".").reduce((value, part) => value == null ? undefined : value[part], source);
+}
 
 async function flushPromises() {
     await Promise.resolve();
@@ -584,7 +616,11 @@ function createLyricElement(index) {
     assert.strictEqual(serverConfigurationRequests, 1, "overlapping renderers should share one configuration request");
     assert.strictEqual(connectionManagerRequests, 1,
         "Emby 4.9.5 should resolve its authenticated API client through the module connection manager");
-    assert.deepStrictEqual(requestedConfigurationPaths, ["EmbyLyricEnhance/PublicConfiguration"]);
+    assert.deepStrictEqual(requestedConfigurationPaths, [
+        "EmbyLyricEnhance/PublicConfiguration",
+        "EmbyLyricEnhance/UserWorkspace",
+        "EmbyLyricEnhance/Themes"
+    ]);
     assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-font-size"), "135%");
     assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-line-height"), "1.5");
     assert.strictEqual(renderer.itemsContainer.style.getPropertyValue("--elyric-font-weight"), "700");
@@ -670,6 +706,50 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), "hidden");
     assert(visible.item.scrollIntoViewCalls.length > panelCloseFollowCount,
         "closing a sheet should recenter the active multilingual lyric after responsive layout changes");
+    renderer.__elyricSettingsButton.click();
+    renderer.__elyricThemeV2DesignerToggle.click();
+    assert.strictEqual(renderer.__elyricThemeV2DesignerOpen, true,
+        "starting canvas editing should retain designer state after closing settings");
+    assert.strictEqual(settingsPanel.getAttribute("hidden"), "hidden",
+        "starting canvas editing should close the settings drawer so its modal cannot block handles");
+    assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), "hidden",
+        "canvas editing should not retain the settings click-blocking scrim");
+    assert.strictEqual(renderer.__elyricThemeV2Boxes.length, 8,
+        "canvas editing should expose one editable box for every player layer");
+    assert(renderer.__elyricThemeV2Boxes.every((box) => box.parentNode === document.body),
+        "canvas handles should remain mounted after the settings drawer closes");
+    renderer.__elyricThemeV2LayerButtons
+        .find((button) => button.getAttribute("data-layer") === "auxiliary").click();
+    renderer.__elyricThemeV2HideButton.click();
+    assert.strictEqual(renderer.__elyricPlayerTools.getAttribute("data-elyric-v2-user-hidden"), "true",
+        "hiding the auxiliary layer should use the safe-entry CSS hook");
+    assert.strictEqual(renderer.__elyricSettingsButton.parentNode, renderer.__elyricPlayerTools,
+        "the settings launcher must remain in the auxiliary layer as its recovery entry");
+    assert(adapterCss.includes(
+        '.elyric-player-v2-layer-auxiliary[data-elyric-v2-user-hidden="true"] > :not(.elyric-player-button-settings)'
+    ) && adapterCss.includes(
+        '.elyric-player-v2-layer-auxiliary[data-elyric-v2-user-hidden="true"] .elyric-player-button-settings'
+    ), "hiding auxiliary controls should keep only the settings recovery button visible");
+    renderer.__elyricThemeV2HideButton.click();
+    renderer.__elyricSettingsButton.click();
+    assert.strictEqual(renderer.__elyricThemeV2DesignerOpen, false,
+        "opening settings should automatically finish canvas editing");
+    assert.strictEqual(renderer.__elyricThemeV2Boxes.length, 0,
+        "opening settings should remove canvas handles before showing the modal drawer");
+    renderer.__elyricThemeV2DesignerToggle.click();
+    let designerEscapePrevented = false;
+    let designerEscapeStopped = false;
+    document.dispatchEvent({
+        type: "keydown",
+        key: "Escape",
+        preventDefault() { designerEscapePrevented = true; },
+        stopPropagation() { designerEscapeStopped = true; }
+    });
+    assert.strictEqual(renderer.__elyricThemeV2DesignerOpen, false,
+        "Escape should exit canvas editing without requiring a page refresh");
+    assert.strictEqual(renderer.__elyricThemeV2Boxes.length, 0);
+    assert(designerEscapePrevented && designerEscapeStopped,
+        "the canvas Escape shortcut should not leak to Emby's page-level shortcuts");
     const layoutButtons = renderer.__elyricLayoutButtons;
     assert.strictEqual(layoutButtons.length, 10,
         "all nine supplied reference layouts and the custom composition should be selectable");
@@ -877,7 +957,7 @@ function createLyricElement(index) {
     themeButtons.find((button) => button.getAttribute("data-elyric-choice") === "focus").click();
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), "focus");
     assert.strictEqual(storedValues.get("emby-lyric-enhance.theme"), "focus");
-    await new Promise((resolve) => setTimeout(resolve, 380));
+    await new Promise((resolve) => setTimeout(resolve, 650));
     assert.strictEqual(displayPreferencesRequests, 1,
         "the authenticated Emby display preferences should be read once per player instance");
     assert(displayPreferencesUpdates >= 1,
@@ -907,15 +987,52 @@ function createLyricElement(index) {
     );
     assert.strictEqual(storedPlayerThemes.length, 1,
         "the current parameter composition should be saveable as a user theme");
+    playerThemeV2Registry.forEach((item) => {
+        assert.notStrictEqual(valueAtPath(storedPlayerThemes[0], item.themePath), undefined,
+            `${item.id} should be present in every V2 named-theme snapshot`);
+    });
     const firstUserThemeId = storedPlayerThemes[0].id;
     assert.strictEqual(themeLibrarySelect.value, `user:${firstUserThemeId}`);
     assert.strictEqual(document.body.getAttribute("data-elyric-player-layout"), "custom");
+    themeLibrarySelect.value = `user:${firstUserThemeId}`;
+    themeLibrarySelect.dispatchEvent({ type: "change", stopPropagation() {} });
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-theme-v2"), "true",
+        "selecting a user theme should apply its V2 layer layout");
+    assert.strictEqual(renderer.__elyricPlayerArtworkStage.style.getPropertyValue("position"), "fixed");
+    renderer.__elyricThemeV2.typography.primary.fontAssetId = "font-old";
+    renderer.__elyricThemeV2TypographyInputs.primary.fontUrl.value = "https://cdn.example.test/new-font.woff2";
+    renderer.__elyricThemeV2TypographyInputs.primary.fontUrl.dispatchEvent({
+        type: "change", stopPropagation() {}
+    });
+    assert.strictEqual(renderer.__elyricThemeV2.typography.primary.fontAssetId, "",
+        "choosing a remote font should stop the old uploaded asset from taking precedence");
+    assert(renderer.__elyricThemeV2FontStyle.textContent.includes("https://cdn.example.test/new-font.woff2"),
+        "changing a remote font URL should rebuild the active font-face rule");
+    renderer.__elyricPlayerEmbyArtworkUrl = "/emby/Items/current/Images/Primary";
+    renderer.__elyricThemeV2ArtworkUrl.value = "https://cdn.example.test/custom-cover.webp";
+    renderer.__elyricThemeV2ArtworkUrl.dispatchEvent({ type: "change", stopPropagation() {} });
+    assert.strictEqual(renderer.__elyricPlayerArtwork.src, "https://cdn.example.test/custom-cover.webp");
+    renderer.__elyricThemeV2ArtworkSource.value = "emby";
+    renderer.__elyricThemeV2ArtworkSource.dispatchEvent({ type: "change", stopPropagation() {} });
+    assert.strictEqual(renderer.__elyricPlayerArtwork.src, renderer.__elyricPlayerEmbyArtworkUrl,
+        "switching the cover source back to Emby should immediately restore the current item artwork");
+    themeLibrarySelect.value = "builtin:stack";
+    themeLibrarySelect.dispatchEvent({ type: "change", stopPropagation() {} });
+    assert.strictEqual(renderer.__elyricThemeControl.getAttribute("data-elyric-theme-v2"), null,
+        "switching from a user theme to a built-in theme should clear V2 mode hooks");
+    assert.strictEqual(renderer.__elyricPlayerArtworkStage.style.getPropertyValue("position"), "",
+        "built-in themes should not inherit fixed positioning from the previous user canvas");
+    themeLibrarySelect.value = `user:${firstUserThemeId}`;
+    themeLibrarySelect.dispatchEvent({ type: "change", stopPropagation() {} });
     renderer.__elyricPlayerThemeChoiceButtons.mediaSurface
         .find((button) => button.getAttribute("data-elyric-choice") === "floating").click();
     renderer.__elyricMediaFieldButtons
         .find((button) => button.getAttribute("data-elyric-choice") === "image").click();
+    renderer.__elyricUserPlayerThemes[0].revision = 3;
     renderer.__elyricPlayerThemeSaveButton.click();
     storedPlayerThemes = JSON.parse(storedValues.get("emby-lyric-enhance.player-themes.v1"));
+    assert.strictEqual(storedPlayerThemes[0].revision, 3,
+        "saving a named theme should retain its server revision for optimistic concurrency");
     assert.strictEqual(storedPlayerThemes[0].choices.mediaSurface, "floating",
         "the information card background style should be part of a saved theme");
     assert.strictEqual(storedPlayerThemes[0].mediaFields.image, true,
@@ -931,24 +1048,26 @@ function createLyricElement(index) {
         "a duplicated theme should be distinguishable in the theme library");
     const duplicateUserThemeId = storedPlayerThemes[1].id;
     assert.strictEqual(themeLibrarySelect.value, `user:${duplicateUserThemeId}`);
-    await new Promise((resolve) => setTimeout(resolve, 380));
+    await new Promise((resolve) => setTimeout(resolve, 650));
     const syncedThemeLibrary = JSON.parse(
         lastDisplayPreferences["emby-lyric-enhance.player-preferences.v2"]
     );
-    assert.strictEqual(syncedThemeLibrary.playerThemes.length, 2,
-        "the user theme library should sync through Emby preferences");
+    assert.deepStrictEqual(syncedThemeLibrary.playerThemes, [],
+        "named themes should stay out of legacy Emby display preferences once the V2 server library is active");
     assert.strictEqual(syncedThemeLibrary.activePlayerThemeId, duplicateUserThemeId,
         "the active user theme should sync with its library");
     renderer.__elyricPlayerThemeDeleteButton.click();
+    await flushPromises();
     themeLibrarySelect.value = `user:${firstUserThemeId}`;
     themeLibrarySelect.dispatchEvent({ type: "change", stopPropagation() {} });
     renderer.__elyricPlayerThemeDeleteButton.click();
+    await flushPromises();
     assert.deepStrictEqual(JSON.parse(storedValues.get("emby-lyric-enhance.player-themes.v1")), [],
         "deleted user themes should be removed from persistent storage");
     assert.strictEqual(themeNameInput.value, "",
         "switching back to an immutable built-in theme should clear a stale user-theme name");
     layoutButtons.find((button) => button.getAttribute("data-elyric-choice") === "custom").click();
-    await new Promise((resolve) => setTimeout(resolve, 380));
+    await new Promise((resolve) => setTimeout(resolve, 650));
 
     const hiddenRenderer = new LyricsRenderer();
     hiddenRenderer.itemsContainer = new FakeNode("div");
@@ -1498,6 +1617,29 @@ function createLyricElement(index) {
     renderer.onTimeUpdate(19500000, 20000000);
     renderer.onTimeUpdate(20000000, 20000000);
     assert(visible.item.classList.contains("elyric-line-past"));
+    renderer.__elyricThemeV2ProfileSelect.value = "phonePortrait";
+    renderer.__elyricThemeV2ProfileSelect.dispatchEvent({ type: "change", stopPropagation() {} });
+    assert.strictEqual(renderer.__elyricThemeV2Profile, "phonePortrait",
+        "the editor should allow configuring a non-current responsive profile from desktop");
+    renderer.__elyricThemeV2.layoutOverrides.desktop = true;
+    renderer.__elyricThemeV2.layoutOverrides.tablet = false;
+    renderer.__elyricThemeV2.layouts.desktop.lyrics.x = 17;
+    renderer.__elyricThemeV2SelectedLayer = "lyrics";
+    renderer.__elyricThemeV2ProfileSelect.value = "tablet";
+    renderer.__elyricThemeV2ProfileSelect.dispatchEvent({ type: "change", stopPropagation() {} });
+    assert.strictEqual(Number(renderer.__elyricThemeV2GeometryInputs.x.value), 17,
+        "an unedited responsive profile should inherit the nearest edited layout");
+    renderer.__elyricThemeV2GeometryInputs.x.value = "23";
+    renderer.__elyricThemeV2GeometryInputs.x.dispatchEvent({ type: "change", stopPropagation() {} });
+    assert.strictEqual(renderer.__elyricThemeV2.layoutOverrides.tablet, true,
+        "editing inherited geometry should detach that responsive profile");
+    assert.strictEqual(renderer.__elyricThemeV2.layouts.tablet.lyrics.x, 23);
+    renderer.__elyricThemeV2InheritanceReset.click();
+    assert.strictEqual(renderer.__elyricThemeV2.layoutOverrides.tablet, false,
+        "the editor should allow returning a profile to nearest-layout inheritance");
+    assert.strictEqual(Number(renderer.__elyricThemeV2GeometryInputs.x.value), 17);
+    renderer.__elyricThemeV2ProfileSelect.value = "desktop";
+    renderer.__elyricThemeV2ProfileSelect.dispatchEvent({ type: "change", stopPropagation() {} });
     const themeControl = renderer.__elyricThemeControl;
     const queueDismissHandler = renderer.__elyricQueueDismissHandler;
     const lyricFollowHost = renderer.__elyricLyricFollowHost;

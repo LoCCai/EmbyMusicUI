@@ -2,6 +2,7 @@
 set -eu
 
 VERSION="4.9.5.0"
+BUILD_ID="2026.08.11-player-theme-v2"
 TARGET_ROOT="${ELYRIC_TARGET_ROOT:-/system/dashboard-ui/videoosd}"
 TARGET_JS="$TARGET_ROOT/lyrics.js"
 TARGET_CSS="$TARGET_ROOT/lyrics.css"
@@ -175,6 +176,13 @@ create_enhanced_files() {
     mv -f "$tmp_js" "$ENHANCED_ROOT/lyrics.js"
     mv -f "$tmp_css" "$ENHANCED_ROOT/lyrics.css"
     chmod 0644 "$ENHANCED_ROOT/lyrics.js" "$ENHANCED_ROOT/lyrics.css"
+    manifest_tmp="$ENHANCED_ROOT/manifest.tmp.$$"
+    {
+        printf 'build_id=%s\n' "$BUILD_ID"
+        printf 'lyrics_js_sha256=%s\n' "$(sha256_file "$ENHANCED_ROOT/lyrics.js")"
+        printf 'lyrics_css_sha256=%s\n' "$(sha256_file "$ENHANCED_ROOT/lyrics.css")"
+    } > "$manifest_tmp"
+    mv -f "$manifest_tmp" "$ENHANCED_ROOT/manifest"
 }
 
 install_enhanced() {
@@ -225,6 +233,24 @@ show_status() {
         say "状态：当前为 Emby $VERSION 原版文件"
     else
         say "状态：未知文件状态（既不是已知原版，也没有本适配标记）"
+    fi
+
+    say "前端构建：$BUILD_ID"
+    current_js_sha=$(sha256_file "$TARGET_JS")
+    current_css_sha=$(sha256_file "$TARGET_CSS")
+    say "lyrics.js SHA-256：$current_js_sha"
+    say "lyrics.css SHA-256：$current_css_sha"
+    if [ -f "$ENHANCED_ROOT/manifest" ]; then
+        expected_build=$(sed -n 's/^build_id=//p' "$ENHANCED_ROOT/manifest" | head -n 1)
+        expected_js=$(sed -n 's/^lyrics_js_sha256=//p' "$ENHANCED_ROOT/manifest" | head -n 1)
+        expected_css=$(sed -n 's/^lyrics_css_sha256=//p' "$ENHANCED_ROOT/manifest" | head -n 1)
+        if [ "$expected_build" = "$BUILD_ID" ] && [ "$current_js_sha" = "$expected_js" ] && [ "$current_css_sha" = "$expected_css" ]; then
+            say "构建校验：仓库构建 ID 与两个前端文件完全一致"
+        else
+            say "构建校验：不一致，请重新执行 install"
+        fi
+    else
+        say "构建校验：缺少清单，请重新执行 install"
     fi
 
     if [ -f "$ORIGINAL_ROOT/lyrics.js" ] && [ -f "$ORIGINAL_ROOT/lyrics.css" ]; then
