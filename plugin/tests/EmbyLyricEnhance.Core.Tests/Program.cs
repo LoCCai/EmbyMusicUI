@@ -81,7 +81,7 @@ var validThemeJson = """
       "lyrics": { "x": 6, "y": 52, "width": 88, "height": 29, "rotation": 0, "z": 12, "opacity": 1, "hidden": false, "locked": false }
     }
   },
-  "artwork": { "source": "url", "url": "https://example.invalid/cover.webp", "mode": "single" },
+  "artwork": { "source": "url", "url": "https://example.invalid/cover.webp", "mode": "single", "size": 46, "x": 18, "y": 52 },
   "lyrics": { "style": "classic", "currentColor": "#ffffff" },
   "visualizer": {
     "style": "spectrum",
@@ -94,6 +94,78 @@ var validThemeJson = """
 """;
 Check(PlayerThemeV2Validator.ValidateThemeJson(validThemeJson, 64 * 1024) == validThemeJson,
     "valid ThemeDocumentV3 JSON should be accepted");
+var completeV4Layer = """
+{ "anchorX": "start", "anchorY": "start", "x": 72, "y": 36, "width": 360, "height": 180, "rotation": 0, "z": 12, "opacity": 1, "hidden": false, "locked": false }
+""";
+var completeV4Layout = $$"""
+{
+  "artwork": {{completeV4Layer}},
+  "metadata": {{completeV4Layer}},
+  "lyrics": {{completeV4Layer}},
+  "visualizer": {{completeV4Layer}},
+  "progress": {{completeV4Layer}},
+  "transport": {{completeV4Layer}},
+  "volume": {{completeV4Layer}},
+  "auxiliary": {{completeV4Layer}}
+}
+""";
+var validThemeV4Json = $$"""
+{
+  "format": "emby-lyric-theme",
+  "schemaVersion": 4,
+  "layoutModel": "anchored-canvas-v1",
+  "name": "V4 test",
+  "baseTheme": "album",
+  "viewportTransforms": {
+    "landscape": { "scale": 1, "offsetX": 0, "offsetY": 0 },
+    "portrait": { "scale": 1, "offsetX": 0, "offsetY": 0 }
+  },
+  "layouts": {
+    "landscape": {{completeV4Layout}},
+    "portrait": {{completeV4Layout}}
+  },
+  "artwork": { "source": "emby", "mode": "single", "material": "vinyl" },
+  "console": { "material": "minimal", "safeArea": 64 }
+}
+""";
+Check(PlayerThemeV2Validator.ValidateThemeJson(validThemeV4Json, 64 * 1024) == validThemeV4Json,
+    "complete anchored ThemeDocumentV4 JSON should be accepted");
+
+foreach (var invalidV4 in new[]
+{
+    validThemeV4Json.Replace("\"layoutModel\": \"anchored-canvas-v1\",", ""),
+    validThemeV4Json.Replace("\"offsetY\": 0", "\"missingOffsetY\": 0"),
+    validThemeV4Json.Replace("\"anchorX\": \"start\",", "", StringComparison.Ordinal),
+    validThemeV4Json.Replace("\"artwork\": { \"source\": \"emby\"", "\"artwork\": { \"size\": 46, \"source\": \"emby\"")
+})
+{
+    try
+    {
+        PlayerThemeV2Validator.ValidateThemeJson(invalidV4, 64 * 1024);
+        Check(false, "incomplete or duplicate-geometry V4 documents should be rejected");
+    }
+    catch (ArgumentException)
+    {
+        Check(true, "strict V4 document rejection");
+    }
+}
+foreach (var invalidInternalV4 in new[]
+{
+    "{\"v2\":{\"schemaVersion\":4,\"viewportTransforms\":{\"landscape\":{\"scale\":1,\"offsetX\":0,\"offsetY\":0},\"portrait\":{\"scale\":1,\"offsetX\":0,\"offsetY\":0}},\"layouts\":{\"landscape\":{},\"portrait\":{}}}}",
+    "{\"v2\":{\"schemaVersion\":4,\"layoutModel\":\"anchored-canvas-v1\",\"viewportTransforms\":{\"landscape\":{\"scale\":1,\"offsetX\":0,\"offsetY\":0},\"portrait\":{\"scale\":1,\"offsetX\":0,\"offsetY\":0}},\"layouts\":{\"landscape\":{},\"portrait\":{}}}}",
+    "{\"tuning\":{\"artworkX\":20},\"v2\":{\"schemaVersion\":4,\"layoutModel\":\"anchored-canvas-v1\",\"viewportTransforms\":{\"landscape\":{\"scale\":1,\"offsetX\":0,\"offsetY\":0},\"portrait\":{\"scale\":1,\"offsetX\":0,\"offsetY\":0}},\"layouts\":{\"landscape\":{},\"portrait\":{}}}}"
+})
+{
+    try
+    {
+        PlayerThemeV2Validator.ValidateThemeJson(invalidInternalV4, 64 * 1024);
+        Check(false, "internal V4 documents must require the layout model, all layers, and no duplicate tuning geometry");
+    }
+    catch (ArgumentException)
+    {
+        Check(true, "strict internal V4 rejection");
+    }
+}
 var legacyThemeJson = """
 {
   "schemaVersion": 2,

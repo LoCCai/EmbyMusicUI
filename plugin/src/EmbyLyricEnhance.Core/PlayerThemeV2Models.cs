@@ -6,11 +6,15 @@ namespace EmbyLyricEnhance.Core;
 
 public static class PlayerThemeV2Schema
 {
-    public const int Version = 3;
+    public const int Version = 4;
+
+    public const int PreviousVersion = 3;
 
     public const int LegacyVersion = 2;
 
     public const string DocumentFormat = "emby-lyric-theme";
+
+    public const string LayoutModel = "anchored-canvas-v1";
 
     public static readonly string[] ResponsiveProfiles =
     {
@@ -44,7 +48,7 @@ public static class PlayerThemeV2Schema
         "choices",
         "player",
         "layouts",
-        "layoutOverrides",
+        "viewportTransforms",
         "artwork",
         "typography.primary",
         "typography.secondary",
@@ -74,6 +78,8 @@ public static class PlayerThemeV2Schema
         "clip-path",
         "typography-range",
         "layer-range",
+        "anchor-enum",
+        "viewport-transform-range",
         "visualizer-analysis-range"
     };
 }

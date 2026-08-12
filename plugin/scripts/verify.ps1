@@ -39,6 +39,11 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+& $node (Join-Path $repositoryRoot "tests\anchored-canvas-v4.test.js")
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
 & $node (Join-Path $repositoryRoot "tests\plugin-config-page.test.js")
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

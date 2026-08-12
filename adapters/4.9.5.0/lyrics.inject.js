@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.12-player-theme-v3-ui-fixes */
+/* ELYRIC_BUILD:2026.08.12-anchored-canvas-v4 */
 ;(function () {
     "use strict";
 
@@ -31,9 +31,11 @@
     var PLAYER_PREFERENCES_KEY = "emby-lyric-enhance.player-preferences.v2";
     var PLAYER_THEME_LIBRARY_STORAGE_KEY = "emby-lyric-enhance.player-themes.v1";
     var PLAYER_THEME_DESIGN_STORAGE_KEY = "emby-lyric-enhance.player-theme-design.v1";
-    var PLAYER_PREFERENCES_VERSION = 3;
-    var PLAYER_THEME_SCHEMA_VERSION = 3;
+    var PLAYER_PREFERENCES_VERSION = 4;
+    var PLAYER_THEME_SCHEMA_VERSION = 4;
     var PLAYER_THEME_DOCUMENT_FORMAT = "emby-lyric-theme";
+    var PLAYER_THEME_LAYOUT_MODEL = "anchored-canvas-v1";
+    var PLAYER_THEME_V3_MIGRATION_BACKUP_KEY = "emby-lyric-enhance.player-theme-v3-backup.v1";
     var MAX_LEGACY_USER_PLAYER_THEMES = 24;
     var PLAYER_PREFERENCES_SAVE_DELAY = 500;
     var PLAYER_WORKSPACE_PATH = "EmbyLyricEnhance/UserWorkspace";
@@ -116,6 +118,23 @@
     var PLAYER_ARTWORK_MODES = [
         { id: "single", label: "单封面" },
         { id: "coverflow", label: "封面流" }
+    ];
+    var PLAYER_ARTWORK_MATERIALS = [
+        { id: "plain", label: "简洁" },
+        { id: "vinyl", label: "黑胶" },
+        { id: "poster", label: "海报" },
+        { id: "turntable", label: "唱机" },
+        { id: "neumorphic", label: "拟物" },
+        { id: "deck", label: "唱盘" },
+        { id: "stack", label: "叠放" },
+        { id: "coverflow", label: "空间流" }
+    ];
+    var PLAYER_CONTROL_MATERIALS = [
+        { id: "glass", label: "玻璃" },
+        { id: "minimal", label: "简洁" },
+        { id: "neumorphic", label: "拟物" },
+        { id: "deck", label: "唱盘" },
+        { id: "poster", label: "海报" }
     ];
     var PLAYER_METADATA_ANCHORS = [
         { id: "start", label: "左锚点" },
@@ -525,6 +544,7 @@
         }
     ];
     var PLAYER_THEME_V2_PROFILE_IDS = ["landscape", "portrait"];
+    var playerThemeV2ActiveProfile = "";
     var PLAYER_THEME_V2_LAYER_IDS = [
         "artwork", "metadata", "lyrics", "visualizer",
         "progress", "transport", "volume", "auxiliary"
@@ -534,6 +554,15 @@
         visualizer: "频谱", progress: "进度", transport: "播放控制",
         volume: "音量", auxiliary: "辅助按钮"
     };
+    var PLAYER_THEME_V2_ANCHORS = ["start", "center", "end"];
+    var PLAYER_LEGACY_GEOMETRY_TUNING_IDS = [
+        "artworkSize", "artworkX", "artworkY", "metadataWidth", "metadataX", "metadataY",
+        "lyricsWidth", "lyricsHeight", "lyricsX", "lyricsY", "visualizerX", "visualizerY",
+        "visualizerRotation", "visualizerOpacity", "progressWidth", "volumeWidth"
+    ];
+    var PLAYER_THEME_TUNING_DEFINITIONS = PLAYER_TUNING_DEFINITIONS.filter(function (definition) {
+        return PLAYER_LEGACY_GEOMETRY_TUNING_IDS.indexOf(definition.id) < 0;
+    });
     var PLAYER_THEME_V2_REGISTRY = [];
 
     function normalizePlayerThemeV2Number(value, minimum, maximum, fallback) {
@@ -574,6 +603,8 @@
     function playerThemeV2ChoiceValues(choiceId) {
         var definitions = {
             artworkMode: PLAYER_ARTWORK_MODES,
+            artworkMaterial: PLAYER_ARTWORK_MATERIALS,
+            controlMaterial: PLAYER_CONTROL_MATERIALS,
             metadataAnchor: PLAYER_METADATA_ANCHORS,
             metadataAlign: LYRIC_ALIGNMENTS,
             metadataSurface: PLAYER_SURFACE_STYLES,
@@ -603,7 +634,7 @@
         PLAYER_THEME_V2_REGISTRY.push(definition);
     }
 
-    PLAYER_TUNING_DEFINITIONS.forEach(function (definition) {
+    PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
         registerPlayerThemeV2Parameter({
             id: "tuning." + definition.id,
             defaultValue: definition.fallback,
@@ -623,7 +654,7 @@
             serverRule: "hex-color"
         });
     });
-    ["artworkMode", "metadataAnchor", "metadataAlign", "metadataSurface", "lyricsSurface", "mediaSurface"]
+    ["artworkMode", "artworkMaterial", "controlMaterial", "metadataAnchor", "metadataAlign", "metadataSurface", "lyricsSurface", "mediaSurface"]
         .forEach(function (choiceId) {
             registerPlayerThemeV2Parameter({
                 id: "choices." + choiceId,
@@ -754,7 +785,29 @@
         });
     });
     PLAYER_THEME_V2_PROFILE_IDS.forEach(function (profileId) {
+        [
+            ["scale", 1, .5, 1.6], ["offsetX", 0, -600, 600], ["offsetY", 0, -600, 600]
+        ].forEach(function (item) {
+            registerPlayerThemeV2Parameter({
+                id: "viewportTransforms." + profileId + "." + item[0],
+                defaultValue: item[1],
+                validate: function (value) {
+                    return normalizePlayerThemeV2Number(value, item[2], item[3], item[1]);
+                },
+                editor: "range", binding: "stage-matrix", serverRule: "viewport-transform-range"
+            });
+        });
         PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+            ["anchorX", "anchorY"].forEach(function (key) {
+                registerPlayerThemeV2Parameter({
+                    id: "layouts." + profileId + "." + layerId + "." + key,
+                    defaultValue: defaultPlayerThemeV2Layouts()[profileId][layerId][key],
+                    validate: function (value) {
+                        return normalizePlayerThemeV2Enum(value, PLAYER_THEME_V2_ANCHORS, "start");
+                    },
+                    editor: "segmented", binding: "layer-anchor", serverRule: "anchor-enum"
+                });
+            });
             [
                 ["x", 0, "position"], ["y", 0, "position"],
                 ["width", 10, "size"], ["height", 10, "size"],
@@ -769,7 +822,7 @@
                         ? normalizePlayerThemeV2Boolean
                         : function (value) {
                             var ranges = {
-                                x: [-100, 200], y: [-100, 200], width: [1, 200], height: [1, 200],
+                                x: [-1200, 1200], y: [-1200, 1200], width: [44, 2400], height: [44, 2400],
                                 rotation: [-360, 360], z: [0, 1000], opacity: [0, 1]
                             };
                             return normalizePlayerThemeV2Number(
@@ -781,16 +834,6 @@
                     serverRule: "hidden" === item[0] || "locked" === item[0] ? "boolean" : "layer-range"
                 });
             });
-        });
-    });
-    PLAYER_THEME_V2_PROFILE_IDS.forEach(function (profileId) {
-        registerPlayerThemeV2Parameter({
-            id: "layoutOverrides." + profileId,
-            defaultValue: false,
-            validate: normalizePlayerThemeV2Boolean,
-            editor: "inheritance",
-            binding: "responsive-profile",
-            serverRule: "boolean"
         });
     });
 
@@ -837,8 +880,8 @@
                 hasMigration: "function" === typeof definition.migrate
             };
         });
-        window.__elyricMigratePlayerThemeV2State = function (source) {
-            return normalizePlayerThemeV2State(source);
+        window.__elyricMigratePlayerThemeV2State = function (source, baseLayout) {
+            return normalizePlayerThemeV2State(source, baseLayout);
         };
     }
 
@@ -846,8 +889,9 @@
         return JSON.parse(JSON.stringify(value));
     }
 
-    function defaultPlayerThemeV2Layer(x, y, width, height, z, hidden) {
+    function defaultPlayerThemeV2Layer(x, y, width, height, z, hidden, anchorX, anchorY) {
         return {
+            anchorX: anchorX || "start", anchorY: anchorY || "start",
             x: x, y: y, width: width, height: height,
             rotation: 0, z: z, opacity: 1, hidden: !!hidden, locked: false
         };
@@ -856,24 +900,24 @@
     function defaultPlayerThemeV2Layouts() {
         return {
             landscape: {
-                artwork: defaultPlayerThemeV2Layer(7, 16, 32, 56, 12),
-                metadata: defaultPlayerThemeV2Layer(48, 9, 44, 16, 14),
-                lyrics: defaultPlayerThemeV2Layer(47, 27, 46, 47, 11),
-                visualizer: defaultPlayerThemeV2Layer(10, 74, 80, 8, 9),
-                progress: defaultPlayerThemeV2Layer(8, 84, 84, 5, 16),
-                transport: defaultPlayerThemeV2Layer(40, 89, 20, 8, 17),
-                volume: defaultPlayerThemeV2Layer(74, 90, 18, 6, 17),
-                auxiliary: defaultPlayerThemeV2Layer(3, 89, 30, 7, 17)
+                artwork: defaultPlayerThemeV2Layer(72, 36, 360, 500, 12, false, "start", "center"),
+                metadata: defaultPlayerThemeV2Layer(-72, 86, 500, 144, 14, false, "end", "start"),
+                lyrics: defaultPlayerThemeV2Layer(-72, 38, 520, 420, 11, false, "end", "center"),
+                visualizer: defaultPlayerThemeV2Layer(0, -148, 960, 72, 9, false, "center", "end"),
+                progress: defaultPlayerThemeV2Layer(0, -92, 980, 52, 16, false, "center", "end"),
+                transport: defaultPlayerThemeV2Layer(0, -30, 280, 72, 17, false, "center", "end"),
+                volume: defaultPlayerThemeV2Layer(-72, -30, 220, 64, 17, false, "end", "end"),
+                auxiliary: defaultPlayerThemeV2Layer(72, -30, 300, 64, 17, false, "start", "end")
             },
             portrait: {
-                artwork: defaultPlayerThemeV2Layer(20, 6, 60, 30, 12),
-                metadata: defaultPlayerThemeV2Layer(8, 38, 84, 13, 14),
-                lyrics: defaultPlayerThemeV2Layer(6, 52, 88, 29, 11),
-                visualizer: defaultPlayerThemeV2Layer(10, 78, 80, 6, 9),
-                progress: defaultPlayerThemeV2Layer(6, 85, 88, 5, 16),
-                transport: defaultPlayerThemeV2Layer(30, 90, 40, 8, 17),
-                volume: defaultPlayerThemeV2Layer(76, 92, 17, 6, 17, true),
-                auxiliary: defaultPlayerThemeV2Layer(3, 90, 24, 8, 17)
+                artwork: defaultPlayerThemeV2Layer(0, 86, 500, 340, 12, false, "center", "start"),
+                metadata: defaultPlayerThemeV2Layer(0, 446, 756, 132, 14, false, "center", "start"),
+                lyrics: defaultPlayerThemeV2Layer(0, 646, 792, 348, 11, false, "center", "start"),
+                visualizer: defaultPlayerThemeV2Layer(0, -184, 720, 72, 9, false, "center", "end"),
+                progress: defaultPlayerThemeV2Layer(0, -112, 792, 58, 16, false, "center", "end"),
+                transport: defaultPlayerThemeV2Layer(0, -36, 360, 76, 17, false, "center", "end"),
+                volume: defaultPlayerThemeV2Layer(-48, -38, 164, 64, 17, true, "end", "end"),
+                auxiliary: defaultPlayerThemeV2Layer(48, -38, 220, 64, 17, false, "start", "end")
             }
         };
     }
@@ -901,9 +945,13 @@
             analysis[definition.id] = definition.fallback;
         });
         return {
-            schemaVersion: 3,
+            schemaVersion: 4,
+            layoutModel: PLAYER_THEME_LAYOUT_MODEL,
+            viewportTransforms: {
+                landscape: { scale: 1, offsetX: 0, offsetY: 0 },
+                portrait: { scale: 1, offsetX: 0, offsetY: 0 }
+            },
             layouts: defaultPlayerThemeV2Layouts(),
-            layoutOverrides: { landscape: false, portrait: false },
             artwork: {
                 source: "emby", url: "", assetId: "", fit: "cover",
                 focusX: 50, focusY: 50, clipPath: "none"
@@ -933,52 +981,51 @@
         return target;
     }
 
-    function migratePlayerThemeV2State(source) {
+    function rememberPlayerThemeV3MigrationBackup(source) {
+        if (!source || Number(source.schemaVersion) >= 4 || "undefined" === typeof localStorage) { return; }
+        try {
+            var backups = JSON.parse(localStorage.getItem(PLAYER_THEME_V3_MIGRATION_BACKUP_KEY) || "[]");
+            if (!Array.isArray(backups)) { backups = []; }
+            var serialized = JSON.stringify(source);
+            if (!backups.some(function (entry) { return entry && entry.json === serialized; })) {
+                backups.push({ migratedAt: Date.now(), json: serialized });
+                localStorage.setItem(PLAYER_THEME_V3_MIGRATION_BACKUP_KEY, JSON.stringify(backups.slice(-24)));
+            }
+        } catch (error) {
+            // Migration continues even when private browsing blocks local backup storage.
+        }
+    }
+
+    function playerThemeV4LayoutsForBase(baseLayout) {
+        var sourceLayouts = PLAYER_THEME_V4_BUILTIN_LAYOUTS
+            && PLAYER_THEME_V4_BUILTIN_LAYOUTS[baseLayout];
+        if (!sourceLayouts) {
+            return defaultPlayerThemeV2Layouts();
+        }
+        return {
+            landscape: playerThemeV4LayoutFromPercent(sourceLayouts.landscape, false),
+            portrait: playerThemeV4LayoutFromPercent(sourceLayouts.portrait, true)
+        };
+    }
+
+    function migratePlayerThemeV2State(source, baseLayout) {
         var incoming = source && "object" === typeof source
             ? clonePlayerThemeV2Value(source)
             : {};
-        var layouts = incoming.layouts && "object" === typeof incoming.layouts
-            ? incoming.layouts
-            : {};
-        if (!layouts.landscape) {
-            layouts.landscape = clonePlayerThemeV2Value(
-                layouts.desktop || layouts.tablet || layouts.phoneLandscape
-                    || defaultPlayerThemeV2Layouts().landscape
-            );
+        if (4 !== Number(incoming.schemaVersion) || PLAYER_THEME_LAYOUT_MODEL !== incoming.layoutModel) {
+            rememberPlayerThemeV3MigrationBackup(incoming);
+            incoming.layouts = clonePlayerThemeV2Value(playerThemeV4LayoutsForBase(baseLayout));
+            incoming.viewportTransforms = clonePlayerThemeV2Value(defaultPlayerThemeV2State().viewportTransforms);
         }
-        if (!layouts.portrait) {
-            layouts.portrait = clonePlayerThemeV2Value(
-                layouts.phonePortrait || layouts.tablet || layouts.desktop
-                    || defaultPlayerThemeV2Layouts().portrait
-            );
-        }
-        incoming.layouts = {
-            landscape: layouts.landscape,
-            portrait: layouts.portrait
-        };
-        var overrides = incoming.layoutOverrides && "object" === typeof incoming.layoutOverrides
-            ? incoming.layoutOverrides
-            : {};
-        incoming.layoutOverrides = {
-            landscape: null != overrides.landscape
-                ? !!overrides.landscape
-                : !!(overrides.desktop || overrides.tablet || overrides.phoneLandscape || source && source.layouts),
-            portrait: null != overrides.portrait
-                ? !!overrides.portrait
-                : !!(overrides.phonePortrait || overrides.tablet || source && source.layouts)
-        };
-        incoming.schemaVersion = 3;
+        delete incoming.layoutOverrides;
+        incoming.layoutModel = PLAYER_THEME_LAYOUT_MODEL;
+        incoming.schemaVersion = 4;
         return incoming;
     }
 
-    function normalizePlayerThemeV2State(source) {
-        var incoming = migratePlayerThemeV2State(source);
+    function normalizePlayerThemeV2State(source, baseLayout) {
+        var incoming = migratePlayerThemeV2State(source, baseLayout);
         var state = mergePlayerThemeV2Object(defaultPlayerThemeV2State(), incoming);
-        if (incoming.layouts && !incoming.layoutOverrides) {
-            PLAYER_THEME_V2_PROFILE_IDS.forEach(function (profileId) {
-                state.layoutOverrides[profileId] = true;
-            });
-        }
         var sourceRoot = { v2: state };
         var sanitizedRoot = { v2: defaultPlayerThemeV2State() };
         PLAYER_THEME_V2_REGISTRY.forEach(function (definition) {
@@ -990,44 +1037,50 @@
                 definition.validate(undefined === value ? definition.defaultValue : value)
             );
         });
-        sanitizedRoot.v2.schemaVersion = 3;
+        sanitizedRoot.v2.schemaVersion = 4;
+        sanitizedRoot.v2.layoutModel = PLAYER_THEME_LAYOUT_MODEL;
         return sanitizedRoot.v2;
     }
 
     function currentPlayerThemeV2Profile() {
-        var width = "undefined" !== typeof window ? window.innerWidth : 1366;
-        var height = "undefined" !== typeof window ? window.innerHeight : 768;
-        return height > width ? "portrait" : "landscape";
-    }
-
-    function resolvedPlayerThemeV2Profile(state, profileId) {
-        var nearest = {
-            landscape: ["landscape", "portrait"],
-            portrait: ["portrait", "landscape"]
-        };
-        var candidates = nearest[profileId] || [profileId];
-        for (var i = 0; i < candidates.length; i++) {
-            if (state.layoutOverrides && state.layoutOverrides[candidates[i]]) {
-                return candidates[i];
+        if ("undefined" !== typeof window && window.matchMedia) {
+            var query = window.matchMedia("(orientation: portrait)");
+            if (query && "boolean" === typeof query.matches) {
+                var requested = query.matches ? "portrait" : "landscape";
+                var active = document && document.activeElement;
+                var editingText = active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName || "");
+                var viewport = window.visualViewport;
+                var layoutHeight = Math.max(
+                    Number(window.innerHeight) || 0,
+                    Number(document.documentElement && document.documentElement.clientHeight) || 0
+                );
+                var keyboardReducedViewport = editingText && viewport && layoutHeight > 0
+                    && Number(viewport.height) < layoutHeight * .78;
+                if (keyboardReducedViewport && playerThemeV2ActiveProfile) {
+                    return playerThemeV2ActiveProfile;
+                }
+                playerThemeV2ActiveProfile = requested;
+                return requested;
             }
         }
-        return profileId;
+        var viewport = "undefined" !== typeof window && window.visualViewport;
+        var width = viewport ? viewport.width : ("undefined" !== typeof window ? window.innerWidth : 1366);
+        var height = viewport ? viewport.height : ("undefined" !== typeof window ? window.innerHeight : 768);
+        playerThemeV2ActiveProfile = height > width ? "portrait" : "landscape";
+        return playerThemeV2ActiveProfile;
     }
 
     function resolvedPlayerThemeV2Layout(renderer, profileId) {
         ensurePlayerThemeV2State(renderer);
-        var resolvedProfile = resolvedPlayerThemeV2Profile(renderer.__elyricThemeV2, profileId);
-        return renderer.__elyricThemeV2.layouts[resolvedProfile];
+        return renderer.__elyricThemeV2.layouts[profileId];
+    }
+
+    function resolvedPlayerThemeV2Profile(state, profileId) {
+        return profileId;
     }
 
     function ensurePlayerThemeV2ProfileOverride(renderer) {
         ensurePlayerThemeV2State(renderer);
-        var profileId = renderer.__elyricThemeV2Profile;
-        if (renderer.__elyricThemeV2.layoutOverrides[profileId]) { return; }
-        renderer.__elyricThemeV2.layouts[profileId] = clonePlayerThemeV2Value(
-            resolvedPlayerThemeV2Layout(renderer, profileId)
-        );
-        renderer.__elyricThemeV2.layoutOverrides[profileId] = true;
     }
 
     function playerThemeV2ArtworkLayerElements(renderer) {
@@ -1061,27 +1114,142 @@
 
     function clearPlayerThemeV2LayerElement(element, layerId) {
         if (!element || !element.style) { return; }
-        ["position", "left", "top", "width", "height", "transform", "transform-origin", "z-index", "opacity", "display"]
+        ["position", "left", "top", "width", "height", "transform", "transform-origin", "z-index", "opacity", "display",
+            "--elyric-v4-layer-left", "--elyric-v4-layer-top", "--elyric-v4-layer-width", "--elyric-v4-layer-height",
+            "--elyric-v4-layer-rotation"]
             .forEach(function (property) { element.style.removeProperty(property); });
         element.removeAttribute("data-elyric-v2-layer");
         element.removeAttribute("data-elyric-v2-user-hidden");
         element.classList.remove("elyric-player-v2-layer", "elyric-player-v2-layer-" + layerId);
     }
 
-    function playerThemeV2StageMetrics(layerId) {
-        var viewportWidth = Math.max(1, Number(window.innerWidth) || 1366);
-        var viewportHeight = Math.max(1, Number(window.innerHeight) || 768);
-        var consoleLayer = ["progress", "transport", "volume", "auxiliary"].indexOf(layerId) >= 0;
-        var landscape = viewportWidth >= viewportHeight;
-        var width = !consoleLayer && landscape ? Math.min(viewportWidth, 2560) : viewportWidth;
-        var height = !consoleLayer && landscape ? Math.min(viewportHeight, 1440) : viewportHeight;
+    function playerThemeV2ViewportRect() {
+        var viewport = "undefined" !== typeof window ? window.visualViewport : null;
         return {
-            width: width,
-            height: height,
-            offsetX: (viewportWidth - width) / 2,
-            offsetY: (viewportHeight - height) / 2,
-            compact: landscape && viewportWidth <= 960 && viewportHeight <= 600
+            left: viewport && isFinite(Number(viewport.offsetLeft)) ? Number(viewport.offsetLeft) : 0,
+            top: viewport && isFinite(Number(viewport.offsetTop)) ? Number(viewport.offsetTop) : 0,
+            width: Math.max(1, Number(viewport && viewport.width) || Number(window.innerWidth) || 1366),
+            height: Math.max(1, Number(viewport && viewport.height) || Number(window.innerHeight) || 768)
         };
+    }
+
+    function playerThemeV2StageLayers(renderer, profileId) {
+        var layers = {};
+        var layout = resolvedPlayerThemeV2Layout(renderer, profileId);
+        PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+            layers[layerId] = clonePlayerThemeV2Value(layout[layerId]);
+        });
+        return layers;
+    }
+
+    function playerThemeV2SafeInsets(renderer) {
+        if ("undefined" === typeof window || !window.getComputedStyle || !document.body) {
+            return { top: 0, right: 0, bottom: 0, left: 0 };
+        }
+        var probe = renderer && renderer.__elyricThemeV2SafeInsetProbe;
+        if (!probe) {
+            probe = document.createElement("div");
+            probe.setAttribute("aria-hidden", "true");
+            probe.style.cssText = "position:fixed;visibility:hidden;pointer-events:none;"
+                + "padding-top:env(safe-area-inset-top,0px);padding-right:env(safe-area-inset-right,0px);"
+                + "padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px)";
+            document.body.appendChild(probe);
+            if (renderer) { renderer.__elyricThemeV2SafeInsetProbe = probe; }
+        }
+        var computed = window.getComputedStyle(probe);
+        function value(name) {
+            var parsed = parseFloat(computed && computed[name]);
+            return isFinite(parsed) ? Math.max(0, parsed) : 0;
+        }
+        return {
+            top: value("paddingTop"), right: value("paddingRight"),
+            bottom: value("paddingBottom"), left: value("paddingLeft")
+        };
+    }
+
+    function playerThemeV2StageMetrics(renderer, profileOverride, frozenViewport) {
+        var profileId = PLAYER_THEME_V2_PROFILE_IDS.indexOf(profileOverride) >= 0
+            ? profileOverride : currentPlayerThemeV2Profile();
+        var viewport = frozenViewport || playerThemeV2ViewportRect();
+        var safeSize = renderer && renderer.__elyricThemeV2 && renderer.__elyricThemeV2.controls
+            ? normalizePlayerThemeV2Number(renderer.__elyricThemeV2.controls.safeArea, 44, 180, 64)
+            : 64;
+        var toolbarInset = Math.max(44, safeSize);
+        var safeInsets = playerThemeV2SafeInsets(renderer);
+        var available = {
+            left: viewport.left + safeInsets.left,
+            top: viewport.top + safeInsets.top + toolbarInset,
+            width: Math.max(44, viewport.width - safeInsets.left - safeInsets.right),
+            height: Math.max(44, viewport.height - safeInsets.top - safeInsets.bottom - toolbarInset)
+        };
+        var baseWidth = "portrait" === profileId ? 900 : 1200;
+        var baseHeight = "portrait" === profileId ? 1200 : 900;
+        var baseScale = Math.max(.001, Math.min(available.width / baseWidth, available.height / baseHeight));
+        if (profileId !== currentPlayerThemeV2Profile()) {
+            var previewScale = Math.min(
+                Math.max(240, available.width * .72) / baseWidth,
+                Math.max(320, available.height * .72) / baseHeight
+            );
+            available.width = baseWidth * previewScale;
+            available.height = baseHeight * previewScale;
+            available.left = viewport.left + safeInsets.left
+                + (viewport.width - safeInsets.left - safeInsets.right - available.width) / 2;
+            available.top = viewport.top + safeInsets.top + toolbarInset
+                + Math.max(0, (viewport.height - safeInsets.top - safeInsets.bottom - toolbarInset - available.height) / 2);
+            baseScale = previewScale;
+        }
+        var transform = renderer && renderer.__elyricThemeV2
+            && renderer.__elyricThemeV2.viewportTransforms[profileId]
+            ? renderer.__elyricThemeV2.viewportTransforms[profileId]
+            : { scale: 1, offsetX: 0, offsetY: 0 };
+        var userScale = normalizePlayerThemeV2Number(transform.scale, .5, 1.6, 1);
+        var scale = baseScale * userScale;
+        var designWidth = available.width / baseScale;
+        var designHeight = available.height / baseScale;
+        var originX = available.left + available.width / 2 - designWidth * scale / 2
+            + normalizePlayerThemeV2Number(transform.offsetX, -600, 600, 0) * scale;
+        var originY = available.top + available.height / 2 - designHeight * scale / 2
+            + normalizePlayerThemeV2Number(transform.offsetY, -600, 600, 0) * scale;
+        return {
+            profileId: profileId, viewport: viewport, available: available,
+            baseWidth: baseWidth, baseHeight: baseHeight,
+            designWidth: designWidth, designHeight: designHeight,
+            baseScale: baseScale, scale: scale, originX: originX, originY: originY,
+            forward: function (x, y) {
+                return { x: originX + x * scale, y: originY + y * scale };
+            },
+            inverse: function (clientX, clientY) {
+                return { x: (clientX - originX) / scale, y: (clientY - originY) / scale };
+            }
+        };
+    }
+
+    function playerThemeV2AnchorCoordinate(anchor, extent) {
+        return "end" === anchor ? extent : ("center" === anchor ? extent / 2 : 0);
+    }
+
+    function playerThemeV2LayerDesignRect(layer, metrics) {
+        var width = Number(layer.width) || 44;
+        var height = Number(layer.height) || 44;
+        var factorX = "end" === layer.anchorX ? 1 : ("center" === layer.anchorX ? .5 : 0);
+        var factorY = "end" === layer.anchorY ? 1 : ("center" === layer.anchorY ? .5 : 0);
+        return {
+            left: playerThemeV2AnchorCoordinate(layer.anchorX, metrics.designWidth) - width * factorX + Number(layer.x || 0),
+            top: playerThemeV2AnchorCoordinate(layer.anchorY, metrics.designHeight) - height * factorY + Number(layer.y || 0),
+            width: width, height: height
+        };
+    }
+
+    function playerThemeV2RenderedRect(layer, metrics) {
+        var design = playerThemeV2LayerDesignRect(layer, metrics);
+        var point = metrics.forward(design.left, design.top);
+        var width = design.width * metrics.scale;
+        var height = design.height * metrics.scale;
+        var grab = 44;
+        var viewport = metrics.viewport;
+        point.x = Math.min(viewport.left + viewport.width - grab, Math.max(viewport.left - width + grab, point.x));
+        point.y = Math.min(viewport.top + viewport.height - grab, Math.max(viewport.top - height + grab, point.y));
+        return { left: point.x, top: point.y, width: width, height: height };
     }
 
     function applyPlayerThemeV2Layer(renderer, layerId, layer) {
@@ -1093,34 +1261,35 @@
             });
         }
         var displayedLayer = layer;
-        if ("auxiliary" === layerId) {
-            displayedLayer = clonePlayerThemeV2Value(layer);
-            var safeAreaPercent = renderer.__elyricThemeV2 && renderer.__elyricThemeV2.controls
-                ? renderer.__elyricThemeV2.controls.safeArea / Math.max(1, window.innerHeight || 768) * 100
-                : 0;
-            displayedLayer.x = Math.max(0, Math.min(100 - displayedLayer.width, displayedLayer.x));
-            displayedLayer.y = Math.max(0, Math.min(100 - Math.max(displayedLayer.height, safeAreaPercent), displayedLayer.y));
-            setAttributeIfChanged(element, "data-elyric-v2-user-hidden", layer.hidden ? "true" : "false");
-            displayedLayer.hidden = false;
-        }
-        var metrics = playerThemeV2StageMetrics(layerId);
-        if (metrics.compact && "volume" === layerId) {
-            displayedLayer = clonePlayerThemeV2Value(displayedLayer);
-            displayedLayer.hidden = true;
-        }
+        var metrics = playerThemeV2StageMetrics(renderer, renderer.__elyricThemeV2Profile);
+        var rect = playerThemeV2RenderedRect(displayedLayer, metrics);
         element.classList.add("elyric-player-v2-layer", "elyric-player-v2-layer-" + layerId);
         element.style.setProperty("position", "fixed", "important");
-        element.style.setProperty("left", (metrics.offsetX + displayedLayer.x / 100 * metrics.width) + "px", "important");
-        element.style.setProperty("top", (metrics.offsetY + displayedLayer.y / 100 * metrics.height) + "px", "important");
-        element.style.setProperty("width", (displayedLayer.width / 100 * metrics.width) + "px", "important");
-        element.style.setProperty("height", (displayedLayer.height / 100 * metrics.height) + "px", "important");
+        element.style.setProperty("left", rect.left + "px", "important");
+        element.style.setProperty("top", rect.top + "px", "important");
+        element.style.setProperty("width", rect.width + "px", "important");
+        element.style.setProperty("height", rect.height + "px", "important");
         element.style.setProperty("transform", "rotate(" + displayedLayer.rotation + "deg)", "important");
+        element.style.setProperty("--elyric-v4-layer-left", rect.left + "px");
+        element.style.setProperty("--elyric-v4-layer-top", rect.top + "px");
+        element.style.setProperty("--elyric-v4-layer-width", rect.width + "px");
+        element.style.setProperty("--elyric-v4-layer-height", rect.height + "px");
+        element.style.setProperty("--elyric-v4-layer-rotation", displayedLayer.rotation + "deg");
         element.style.setProperty("transform-origin", "center", "important");
         element.style.setProperty("z-index", String(displayedLayer.z), "important");
         element.style.setProperty("opacity", String(displayedLayer.opacity), "important");
         if (displayedLayer.hidden) { element.style.setProperty("display", "none", "important"); }
         else { element.style.removeProperty("display"); }
         element.setAttribute("data-elyric-v2-layer", layerId);
+    }
+
+    if ("undefined" !== typeof window) {
+        window.__elyricPlayerThemeV4Geometry = {
+            profile: currentPlayerThemeV2Profile,
+            metrics: playerThemeV2StageMetrics,
+            designRect: playerThemeV2LayerDesignRect,
+            renderedRect: playerThemeV2RenderedRect
+        };
     }
 
     function applyPlayerThemeV2SemanticControls(renderer) {
@@ -1148,7 +1317,6 @@
         });
         removeAttributeIfPresent(renderer.__elyricThemeControl, "data-elyric-theme-v2");
         removeAttributeIfPresent(renderer.__elyricThemeControl, "data-elyric-theme-v2-profile");
-        removeAttributeIfPresent(renderer.__elyricThemeControl, "data-elyric-compact");
         removeAttributeIfPresent(renderer.itemsContainer, "data-elyric-theme-v2");
         removeAttributeIfPresent(renderer.itemsContainer, "data-elyric-theme-v2-profile");
         if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
@@ -1239,7 +1407,8 @@
 
     function collectPlayerThemeV2State(renderer) {
         var state = normalizePlayerThemeV2State(
-            renderer.__elyricThemeV2 || captureRenderedPlayerThemeV2State(renderer) || defaultPlayerThemeV2State()
+            renderer.__elyricThemeV2 || defaultPlayerThemeV2State(),
+            renderer.__elyricThemeBaseLayout
         );
         state.lyrics.showSecondLine = false !== renderer.__elyricLocalShowSecond;
         state.lyrics.showThirdAndLaterLines = false !== renderer.__elyricLocalShowThird;
@@ -1257,7 +1426,7 @@
         renderer.__elyricThemeV2Profile = PLAYER_THEME_V2_PROFILE_IDS.indexOf(profileOverride) >= 0
             ? profileOverride
             : currentPlayerThemeV2Profile();
-        var profile = resolvedPlayerThemeV2Layout(renderer, renderer.__elyricThemeV2Profile);
+        var profile = playerThemeV2StageLayers(renderer, renderer.__elyricThemeV2Profile);
         PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
             applyPlayerThemeV2Layer(renderer, layerId, profile[layerId]);
         });
@@ -1287,7 +1456,6 @@
         applyPlayerThemeV2SemanticControls(renderer);
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-theme-v2", "true");
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-theme-v2-profile", renderer.__elyricThemeV2Profile);
-        setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-compact", playerThemeV2StageMetrics("volume").compact ? "true" : "false");
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-theme-v2", "true");
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-theme-v2-profile", renderer.__elyricThemeV2Profile);
         if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
@@ -1300,15 +1468,15 @@
     var PLAYER_PARAMETRIC_PRESETS = {
         album: {
             choices: {
-                artworkMode: "single", metadataAnchor: "start", metadataAlign: "left",
+                artworkMode: "single", artworkMaterial: "vinyl", controlMaterial: "minimal",
+                metadataAnchor: "start", metadataAlign: "left",
                 metadataSurface: "none", lyricsSurface: "none", mediaSurface: "glass"
             },
+            typographyShadowBlur: 0,
             tuning: {
-                artworkSize: 46, artworkX: 18, artworkY: 52, artworkInnerSize: 42,
+                artworkInnerSize: 42,
                 artworkOuterRadius: 50, artworkInnerRadius: 50, artworkPadding: 0,
-                metadataWidth: 42, metadataX: 52, metadataY: 12, metadataTitleSize: 190,
-                lyricsWidth: 42, lyricsHeight: 48, lyricsX: 52, lyricsY: 30,
-                visualizerX: 50, visualizerY: 79, progressWidth: 82
+                metadataTitleSize: 190
             },
             colors: {
                 backgroundA: "#f4f0e9", backgroundB: "#d7c7b4", metadataText: "#17191d",
@@ -1318,15 +1486,14 @@
         },
         center: {
             choices: {
-                artworkMode: "single", metadataAnchor: "start", metadataAlign: "left",
+                artworkMode: "single", artworkMaterial: "poster", controlMaterial: "poster",
+                metadataAnchor: "start", metadataAlign: "left",
                 metadataSurface: "none", lyricsSurface: "none", mediaSurface: "glass"
             },
             tuning: {
-                artworkSize: 31, artworkX: 22, artworkY: 49, artworkInnerSize: 100,
+                artworkInnerSize: 100,
                 artworkOuterRadius: 2, artworkInnerRadius: 2, artworkPadding: 0,
-                metadataWidth: 27, metadataX: 40, metadataY: 35, metadataTitleSize: 210,
-                lyricsWidth: 26, lyricsHeight: 58, lyricsX: 69, lyricsY: 20,
-                visualizerX: 50, visualizerY: 79, progressWidth: 82
+                metadataTitleSize: 210
             },
             colors: {
                 backgroundA: "#0a0c0b", backgroundB: "#15231b", metadataText: "#ffffff",
@@ -1336,15 +1503,14 @@
         },
         mobile: {
             choices: {
-                artworkMode: "single", metadataAnchor: "start", metadataAlign: "left",
+                artworkMode: "single", artworkMaterial: "turntable", controlMaterial: "glass",
+                metadataAnchor: "start", metadataAlign: "left",
                 metadataSurface: "glass", lyricsSurface: "none", mediaSurface: "glass"
             },
             tuning: {
-                artworkSize: 42, artworkX: 24, artworkY: 49, artworkInnerSize: 72,
+                artworkInnerSize: 72,
                 artworkOuterRadius: 18, artworkInnerRadius: 50, artworkPadding: 7,
-                metadataWidth: 40, metadataX: 53, metadataY: 19, metadataTitleSize: 185,
-                lyricsWidth: 40, lyricsHeight: 42, lyricsX: 53, lyricsY: 34,
-                visualizerX: 50, visualizerY: 79, progressWidth: 78
+                metadataTitleSize: 185
             },
             colors: {
                 backgroundA: "#0e1724", backgroundB: "#22435e", metadataText: "#ffffff",
@@ -1354,15 +1520,15 @@
         },
         mint: {
             choices: {
-                artworkMode: "single", metadataAnchor: "center", metadataAlign: "center",
+                artworkMode: "single", artworkMaterial: "neumorphic", controlMaterial: "neumorphic",
+                metadataAnchor: "center", metadataAlign: "center",
                 metadataSurface: "none", lyricsSurface: "inset", mediaSurface: "embossed"
             },
+            typographyShadowBlur: 0,
             tuning: {
-                artworkSize: 27, artworkX: 50, artworkY: 24, artworkInnerSize: 88,
+                artworkInnerSize: 88,
                 artworkOuterRadius: 50, artworkInnerRadius: 50, artworkPadding: 6,
-                metadataWidth: 54, metadataX: 50, metadataY: 46, metadataTitleSize: 155,
-                lyricsWidth: 90, lyricsHeight: 18, lyricsX: 5, lyricsY: 58,
-                lyricsOpacity: 82, visualizerX: 50, visualizerY: 79, progressWidth: 76
+                metadataTitleSize: 155, lyricsOpacity: 82
             },
             colors: {
                 backgroundA: "#e4f0eb", backgroundB: "#c7ddd4", metadataText: "#263a34",
@@ -1372,15 +1538,15 @@
         },
         deck: {
             choices: {
-                artworkMode: "single", metadataAnchor: "start", metadataAlign: "center",
+                artworkMode: "single", artworkMaterial: "deck", controlMaterial: "deck",
+                metadataAnchor: "start", metadataAlign: "center",
                 metadataSurface: "none", lyricsSurface: "none", mediaSurface: "embossed"
             },
+            typographyShadowBlur: 0,
             tuning: {
-                artworkSize: 46, artworkX: 27, artworkY: 50, artworkInnerSize: 42,
+                artworkInnerSize: 42,
                 artworkOuterRadius: 50, artworkInnerRadius: 50, artworkPadding: 0,
-                metadataWidth: 36, metadataX: 57, metadataY: 16, metadataTitleSize: 170,
-                lyricsWidth: 38, lyricsHeight: 43, lyricsX: 57, lyricsY: 31,
-                visualizerX: 50, visualizerY: 79, progressWidth: 80
+                metadataTitleSize: 170
             },
             colors: {
                 backgroundA: "#d7d8d8", backgroundB: "#afb1b3", metadataText: "#27292c",
@@ -1390,15 +1556,14 @@
         },
         stack: {
             choices: {
-                artworkMode: "single", metadataAnchor: "start", metadataAlign: "left",
+                artworkMode: "single", artworkMaterial: "stack", controlMaterial: "minimal",
+                metadataAnchor: "start", metadataAlign: "left",
                 metadataSurface: "none", lyricsSurface: "none", mediaSurface: "glass"
             },
             tuning: {
-                artworkSize: 40, artworkX: 24, artworkY: 50, artworkInnerSize: 100,
+                artworkInnerSize: 100,
                 artworkOuterRadius: 1, artworkInnerRadius: 1, artworkPadding: 0,
-                metadataWidth: 44, metadataX: 49, metadataY: 10, metadataTitleSize: 185,
-                lyricsWidth: 44, lyricsHeight: 56, lyricsX: 51, lyricsY: 23,
-                visualizerX: 50, visualizerY: 79, progressWidth: 82
+                metadataTitleSize: 185
             },
             colors: {
                 backgroundA: "#151211", backgroundB: "#4a1d21", metadataText: "#ffffff",
@@ -1408,40 +1573,30 @@
         },
         coverflow: {
             choices: {
-                artworkMode: "coverflow", metadataAnchor: "center", metadataAlign: "center",
+                artworkMode: "coverflow", artworkMaterial: "coverflow", controlMaterial: "glass",
+                metadataAnchor: "center", metadataAlign: "center",
                 metadataSurface: "glass", lyricsSurface: "none", mediaSurface: "glass"
             },
             tuning: {
-                artworkX: 50, artworkY: 36, coverflowWidth: 82, coverflowHeight: 48,
-                artworkOuterRadius: 8, artworkInnerRadius: 6, metadataWidth: 60,
-                metadataX: 50, metadataY: 58, metadataTitleSize: 180,
-                lyricsWidth: 68, lyricsHeight: 15, lyricsX: 16, lyricsY: 70,
-                visualizerX: 50, visualizerY: 79, progressWidth: 82
+                coverflowWidth: 82, coverflowHeight: 48,
+                artworkOuterRadius: 8, artworkInnerRadius: 6, metadataTitleSize: 180
             },
             colors: {
                 backgroundA: "#1b1512", backgroundB: "#663c20", metadataText: "#fff7e8",
                 metadataSurface: "#302015", lyricPast: "#d8c2a7", lyricCurrent: "#ffb13b",
                 lyricFuture: "#9e8569", progressActive: "#ffb13b", artworkFrame: "#f6e28f"
-            },
-            mobile: {
-                tuning: {
-                    artworkX: 50, artworkY: 22, coverflowWidth: 92, coverflowHeight: 27,
-                    metadataX: 50, metadataY: 41, metadataWidth: 88,
-                    lyricsX: 4, lyricsY: 55, lyricsWidth: 92, lyricsHeight: 16
-                }
             }
         },
         lyrics: {
             choices: {
-                artworkMode: "single", metadataAnchor: "start", metadataAlign: "center",
+                artworkMode: "single", artworkMaterial: "vinyl", controlMaterial: "glass",
+                metadataAnchor: "start", metadataAlign: "center",
                 metadataSurface: "none", lyricsSurface: "none", mediaSurface: "glass"
             },
             tuning: {
-                artworkSize: 44, artworkX: 22, artworkY: 50, artworkInnerSize: 56,
+                artworkInnerSize: 56,
                 artworkOuterRadius: 50, artworkInnerRadius: 50, artworkPadding: 0,
-                metadataWidth: 38, metadataX: 55, metadataY: 10, metadataTitleSize: 170,
-                lyricsWidth: 39, lyricsHeight: 52, lyricsX: 55, lyricsY: 24,
-                visualizerX: 50, visualizerY: 79, progressWidth: 80
+                metadataTitleSize: 170
             },
             colors: {
                 backgroundA: "#101412", backgroundB: "#344139", metadataText: "#ffffff",
@@ -1451,16 +1606,16 @@
         },
         rose: {
             choices: {
-                artworkMode: "single", metadataAnchor: "center", metadataAlign: "center",
+                artworkMode: "single", artworkMaterial: "neumorphic", controlMaterial: "neumorphic",
+                metadataAnchor: "center", metadataAlign: "center",
                 metadataSurface: "none", lyricsSurface: "embossed", mediaSurface: "embossed"
             },
+            typographyShadowBlur: 0,
             tuning: {
-                artworkSize: 30, artworkX: 24, artworkY: 43, artworkInnerSize: 88,
+                artworkInnerSize: 88,
                 artworkOuterRadius: 50, artworkInnerRadius: 50, artworkPadding: 6,
-                artworkShadowDepth: 34, metadataWidth: 42, metadataX: 24, metadataY: 62,
-                metadataTitleSize: 170, metadataArtistSize: 120, lyricsWidth: 47,
-                lyricsHeight: 76, lyricsX: 49, lyricsY: 9, lyricsOpacity: 84,
-                visualizerX: 50, visualizerY: 79, progressWidth: 78
+                artworkShadowDepth: 34, metadataTitleSize: 170,
+                metadataArtistSize: 120, lyricsOpacity: 84
             },
             colors: {
                 backgroundA: "#fff0f4", backgroundB: "#f5d9e1", metadataText: "#27252a",
@@ -1471,7 +1626,7 @@
         }
     };
 
-    function playerThemeV3Layout(content, portrait) {
+    function playerThemeV4PresetLayout(content, portrait) {
         var controls = portrait ? {
             progress: defaultPlayerThemeV2Layer(6, 85, 88, 5, 16),
             transport: defaultPlayerThemeV2Layer(30, 90, 40, 8, 17),
@@ -1489,105 +1644,126 @@
         return controls;
     }
 
-    var PLAYER_THEME_V3_BUILTIN_LAYOUTS = {
+    function playerThemeV4LayerFromPercent(layer, portrait) {
+        var canvasWidth = portrait ? 900 : 1200;
+        var canvasHeight = portrait ? 1200 : 900;
+        return defaultPlayerThemeV2Layer(
+            Math.round(Number(layer.x) / 100 * canvasWidth * 10) / 10,
+            Math.round(Number(layer.y) / 100 * canvasHeight * 10) / 10,
+            Math.round(Number(layer.width) / 100 * canvasWidth * 10) / 10,
+            Math.round(Number(layer.height) / 100 * canvasHeight * 10) / 10,
+            layer.z, layer.hidden, "start", "start"
+        );
+    }
+
+    function playerThemeV4LayoutFromPercent(layout, portrait) {
+        var converted = {};
+        PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+            converted[layerId] = playerThemeV4LayerFromPercent(layout[layerId], portrait);
+        });
+        return converted;
+    }
+
+    var PLAYER_THEME_V4_BUILTIN_LAYOUTS = {
         album: {
-            landscape: playerThemeV3Layout({
+            landscape: playerThemeV4PresetLayout({
                 artwork: [7, 17, 30, 54, 12], metadata: [49, 10, 43, 16, 14],
                 lyrics: [48, 29, 45, 45, 11], visualizer: [10, 75, 80, 7, 9]
             }, false),
-            portrait: playerThemeV3Layout({
+            portrait: playerThemeV4PresetLayout({
                 artwork: [20, 6, 60, 30, 12], metadata: [8, 38, 84, 13, 14],
                 lyrics: [6, 52, 88, 29, 11], visualizer: [10, 78, 80, 6, 9]
             }, true)
         },
         center: {
-            landscape: playerThemeV3Layout({
+            landscape: playerThemeV4PresetLayout({
                 artwork: [6, 18, 30, 50, 12], metadata: [39, 22, 24, 22, 14],
                 lyrics: [67, 18, 28, 56, 11], visualizer: [12, 75, 76, 7, 9]
             }, false),
-            portrait: playerThemeV3Layout({
+            portrait: playerThemeV4PresetLayout({
                 artwork: [16, 5, 68, 31, 12], metadata: [8, 38, 84, 13, 14],
                 lyrics: [6, 52, 88, 29, 11], visualizer: [12, 78, 76, 6, 9]
             }, true)
         },
         mobile: {
-            landscape: playerThemeV3Layout({
+            landscape: playerThemeV4PresetLayout({
                 artwork: [7, 15, 32, 56, 12], metadata: [45, 13, 48, 18, 14],
                 lyrics: [45, 34, 48, 40, 11], visualizer: [12, 75, 76, 7, 9]
             }, false),
-            portrait: playerThemeV3Layout({
+            portrait: playerThemeV4PresetLayout({
                 artwork: [18, 5, 64, 31, 12], metadata: [7, 38, 86, 14, 14],
                 lyrics: [6, 53, 88, 28, 11], visualizer: [12, 78, 76, 6, 9]
             }, true)
         },
         mint: {
-            landscape: playerThemeV3Layout({
+            landscape: playerThemeV4PresetLayout({
                 artwork: [36, 5, 28, 38, 12], metadata: [25, 43, 50, 13, 14],
                 lyrics: [8, 57, 84, 17, 11], visualizer: [14, 76, 72, 6, 9]
             }, false),
-            portrait: playerThemeV3Layout({
+            portrait: playerThemeV4PresetLayout({
                 artwork: [22, 5, 56, 30, 12], metadata: [8, 38, 84, 13, 14],
                 lyrics: [6, 53, 88, 28, 11], visualizer: [14, 78, 72, 6, 9]
             }, true)
         },
         deck: {
-            landscape: playerThemeV3Layout({
+            landscape: playerThemeV4PresetLayout({
                 artwork: [6, 15, 34, 58, 12], metadata: [52, 12, 40, 15, 14],
                 lyrics: [51, 31, 42, 43, 11], visualizer: [12, 75, 76, 7, 9]
             }, false),
-            portrait: playerThemeV3Layout({
+            portrait: playerThemeV4PresetLayout({
                 artwork: [19, 5, 62, 31, 12], metadata: [8, 38, 84, 13, 14],
                 lyrics: [6, 52, 88, 29, 11], visualizer: [12, 78, 76, 6, 9]
             }, true)
         },
         stack: {
-            landscape: playerThemeV3Layout({
+            landscape: playerThemeV4PresetLayout({
                 artwork: [6, 18, 34, 52, 12], metadata: [46, 10, 47, 15, 14],
                 lyrics: [45, 28, 48, 46, 11], visualizer: [10, 75, 80, 7, 9]
             }, false),
-            portrait: playerThemeV3Layout({
+            portrait: playerThemeV4PresetLayout({
                 artwork: [16, 5, 68, 31, 12], metadata: [7, 38, 86, 13, 14],
                 lyrics: [6, 52, 88, 29, 11], visualizer: [10, 78, 80, 6, 9]
             }, true)
         },
         coverflow: {
-            landscape: playerThemeV3Layout({
+            landscape: playerThemeV4PresetLayout({
                 artwork: [8, 9, 84, 43, 12], metadata: [20, 52, 60, 13, 14],
                 lyrics: [15, 65, 70, 10, 11], visualizer: [10, 76, 80, 6, 9]
             }, false),
-            portrait: playerThemeV3Layout({
+            portrait: playerThemeV4PresetLayout({
                 artwork: [4, 6, 92, 28, 12], metadata: [8, 36, 84, 13, 14],
                 lyrics: [6, 51, 88, 30, 11], visualizer: [10, 78, 80, 6, 9]
             }, true)
         },
         lyrics: {
-            landscape: playerThemeV3Layout({
+            landscape: playerThemeV4PresetLayout({
                 artwork: [7, 17, 32, 56, 12], metadata: [50, 9, 43, 15, 14],
                 lyrics: [49, 26, 44, 49, 11], visualizer: [12, 75, 76, 7, 9]
             }, false),
-            portrait: playerThemeV3Layout({
+            portrait: playerThemeV4PresetLayout({
                 artwork: [21, 5, 58, 29, 12], metadata: [8, 37, 84, 13, 14],
                 lyrics: [6, 51, 88, 30, 11], visualizer: [12, 78, 76, 6, 9]
             }, true)
         },
         rose: {
-            landscape: playerThemeV3Layout({
+            landscape: playerThemeV4PresetLayout({
                 artwork: [8, 15, 34, 56, 12], metadata: [6, 72, 38, 10, 14],
                 lyrics: [50, 12, 43, 62, 11], visualizer: [51, 76, 42, 6, 9]
             }, false),
-            portrait: playerThemeV3Layout({
+            portrait: playerThemeV4PresetLayout({
                 artwork: [20, 5, 60, 31, 12], metadata: [7, 38, 86, 13, 14],
                 lyrics: [6, 52, 88, 29, 11], visualizer: [12, 78, 76, 6, 9]
             }, true)
         }
     };
 
-    function builtInPlayerThemeV3State(layoutId, preset) {
+    function builtInPlayerThemeV4State(layoutId, preset) {
         var state = defaultPlayerThemeV2State();
-        state.layouts = clonePlayerThemeV2Value(
-            PLAYER_THEME_V3_BUILTIN_LAYOUTS[layoutId] || PLAYER_THEME_V3_BUILTIN_LAYOUTS.album
-        );
-        state.layoutOverrides = { landscape: true, portrait: true };
+        var sourceLayouts = PLAYER_THEME_V4_BUILTIN_LAYOUTS[layoutId] || PLAYER_THEME_V4_BUILTIN_LAYOUTS.album;
+        state.layouts = {
+            landscape: playerThemeV4LayoutFromPercent(sourceLayouts.landscape, false),
+            portrait: playerThemeV4LayoutFromPercent(sourceLayouts.portrait, true)
+        };
         var colors = preset && preset.colors ? preset.colors : {};
         ["primary", "secondary", "tertiary"].forEach(function (lineId) {
             var typography = state.typography[lineId];
@@ -1595,23 +1771,12 @@
             typography.states.past.color = colors.lyricPast || "#b8c1d1";
             typography.states.current.color = colors.lyricCurrent || "#ffffff";
             typography.states.future.color = colors.lyricFuture || "#8993a5";
-            typography.shadowBlur = ["album", "mint", "deck", "rose"].indexOf(layoutId) >= 0 ? 0 : 18;
+            typography.shadowBlur = preset && preset.typographyShadowBlur >= 0
+                ? preset.typographyShadowBlur : 18;
         });
         state.visualizer.frequencyLayout = "centerOut";
         return normalizePlayerThemeV2State(state);
     }
-    var PLAYER_PARAMETRIC_MOBILE_DEFAULTS = {
-        choices: {
-            artworkMode: "single", metadataAnchor: "center", metadataAlign: "center"
-        },
-        tuning: {
-            artworkSize: 52, artworkX: 50, artworkY: 17, artworkInnerSize: 88,
-            metadataWidth: 86, metadataX: 50, metadataY: 29, metadataTitleSize: 145,
-            lyricsWidth: 92, lyricsHeight: 20, lyricsX: 4, lyricsY: 44,
-            lyricsPadding: 14, visualizerX: 50, visualizerY: 69,
-            progressWidth: 68, volumeWidth: 18
-        }
-    };
     var DEFAULT_DISPLAY_CONFIGURATION = {
         defaultTheme: "classic",
         allowUserThemeOverride: true,
@@ -2050,13 +2215,6 @@
         return target;
     }
 
-    function isCompactPlayerViewport() {
-        var width = "undefined" !== typeof window && isFinite(Number(window.innerWidth))
-            ? Number(window.innerWidth)
-            : 1280;
-        return width <= 760;
-    }
-
     function themeColorDefinition(colorId) {
         for (var i = 0; i < PLAYER_THEME_COLOR_DEFINITIONS.length; i++) {
             if (PLAYER_THEME_COLOR_DEFINITIONS[i].id === colorId) {
@@ -2069,6 +2227,8 @@
     function defaultPlayerThemeChoices() {
         return {
             artworkMode: "single",
+            artworkMaterial: "plain",
+            controlMaterial: "glass",
             metadataAnchor: "start",
             metadataAlign: "left",
             metadataSurface: "none",
@@ -2082,6 +2242,8 @@
         var fallback = defaultPlayerThemeChoices();
         return {
             artworkMode: knownChoice(PLAYER_ARTWORK_MODES, source.artworkMode, fallback.artworkMode),
+            artworkMaterial: knownChoice(PLAYER_ARTWORK_MATERIALS, source.artworkMaterial, fallback.artworkMaterial),
+            controlMaterial: knownChoice(PLAYER_CONTROL_MATERIALS, source.controlMaterial, fallback.controlMaterial),
             metadataAnchor: knownChoice(PLAYER_METADATA_ANCHORS, source.metadataAnchor, fallback.metadataAnchor),
             metadataAlign: knownChoice(LYRIC_ALIGNMENTS, source.metadataAlign, fallback.metadataAlign),
             metadataSurface: knownChoice(PLAYER_SURFACE_STYLES, source.metadataSurface, fallback.metadataSurface),
@@ -2129,7 +2291,7 @@
     function normalizePlayerThemeTuning(source) {
         source = source && "object" === typeof source ? source : {};
         var tuning = {};
-        PLAYER_TUNING_DEFINITIONS.forEach(function (definition) {
+        PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
             tuning[definition.id] = normalizePlayerTuningValue(
                 definition,
                 Object.prototype.hasOwnProperty.call(source, definition.id)
@@ -2153,7 +2315,7 @@
             return null;
         }
         if (PLAYER_THEME_DOCUMENT_FORMAT === source.format
-            && 3 === Number(source.schemaVersion)
+            && (3 === Number(source.schemaVersion) || 4 === Number(source.schemaVersion))
             && !source.v2) {
             source = playerThemeInternalFromV3Document(source, index);
         }
@@ -2161,22 +2323,23 @@
         if (!id) {
             id = "user-theme-" + String(index || 0);
         }
+        var baseLayout = isKnownPlayerLayout(source.baseTheme || source.baseLayout)
+            && "custom" !== (source.baseTheme || source.baseLayout)
+            ? (source.baseTheme || source.baseLayout)
+            : "album";
         var theme = {
             format: PLAYER_THEME_DOCUMENT_FORMAT,
             schemaVersion: PLAYER_THEME_SCHEMA_VERSION,
             id: id,
             name: normalizePlayerThemeName(source.name, "我的主题 " + (Number(index || 0) + 1)),
-            baseLayout: isKnownPlayerLayout(source.baseTheme || source.baseLayout)
-                && "custom" !== (source.baseTheme || source.baseLayout)
-                ? (source.baseTheme || source.baseLayout)
-                : "album",
+            baseLayout: baseLayout,
             tuning: normalizePlayerThemeTuning(source.tuning),
             choices: normalizePlayerThemeChoices(source.choices),
             colors: normalizePlayerThemeColors(source.colors),
             mediaFields: normalizePlayerMediaFields(source.mediaFields),
             player: source.player && "object" === typeof source.player ? shallowCopy(source.player) : {},
             v2: source.v2 && "object" === typeof source.v2
-                ? normalizePlayerThemeV2State(source.v2)
+                ? normalizePlayerThemeV2State(source.v2, baseLayout)
                 : null,
             revision: isFinite(Number(source.revision))
                 ? Math.max(0, Math.round(Number(source.revision)))
@@ -2197,6 +2360,9 @@
 
     function playerThemeInternalFromV3Document(source, index) {
         source = source && "object" === typeof source ? source : {};
+        if (Number(source.schemaVersion) < 4) {
+            rememberPlayerThemeV3MigrationBackup(source);
+        }
         var background = source.background || {};
         var artwork = source.artwork || {};
         var metadata = source.metadata || {};
@@ -2259,7 +2425,8 @@
             if (null == colors[key]) { delete colors[key]; }
         });
         var choices = {
-            artworkMode: artwork.mode, metadataAnchor: metadata.anchor,
+            artworkMode: artwork.mode, artworkMaterial: artwork.material,
+            controlMaterial: consoleStyle.material, metadataAnchor: metadata.anchor,
             metadataAlign: metadata.align, metadataSurface: metadata.surface,
             lyricsSurface: lyrics.surface, mediaSurface: mediaCard.surface
         };
@@ -2277,9 +2444,38 @@
         Object.keys(player).forEach(function (key) {
             if (null == player[key]) { delete player[key]; }
         });
+        var migratedState = builtInPlayerThemeV4State(source.baseTheme || "album", null);
+        if (4 === Number(source.schemaVersion) && PLAYER_THEME_LAYOUT_MODEL === source.layoutModel) {
+            migratedState.layouts = clonePlayerThemeV2Value(source.layouts || migratedState.layouts);
+            migratedState.viewportTransforms = clonePlayerThemeV2Value(
+                source.viewportTransforms || migratedState.viewportTransforms
+            );
+        }
+        migratedState.artwork = {
+            source: artwork.source || "emby", url: artwork.url || "",
+            assetId: artwork.assetId || "", fit: artwork.fit || "cover",
+            focusX: null == artwork.focusX ? 50 : artwork.focusX,
+            focusY: null == artwork.focusY ? 50 : artwork.focusY,
+            clipPath: artwork.clipPath || "none"
+        };
+        migratedState.typography = lyrics.typography || defaultPlayerThemeV2Typography();
+        migratedState.lyrics = {
+            showSecondLine: false !== lyrics.showSecondLine,
+            showThirdAndLaterLines: false !== lyrics.showThirdAndLaterLines,
+            followDelayMs: lyrics.followDelayMs || LYRIC_FOLLOW_IDLE_MS
+        };
+        migratedState.visualizer = {
+            frequencyLayout: visualizer.frequencyLayout || "centerOut",
+            analysis: visualizer.analysis || {}
+        };
+        migratedState.popupStyle = {
+            surfaceOpacity: null == mediaCard.popupOpacity ? 100 : mediaCard.popupOpacity,
+            radius: null == mediaCard.popupRadius ? 24 : mediaCard.popupRadius
+        };
+        migratedState.controls = { safeArea: consoleStyle.safeArea || 64 };
         return {
             format: PLAYER_THEME_DOCUMENT_FORMAT,
-            schemaVersion: 3,
+            schemaVersion: 4,
             id: source.id || "imported-theme-" + String(index || 0),
             name: source.name || "导入主题",
             baseLayout: source.baseTheme || "album",
@@ -2288,37 +2484,11 @@
             colors: colors,
             mediaFields: source.mediaFields || {},
             player: player,
-            v2: {
-                schemaVersion: 3,
-                layouts: source.layouts || defaultPlayerThemeV2Layouts(),
-                layoutOverrides: { landscape: true, portrait: true },
-                artwork: {
-                    source: artwork.source || "emby", url: artwork.url || "",
-                    assetId: artwork.assetId || "", fit: artwork.fit || "cover",
-                    focusX: null == artwork.focusX ? 50 : artwork.focusX,
-                    focusY: null == artwork.focusY ? 50 : artwork.focusY,
-                    clipPath: artwork.clipPath || "none"
-                },
-                typography: lyrics.typography || defaultPlayerThemeV2Typography(),
-                lyrics: {
-                    showSecondLine: false !== lyrics.showSecondLine,
-                    showThirdAndLaterLines: false !== lyrics.showThirdAndLaterLines,
-                    followDelayMs: lyrics.followDelayMs || LYRIC_FOLLOW_IDLE_MS
-                },
-                visualizer: {
-                    frequencyLayout: visualizer.frequencyLayout || "centerOut",
-                    analysis: visualizer.analysis || {}
-                },
-                popupStyle: {
-                    surfaceOpacity: null == mediaCard.popupOpacity ? 100 : mediaCard.popupOpacity,
-                    radius: null == mediaCard.popupRadius ? 24 : mediaCard.popupRadius
-                },
-                controls: { safeArea: consoleStyle.safeArea || 64 }
-            }
+            v2: migratedState
         };
     }
 
-    function portablePlayerThemeV3(theme, includePrivateAssets) {
+    function portablePlayerThemeV4(theme, includePrivateAssets) {
         var state = normalizePlayerThemeV2State(theme.v2 || defaultPlayerThemeV2State());
         var tuning = theme.tuning || {};
         var choices = theme.choices || {};
@@ -2341,10 +2511,12 @@
         }
         return {
             format: PLAYER_THEME_DOCUMENT_FORMAT,
-            schemaVersion: 3,
+            schemaVersion: 4,
+            layoutModel: PLAYER_THEME_LAYOUT_MODEL,
             name: normalizePlayerThemeName(theme.name, "导出主题"),
             baseTheme: theme.baseLayout || "album",
             layouts: clonePlayerThemeV2Value(state.layouts),
+            viewportTransforms: clonePlayerThemeV2Value(state.viewportTransforms),
             background: {
                 mode: player.backgroundMode || "blur", blur: tuning.backgroundBlur,
                 dim: tuning.backgroundDim, saturation: tuning.backgroundSaturation,
@@ -2352,9 +2524,9 @@
                 colorB: colors.backgroundB
             },
             artwork: Object.assign(artworkSource, {
-                mode: choices.artworkMode, rotation: false !== player.artworkRotation,
-                scale: tuning.artworkScale, size: tuning.artworkSize,
-                x: tuning.artworkX, y: tuning.artworkY, innerSize: tuning.artworkInnerSize,
+                mode: choices.artworkMode, material: choices.artworkMaterial,
+                rotation: false !== player.artworkRotation,
+                scale: tuning.artworkScale, innerSize: tuning.artworkInnerSize,
                 outerRadius: tuning.artworkOuterRadius, innerRadius: tuning.artworkInnerRadius,
                 padding: tuning.artworkPadding, borderWidth: tuning.artworkBorderWidth,
                 shadowDepth: tuning.artworkShadowDepth, coverflowWidth: tuning.coverflowWidth,
@@ -2362,8 +2534,7 @@
             }),
             metadata: {
                 anchor: choices.metadataAnchor, align: choices.metadataAlign,
-                surface: choices.metadataSurface, width: tuning.metadataWidth,
-                x: tuning.metadataX, y: tuning.metadataY, titleSize: tuning.metadataTitleSize,
+                surface: choices.metadataSurface, titleSize: tuning.metadataTitleSize,
                 artistSize: tuning.metadataArtistSize, albumSize: tuning.metadataAlbumSize,
                 letterSpacing: tuning.metadataLetterSpacing, padding: tuning.metadataPadding,
                 radius: tuning.metadataRadius, blur: tuning.metadataBlur,
@@ -2373,8 +2544,7 @@
             lyrics: {
                 style: player.theme || "classic", alignment: player.lyricAlignment || "left",
                 scale: player.lyricScale || 100, surface: choices.lyricsSurface,
-                width: tuning.lyricsWidth, height: tuning.lyricsHeight,
-                x: tuning.lyricsX, y: tuning.lyricsY, lineHeight: tuning.lyricLineGap,
+                lineHeight: tuning.lyricLineGap,
                 inactiveOpacity: tuning.lyricInactiveOpacity, padding: tuning.lyricsPadding,
                 radius: tuning.lyricsRadius, blur: tuning.lyricsBlur,
                 opacity: tuning.lyricsOpacity, letterSpacing: tuning.lyricLetterSpacing,
@@ -2394,13 +2564,12 @@
                 amplitude: player.visualizerAmplitude || 70,
                 colorMode: player.visualizerColorMode || "dual",
                 colors: (player.visualizerColors || ["#a8e063", "#56d6c9", "#8b9dff"]).slice(0, 8),
-                x: tuning.visualizerX, y: tuning.visualizerY,
-                rotation: tuning.visualizerRotation, opacity: tuning.visualizerOpacity,
                 analysis: clonePlayerThemeV2Value(state.visualizer.analysis)
             },
             console: {
-                progressWidth: tuning.progressWidth, progressHeight: tuning.progressTrackHeight,
-                progressThumbSize: tuning.progressThumbSize, volumeWidth: tuning.volumeWidth,
+                material: choices.controlMaterial,
+                progressHeight: tuning.progressTrackHeight,
+                progressThumbSize: tuning.progressThumbSize,
                 volumeHeight: tuning.volumeTrackHeight, volumeThumbSize: tuning.volumeThumbSize,
                 blur: tuning.consoleBlur, opacity: tuning.consoleOpacity,
                 progressActive: colors.progressActive, progressTrack: colors.progressTrack,
@@ -2420,13 +2589,13 @@
     }
 
     if ("undefined" !== typeof window) {
-        window.__elyricPlayerThemeV3Fixtures = PLAYER_LAYOUTS.filter(function (layout) {
+        window.__elyricPlayerThemeV4Fixtures = PLAYER_LAYOUTS.filter(function (layout) {
             return "custom" !== layout.id;
         }).map(function (layout) {
-            return portablePlayerThemeV3(resolvedBuiltInPlayerTheme(layout.id), false);
+            return portablePlayerThemeV4(resolvedBuiltInPlayerTheme(layout.id), false);
         });
-        window.__elyricPortablePlayerThemeV3 = function (theme) {
-            return portablePlayerThemeV3(theme, false);
+        window.__elyricPortablePlayerThemeV4 = function (theme) {
+            return portablePlayerThemeV4(theme, false);
         };
         window.__elyricValidatePortablePlayerThemeV3 = validatePortablePlayerThemeV3Document;
     }
@@ -2487,7 +2656,7 @@
     function collectCurrentPlayerTheme(renderer, name, id) {
         ensurePlayerThemeLibrary(renderer);
         var tuning = {};
-        PLAYER_TUNING_DEFINITIONS.forEach(function (definition) {
+        PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
             tuning[definition.id] = renderer.__elyricPlayerTuning
                 && isFinite(Number(renderer.__elyricPlayerTuning[definition.id]))
                 ? Number(renderer.__elyricPlayerTuning[definition.id])
@@ -2554,6 +2723,8 @@
         var choices = defaultPlayerThemeChoices();
         var definitions = {
             artworkMode: PLAYER_ARTWORK_MODES,
+            artworkMaterial: PLAYER_ARTWORK_MATERIALS,
+            controlMaterial: PLAYER_CONTROL_MATERIALS,
             metadataAnchor: PLAYER_METADATA_ANCHORS,
             metadataAlign: LYRIC_ALIGNMENTS,
             metadataSurface: PLAYER_SURFACE_STYLES,
@@ -2567,6 +2738,8 @@
         renderer.__elyricPlayerThemeChoices[choiceId] = value;
         var attributeNames = {
             artworkMode: "data-elyric-artwork-mode",
+            artworkMaterial: "data-elyric-artwork-material",
+            controlMaterial: "data-elyric-control-material",
             metadataAnchor: "data-elyric-metadata-anchor",
             metadataAlign: "data-elyric-metadata-align",
             metadataSurface: "data-elyric-metadata-surface",
@@ -2586,6 +2759,9 @@
                 "--elyric-design-metadata-shift",
                 "center" === value ? "-50%" : ("end" === value ? "-100%" : "0%")
             );
+        }
+        if ("metadataAlign" === choiceId) {
+            setDisplayStyle(renderer.__elyricThemeControl, "--elyric-v4-metadata-align", value);
         }
         var buttons = renderer.__elyricPlayerThemeChoiceButtons
             && renderer.__elyricPlayerThemeChoiceButtons[choiceId];
@@ -2666,6 +2842,8 @@
         }
         var attributeNames = {
             artworkMode: "data-elyric-artwork-mode",
+            artworkMaterial: "data-elyric-artwork-material",
+            controlMaterial: "data-elyric-control-material",
             metadataAnchor: "data-elyric-metadata-anchor",
             metadataAlign: "data-elyric-metadata-align",
             metadataSurface: "data-elyric-metadata-surface",
@@ -2686,7 +2864,7 @@
                 renderer.__elyricPlayerThemeChoices[choiceId]
             );
         });
-        PLAYER_TUNING_DEFINITIONS.forEach(function (definition) {
+        PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
             var value = renderer.__elyricPlayerTuning
                 && isFinite(Number(renderer.__elyricPlayerTuning[definition.id]))
                 ? Number(renderer.__elyricPlayerTuning[definition.id])
@@ -2749,7 +2927,7 @@
         if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
             setAttributeIfChanged(document.body, "data-elyric-parametric", "true");
         }
-        PLAYER_TUNING_DEFINITIONS.forEach(function (definition) {
+        PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
             setPlayerTuning(renderer, definition.id, theme.tuning[definition.id], false);
         });
         Object.keys(theme.choices).forEach(function (choiceId) {
@@ -2799,22 +2977,11 @@
             return null;
         }
         var tuning = {};
-        PLAYER_TUNING_DEFINITIONS.forEach(function (definition) {
+        PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
             tuning[definition.id] = definition.fallback;
         });
         mergeThemeValues(tuning, preset.tuning);
         var choices = mergeThemeValues(defaultPlayerThemeChoices(), preset.choices);
-        if (isCompactPlayerViewport()) {
-            mergeThemeValues(tuning, PLAYER_PARAMETRIC_MOBILE_DEFAULTS.tuning);
-            mergeThemeValues(choices, PLAYER_PARAMETRIC_MOBILE_DEFAULTS.choices);
-            if (preset.mobile && preset.mobile.tuning) {
-                mergeThemeValues(tuning, preset.mobile.tuning);
-            }
-            if (preset.mobile && preset.mobile.choices) {
-                mergeThemeValues(choices, preset.mobile.choices);
-            }
-            choices.artworkMode = preset.choices && preset.choices.artworkMode || choices.artworkMode;
-        }
         return {
             format: PLAYER_THEME_DOCUMENT_FORMAT,
             schemaVersion: PLAYER_THEME_SCHEMA_VERSION,
@@ -2826,7 +2993,7 @@
             colors: mergeThemeValues(defaultPlayerThemeColors(), preset.colors),
             mediaFields: defaultPlayerMediaFields(),
             player: shallowCopy(PLAYER_LAYOUT_PRESET_DEFAULTS[layoutId] || {}),
-            v2: builtInPlayerThemeV3State(layoutId, preset)
+            v2: builtInPlayerThemeV4State(layoutId, preset)
         };
     }
 
@@ -2903,7 +3070,7 @@
             );
         }
         var tuningSource = source.tuning && "object" === typeof source.tuning ? source.tuning : {};
-        PLAYER_TUNING_DEFINITIONS.forEach(function (definition) {
+        PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
             if (Object.prototype.hasOwnProperty.call(tuningSource, definition.id)) {
                 preferences.tuning[definition.id] = normalizePlayerTuningValue(
                     definition,
@@ -2930,7 +3097,7 @@
 
     function collectUserPlayerPreferences(renderer) {
         var tuning = {};
-        PLAYER_TUNING_DEFINITIONS.forEach(function (definition) {
+        PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
             tuning[definition.id] = renderer.__elyricPlayerTuning
                 && isFinite(Number(renderer.__elyricPlayerTuning[definition.id]))
                 ? Number(renderer.__elyricPlayerTuning[definition.id])
@@ -3211,7 +3378,7 @@
         var body = {
             ExpectedRevision: Number(renderer.__elyricWorkspaceRevision || 0),
             ActiveThemeId: renderer.__elyricActiveUserPlayerThemeId || null,
-            DraftJson: JSON.stringify(portablePlayerThemeV3(
+            DraftJson: JSON.stringify(portablePlayerThemeV4(
                 collectCurrentPlayerTheme(renderer, "当前设计", "draft"),
                 true
             )),
@@ -3243,7 +3410,7 @@
             Id: theme.id,
             ExpectedRevision: Number(theme.revision || 0),
             Name: theme.name,
-            ThemeJson: JSON.stringify(portablePlayerThemeV3(theme, true))
+            ThemeJson: JSON.stringify(portablePlayerThemeV4(theme, true))
         };
         return playerThemeV2ApiRequest(renderer, method, path, body).then(function (record) {
             var resultRecord = playerThemeV2ResponseValue(record, "value", "Value", record);
@@ -3542,7 +3709,7 @@
         if ("boolean" === typeof preferences.showSecondLine) {
             setSecondLineOverride(renderer, preferences.showSecondLine, false);
         }
-        PLAYER_TUNING_DEFINITIONS.forEach(function (definition) {
+        PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
             if (preferences.tuning
                 && Object.prototype.hasOwnProperty.call(preferences.tuning, definition.id)) {
                 setPlayerTuning(renderer, definition.id, preferences.tuning[definition.id], false);
@@ -4086,7 +4253,8 @@
         if (!button) {
             return;
         }
-        var circular = isKnownPlayerLayout(renderer.__elyricPlayerLayout);
+        var circular = renderer.__elyricPlayerThemeChoices
+            && "single" === renderer.__elyricPlayerThemeChoices.artworkMode;
         button.disabled = !circular;
         setAttributeIfChanged(button, "aria-disabled", circular ? "false" : "true");
         setAttributeIfChanged(
@@ -4283,7 +4451,7 @@
         var viewportHeight = "undefined" !== typeof window && isFinite(Number(window.innerHeight))
             ? Number(window.innerHeight)
             : 720;
-        var anchored = viewportWidth >= 761 || viewportWidth > viewportHeight;
+        var anchored = "landscape" === currentPlayerThemeV2Profile();
         if (!anchored) {
             clearMediaPanelAnchor(renderer, "drawer");
             return;
@@ -4493,7 +4661,6 @@
             if (!body.classList.contains("elyric-player-active-page")) {
                 body.classList.add("elyric-player-active-page");
             }
-            setAttributeIfChanged(body, "data-elyric-player-layout", renderer.__elyricPlayerLayout || "album");
             setAttributeIfChanged(body, "data-elyric-queue-open", renderer.__elyricQueueOpen ? "true" : "false");
             setAttributeIfChanged(body, "data-elyric-background-mode", renderer.__elyricBackgroundMode || "blur");
             setAttributeIfChanged(body, "data-elyric-alignment", renderer.__elyricLyricAlignment || "left");
@@ -4511,7 +4678,6 @@
             if (body.classList.contains("elyric-player-active-page")) {
                 body.classList.remove("elyric-player-active-page");
             }
-            removeAttributeIfPresent(body, "data-elyric-player-layout");
             removeAttributeIfPresent(body, "data-elyric-queue-open");
             removeAttributeIfPresent(body, "data-elyric-background-mode");
             removeAttributeIfPresent(body, "data-elyric-alignment");
@@ -4533,14 +4699,7 @@
 
     function applyPlayerLayout(renderer, layoutId, persist) {
         layoutId = isKnownPlayerLayout(layoutId) ? layoutId : "album";
-        if ("custom" !== layoutId && renderer.__elyricThemeV2) {
-            clearPlayerThemeV2Layout(renderer);
-        }
         renderer.__elyricPlayerLayout = layoutId;
-        setAttributeIfChanged(renderer.itemsContainer, "data-elyric-player-layout", layoutId);
-        setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-player-layout", layoutId);
-        setAttributeIfChanged(renderer.__elyricSettingsPanel, "data-elyric-player-layout", layoutId);
-        setAttributeIfChanged(renderer.__elyricMediaPanel, "data-elyric-player-layout", layoutId);
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-parametric", "true");
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-parametric", "true");
         if (renderer.__elyricLayoutSelect) {
@@ -4561,7 +4720,8 @@
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
-        if ("coverflow" === layoutId) {
+        if (renderer.__elyricPlayerThemeChoices
+            && "coverflow" === renderer.__elyricPlayerThemeChoices.artworkMode) {
             renderer.__elyricCoverflowPreviewAt = 0;
             syncPlayerCoverflowPreview(renderer, true);
         }
@@ -4714,7 +4874,6 @@
         if (container) {
             container.removeAttribute("data-elyric-show-second");
             container.removeAttribute("data-elyric-show-third-plus");
-            container.removeAttribute("data-elyric-player-layout");
             if (container.style && container.style.removeProperty) {
                 [
                     "--elyric-font-size",
@@ -6209,7 +6368,8 @@
 
     function syncPlayerCoverflowPreview(renderer, force) {
         if (!renderer.__elyricCoverflowArtworks
-            || "coverflow" !== renderer.__elyricPlayerLayout) {
+            || !renderer.__elyricPlayerThemeChoices
+            || "coverflow" !== renderer.__elyricPlayerThemeChoices.artworkMode) {
             return;
         }
         var now = Date.now();
@@ -6796,7 +6956,7 @@
 
     function serializedPortablePlayerTheme(renderer) {
         var theme = currentPlayerThemeForExport(renderer);
-        return JSON.stringify(portablePlayerThemeV3(theme, false), null, 2);
+        return JSON.stringify(portablePlayerThemeV4(theme, false), null, 2);
     }
 
     function copyPortablePlayerTheme(renderer) {
@@ -6934,17 +7094,25 @@
         validateImportedThemeObject(
             layer,
             sectionName,
-            ["x", "y", "width", "height", "rotation", "z", "opacity", "hidden", "locked"]
+            ["anchorX", "anchorY", "x", "y", "width", "height", "rotation", "z", "opacity", "hidden", "locked"]
         );
-        validateImportedThemeNumber(layer, "x", -100, 200, sectionName);
-        validateImportedThemeNumber(layer, "y", -100, 200, sectionName);
-        validateImportedThemeNumber(layer, "width", 1, 200, sectionName);
-        validateImportedThemeNumber(layer, "height", 1, 200, sectionName);
+        validateImportedThemeEnum(layer, "anchorX", PLAYER_THEME_V2_ANCHORS, sectionName);
+        validateImportedThemeEnum(layer, "anchorY", PLAYER_THEME_V2_ANCHORS, sectionName);
+        validateImportedThemeNumber(layer, "x", -1200, 1200, sectionName);
+        validateImportedThemeNumber(layer, "y", -1200, 1200, sectionName);
+        validateImportedThemeNumber(layer, "width", 44, 2400, sectionName);
+        validateImportedThemeNumber(layer, "height", 44, 2400, sectionName);
         validateImportedThemeNumber(layer, "rotation", -360, 360, sectionName);
         validateImportedThemeNumber(layer, "z", 0, 1000, sectionName);
         validateImportedThemeNumber(layer, "opacity", 0, 1, sectionName);
         validateImportedThemeBoolean(layer, "hidden", sectionName);
         validateImportedThemeBoolean(layer, "locked", sectionName);
+        ["anchorX", "anchorY", "x", "y", "width", "height", "rotation", "z", "opacity", "hidden", "locked"]
+            .forEach(function (key) {
+                if (!Object.prototype.hasOwnProperty.call(layer, key)) {
+                    throw new Error(sectionName + " 缺少 " + key);
+                }
+            });
     }
 
     function validateImportedThemeTypography(typography) {
@@ -6995,12 +7163,15 @@
     }
 
     function validatePortablePlayerThemeV3Document(documentValue) {
+        var portableVersion = Number(documentValue && documentValue.schemaVersion);
+        var legacyGeometry = 3 === portableVersion;
         validateImportedThemeForbiddenFields(documentValue, "theme");
         validateImportedThemeObject(documentValue, "theme", [
-            "format", "schemaVersion", "name", "baseTheme", "layouts", "background", "artwork",
+            "format", "schemaVersion", "layoutModel", "name", "baseTheme", "layouts", "viewportTransforms", "background", "artwork",
             "metadata", "lyrics", "visualizer", "console", "mediaCard", "mediaFields"
         ]);
-        if (PLAYER_THEME_DOCUMENT_FORMAT !== documentValue.format || 3 !== documentValue.schemaVersion) {
+        if (PLAYER_THEME_DOCUMENT_FORMAT !== documentValue.format
+            || [3, 4].indexOf(Number(documentValue.schemaVersion)) < 0) {
             throw new Error("主题格式或版本不是 Theme V3");
         }
         if ("string" !== typeof documentValue.name || !documentValue.name.trim()
@@ -7013,15 +7184,48 @@
             ["album", "center", "mobile", "mint", "deck", "stack", "coverflow", "lyrics", "rose"],
             "theme"
         );
+        if (4 === portableVersion) {
+            if (PLAYER_THEME_LAYOUT_MODEL !== documentValue.layoutModel) {
+                throw new Error("Theme V4 必须声明 anchored-canvas-v1 布局模型");
+            }
+            if (!documentValue.viewportTransforms) {
+                throw new Error("Theme V4 缺少 viewportTransforms");
+            }
+            validateImportedThemeEnum(documentValue, "layoutModel", [PLAYER_THEME_LAYOUT_MODEL], "theme");
+            validateImportedThemeObject(documentValue.viewportTransforms, "viewportTransforms", ["landscape", "portrait"]);
+            ["landscape", "portrait"].forEach(function (profileId) {
+                var transform = documentValue.viewportTransforms[profileId];
+                if (!transform) {
+                    throw new Error("viewportTransforms 缺少 " + profileId);
+                }
+                validateImportedThemeObject(transform, "viewportTransforms." + profileId, ["scale", "offsetX", "offsetY"]);
+                ["scale", "offsetX", "offsetY"].forEach(function (key) {
+                    if (!Object.prototype.hasOwnProperty.call(transform, key)) {
+                        throw new Error("viewportTransforms." + profileId + " 缺少 " + key);
+                    }
+                });
+                validateImportedThemeNumber(transform, "scale", .5, 1.6, "viewportTransforms." + profileId);
+                validateImportedThemeNumber(transform, "offsetX", -600, 600, "viewportTransforms." + profileId);
+                validateImportedThemeNumber(transform, "offsetY", -600, 600, "viewportTransforms." + profileId);
+            });
+        }
+        if (!documentValue.layouts) {
+            throw new Error("theme 缺少 layouts");
+        }
         validateImportedThemeObject(documentValue.layouts, "layouts", ["landscape", "portrait"]);
         ["landscape", "portrait"].forEach(function (profileId) {
             var layout = documentValue.layouts[profileId];
+            if (!layout) {
+                throw new Error("layouts 缺少 " + profileId);
+            }
             validateImportedThemeObject(layout, "layouts." + profileId, PLAYER_THEME_V2_LAYER_IDS);
             PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
                 if (!layout[layerId]) {
                     throw new Error("layouts." + profileId + " 缺少 " + layerId + " 图层");
                 }
-                validateImportedThemeLayer(layout[layerId], "layouts." + profileId + "." + layerId);
+                if (4 === portableVersion) {
+                    validateImportedThemeLayer(layout[layerId], "layouts." + profileId + "." + layerId);
+                }
             });
         });
 
@@ -7036,14 +7240,15 @@
 
         var artwork = documentValue.artwork || {};
         validateImportedThemeObject(artwork, "artwork", [
-            "source", "url", "assetId", "fit", "focusX", "focusY", "clipPath", "mode", "rotation",
-            "scale", "size", "x", "y", "innerSize", "outerRadius", "innerRadius", "padding",
+            "source", "url", "assetId", "fit", "focusX", "focusY", "clipPath", "mode", "material", "rotation",
+            "scale", "innerSize", "outerRadius", "innerRadius", "padding",
             "borderWidth", "shadowDepth", "coverflowWidth", "coverflowHeight", "frameColor"
-        ]);
+        ].concat(legacyGeometry ? ["size", "x", "y"] : []));
         if (artwork.assetId) { throw new Error("artwork.assetId 是私有资产，分享主题不能引用"); }
         validateImportedThemeEnum(artwork, "source", ["emby", "url"], "artwork");
         validateImportedThemeEnum(artwork, "fit", ["cover", "contain", "fill", "none", "scale-down"], "artwork");
         validateImportedThemeEnum(artwork, "mode", ["single", "coverflow"], "artwork");
+        validateImportedThemeEnum(artwork, "material", PLAYER_ARTWORK_MATERIALS.map(function (item) { return item.id; }), "artwork");
         validateImportedThemeBoolean(artwork, "rotation", "artwork");
         validateImportedThemeNumber(artwork, "focusX", 0, 100, "artwork");
         validateImportedThemeNumber(artwork, "focusY", 0, 100, "artwork");
@@ -7054,35 +7259,45 @@
         }
         validateImportedThemeColor(artwork, "frameColor", "artwork");
         validateImportedThemeMappedTuning(artwork, "artwork", {
-            scale: "artworkScale", size: "artworkSize", x: "artworkX", y: "artworkY",
+            scale: "artworkScale",
             innerSize: "artworkInnerSize", outerRadius: "artworkOuterRadius", innerRadius: "artworkInnerRadius",
             padding: "artworkPadding", borderWidth: "artworkBorderWidth", shadowDepth: "artworkShadowDepth",
             coverflowWidth: "coverflowWidth", coverflowHeight: "coverflowHeight"
         });
+        if (legacyGeometry) {
+            validateImportedThemeMappedTuning(artwork, "artwork", {
+                size: "artworkSize", x: "artworkX", y: "artworkY"
+            });
+        }
 
         var metadata = documentValue.metadata || {};
         validateImportedThemeObject(metadata, "metadata", [
-            "anchor", "align", "surface", "width", "x", "y", "titleSize", "artistSize", "albumSize",
+            "anchor", "align", "surface", "titleSize", "artistSize", "albumSize",
             "letterSpacing", "padding", "radius", "blur", "opacity", "textColor", "surfaceColor"
-        ]);
+        ].concat(legacyGeometry ? ["width", "x", "y"] : []));
         validateImportedThemeEnum(metadata, "anchor", ["start", "center", "end"], "metadata");
         validateImportedThemeEnum(metadata, "align", ["left", "center", "right"], "metadata");
         validateImportedThemeEnum(metadata, "surface", ["none", "glass", "inset", "embossed", "floating"], "metadata");
         validateImportedThemeMappedTuning(metadata, "metadata", {
-            width: "metadataWidth", x: "metadataX", y: "metadataY", titleSize: "metadataTitleSize",
+            titleSize: "metadataTitleSize",
             artistSize: "metadataArtistSize", albumSize: "metadataAlbumSize", letterSpacing: "metadataLetterSpacing",
             padding: "metadataPadding", radius: "metadataRadius", blur: "metadataBlur", opacity: "metadataOpacity"
         });
+        if (legacyGeometry) {
+            validateImportedThemeMappedTuning(metadata, "metadata", {
+                width: "metadataWidth", x: "metadataX", y: "metadataY"
+            });
+        }
         validateImportedThemeColor(metadata, "textColor", "metadata");
         validateImportedThemeColor(metadata, "surfaceColor", "metadata");
 
         var lyrics = documentValue.lyrics || {};
         validateImportedThemeObject(lyrics, "lyrics", [
-            "style", "alignment", "scale", "surface", "width", "height", "x", "y", "lineHeight",
+            "style", "alignment", "scale", "surface", "lineHeight",
             "inactiveOpacity", "padding", "radius", "blur", "opacity", "letterSpacing", "pastSize",
             "currentSize", "futureSize", "currentWeight", "pastColor", "currentColor", "futureColor",
             "surfaceColor", "showSecondLine", "showThirdAndLaterLines", "followDelayMs", "typography"
-        ]);
+        ].concat(legacyGeometry ? ["width", "height", "x", "y"] : []));
         validateImportedThemeEnum(lyrics, "style", THEMES.map(function (item) { return item.id; }), "lyrics");
         validateImportedThemeEnum(lyrics, "alignment", ["left", "center", "right"], "lyrics");
         validateImportedThemeEnum(lyrics, "surface", ["none", "glass", "inset", "embossed", "floating"], "lyrics");
@@ -7091,12 +7306,16 @@
         validateImportedThemeBoolean(lyrics, "showThirdAndLaterLines", "lyrics");
         validateImportedThemeNumber(lyrics, "followDelayMs", 1000, 60000, "lyrics");
         validateImportedThemeMappedTuning(lyrics, "lyrics", {
-            width: "lyricsWidth", height: "lyricsHeight", x: "lyricsX", y: "lyricsY",
             lineHeight: "lyricLineGap", inactiveOpacity: "lyricInactiveOpacity", padding: "lyricsPadding",
             radius: "lyricsRadius", blur: "lyricsBlur", opacity: "lyricsOpacity",
             letterSpacing: "lyricLetterSpacing", pastSize: "lyricPastSize", currentSize: "lyricCurrentSize",
             futureSize: "lyricFutureSize", currentWeight: "lyricCurrentWeight"
         });
+        if (legacyGeometry) {
+            validateImportedThemeMappedTuning(lyrics, "lyrics", {
+                width: "lyricsWidth", height: "lyricsHeight", x: "lyricsX", y: "lyricsY"
+            });
+        }
         ["pastColor", "currentColor", "futureColor", "surfaceColor"].forEach(function (key) {
             validateImportedThemeColor(lyrics, key, "lyrics");
         });
@@ -7104,18 +7323,19 @@
 
         var visualizer = documentValue.visualizer || {};
         validateImportedThemeObject(visualizer, "visualizer", [
-            "style", "frequencyLayout", "width", "height", "amplitude", "colorMode", "colors",
-            "x", "y", "rotation", "opacity", "analysis"
-        ]);
+            "style", "frequencyLayout", "width", "height", "amplitude", "colorMode", "colors", "analysis"
+        ].concat(legacyGeometry ? ["x", "y", "rotation", "opacity"] : []));
         validateImportedThemeEnum(visualizer, "style", VISUALIZER_STYLES.map(function (item) { return item.id; }), "visualizer");
         validateImportedThemeEnum(visualizer, "frequencyLayout", VISUALIZER_FREQUENCY_LAYOUTS.map(function (item) { return item.id; }), "visualizer");
         validateImportedThemeEnum(visualizer, "colorMode", VISUALIZER_COLOR_MODES.map(function (item) { return item.id; }), "visualizer");
         validateImportedThemeNumber(visualizer, "width", 10, 100, "visualizer");
         validateImportedThemeNumber(visualizer, "height", 2, 30, "visualizer");
         validateImportedThemeNumber(visualizer, "amplitude", 25, 140, "visualizer");
-        validateImportedThemeMappedTuning(visualizer, "visualizer", {
-            x: "visualizerX", y: "visualizerY", rotation: "visualizerRotation", opacity: "visualizerOpacity"
-        });
+        if (legacyGeometry) {
+            validateImportedThemeMappedTuning(visualizer, "visualizer", {
+                x: "visualizerX", y: "visualizerY", rotation: "visualizerRotation", opacity: "visualizerOpacity"
+            });
+        }
         if (visualizer.colors) {
             if (!Array.isArray(visualizer.colors) || !visualizer.colors.length || visualizer.colors.length > 8
                 || visualizer.colors.some(function (color) { return !/^#[0-9a-f]{6}$/i.test(String(color)); })) {
@@ -7137,16 +7357,21 @@
 
         var consoleStyle = documentValue.console || {};
         validateImportedThemeObject(consoleStyle, "console", [
-            "progressWidth", "progressHeight", "progressThumbSize", "volumeWidth", "volumeHeight",
+            "material", "progressHeight", "progressThumbSize", "volumeHeight",
             "volumeThumbSize", "blur", "opacity", "progressActive", "progressTrack", "volumeActive",
             "volumeTrack", "safeArea"
-        ]);
+        ].concat(legacyGeometry ? ["progressWidth", "volumeWidth"] : []));
+        validateImportedThemeEnum(consoleStyle, "material", PLAYER_CONTROL_MATERIALS.map(function (item) { return item.id; }), "console");
         validateImportedThemeMappedTuning(consoleStyle, "console", {
-            progressWidth: "progressWidth", progressHeight: "progressTrackHeight",
-            progressThumbSize: "progressThumbSize", volumeWidth: "volumeWidth",
+            progressHeight: "progressTrackHeight", progressThumbSize: "progressThumbSize",
             volumeHeight: "volumeTrackHeight", volumeThumbSize: "volumeThumbSize",
             blur: "consoleBlur", opacity: "consoleOpacity"
         });
+        if (legacyGeometry) {
+            validateImportedThemeMappedTuning(consoleStyle, "console", {
+                progressWidth: "progressWidth", volumeWidth: "volumeWidth"
+            });
+        }
         validateImportedThemeNumber(consoleStyle, "safeArea", 44, 180, "console");
         ["progressActive", "progressTrack", "volumeActive", "volumeTrack"].forEach(function (key) {
             validateImportedThemeColor(consoleStyle, key, "console");
@@ -7248,7 +7473,7 @@
 
     function ensurePlayerThemeV2State(renderer) {
         if (!renderer.__elyricThemeV2) {
-            renderer.__elyricThemeV2 = captureRenderedPlayerThemeV2State(renderer) || defaultPlayerThemeV2State();
+            renderer.__elyricThemeV2 = defaultPlayerThemeV2State();
         }
         renderer.__elyricThemeV2 = normalizePlayerThemeV2State(renderer.__elyricThemeV2);
         renderer.__elyricThemeV2Profile = renderer.__elyricThemeV2Profile || currentPlayerThemeV2Profile();
@@ -7256,36 +7481,6 @@
         renderer.__elyricThemeV2Undo = renderer.__elyricThemeV2Undo || [];
         renderer.__elyricThemeV2Redo = renderer.__elyricThemeV2Redo || [];
         return renderer.__elyricThemeV2;
-    }
-
-    function captureRenderedPlayerThemeV2State(renderer) {
-        if (!renderer || "undefined" === typeof window || !window.innerWidth || !window.innerHeight) {
-            return null;
-        }
-        var state = defaultPlayerThemeV2State();
-        var profileId = currentPlayerThemeV2Profile();
-        var captured = false;
-        PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
-            var element = playerThemeV2LayerElement(renderer, layerId);
-            if (!element || !element.getBoundingClientRect) { return; }
-            var rect = element.getBoundingClientRect();
-            if (!rect || !isFinite(rect.width) || !isFinite(rect.height) || rect.width < 1 || rect.height < 1) {
-                return;
-            }
-            var computed = window.getComputedStyle ? window.getComputedStyle(element) : null;
-            var layer = state.layouts[profileId][layerId];
-            layer.x = Math.round(rect.left / window.innerWidth * 1000) / 10;
-            layer.y = Math.round(rect.top / window.innerHeight * 1000) / 10;
-            layer.width = Math.round(rect.width / window.innerWidth * 1000) / 10;
-            layer.height = Math.round(rect.height / window.innerHeight * 1000) / 10;
-            layer.z = computed && isFinite(Number(computed.zIndex)) ? Number(computed.zIndex) : layer.z;
-            layer.opacity = computed && isFinite(Number(computed.opacity)) ? Number(computed.opacity) : 1;
-            layer.hidden = false;
-            captured = true;
-        });
-        if (!captured) { return null; }
-        state.layoutOverrides[profileId] = true;
-        return normalizePlayerThemeV2State(state);
     }
 
     function pushPlayerThemeV2History(renderer) {
@@ -7317,11 +7512,98 @@
 
     function snapPlayerThemeV2Value(value, anchors) {
         var snapped = value;
-        var distance = .8;
+        var distance = 10;
         anchors.forEach(function (anchor) {
             if (Math.abs(value - anchor) <= distance) { snapped = anchor; }
         });
         return Math.round(snapped * 10) / 10;
+    }
+
+    function setPlayerThemeV2DesignerGuides(renderer, metrics, x, y) {
+        var host = renderer.__elyricThemeV2Guides;
+        if (!host || !host.children || host.children.length < 2) { return; }
+        var vertical = host.children[0];
+        var horizontal = host.children[1];
+        if (isFinite(Number(x))) {
+            vertical.style.left = metrics.forward(Number(x), 0).x + "px";
+            vertical.style.display = "block";
+        } else {
+            vertical.style.display = "none";
+        }
+        if (isFinite(Number(y))) {
+            horizontal.style.top = metrics.forward(0, Number(y)).y + "px";
+            horizontal.style.display = "block";
+        } else {
+            horizontal.style.display = "none";
+        }
+    }
+
+    function snapPlayerThemeV2LayerGeometry(renderer, layerId, proposed, metrics, resizing) {
+        var layout = resolvedPlayerThemeV2Layout(renderer, renderer.__elyricThemeV2Profile);
+        var horizontal = [0, metrics.designWidth / 2, metrics.designWidth];
+        var vertical = [0, metrics.designHeight / 2, metrics.designHeight];
+        var siblings = [];
+        PLAYER_THEME_V2_LAYER_IDS.forEach(function (siblingId) {
+            if (siblingId === layerId || !layout[siblingId] || layout[siblingId].hidden) { return; }
+            var rect = playerThemeV2LayerDesignRect(layout[siblingId], metrics);
+            rect.right = rect.left + rect.width;
+            rect.bottom = rect.top + rect.height;
+            siblings.push(rect);
+            horizontal.push(rect.left, rect.left + rect.width / 2, rect.right);
+            vertical.push(rect.top, rect.top + rect.height / 2, rect.bottom);
+        });
+        siblings.forEach(function (first) {
+            siblings.forEach(function (second) {
+                if (first === second) { return; }
+                if (first.right <= second.left) {
+                    var horizontalGap = second.left - first.right;
+                    horizontal.push(first.left - horizontalGap, second.right + horizontalGap);
+                }
+                if (first.bottom <= second.top) {
+                    var verticalGap = second.top - first.bottom;
+                    vertical.push(first.top - verticalGap, second.bottom + verticalGap);
+                }
+            });
+        });
+        var rect = playerThemeV2LayerDesignRect(proposed, metrics);
+        var xPoints = resizing
+            ? [{ value: rect.left + rect.width, adjust: "width" }]
+            : [
+                { value: rect.left, adjust: "x" },
+                { value: rect.left + rect.width / 2, adjust: "x" },
+                { value: rect.left + rect.width, adjust: "x" }
+            ];
+        var yPoints = resizing
+            ? [{ value: rect.top + rect.height, adjust: "height" }]
+            : [
+                { value: rect.top, adjust: "y" },
+                { value: rect.top + rect.height / 2, adjust: "y" },
+                { value: rect.top + rect.height, adjust: "y" }
+            ];
+        function closest(points, candidates) {
+            var match = null;
+            points.forEach(function (point) {
+                candidates.forEach(function (candidate) {
+                    var distance = candidate - point.value;
+                    if (Math.abs(distance) <= 10 && (!match || Math.abs(distance) < Math.abs(match.distance))) {
+                        match = { distance: distance, candidate: candidate, adjust: point.adjust };
+                    }
+                });
+            });
+            return match;
+        }
+        var xMatch = closest(xPoints, horizontal);
+        var yMatch = closest(yPoints, vertical);
+        if (xMatch) { proposed[xMatch.adjust] += xMatch.distance; }
+        if (yMatch) { proposed[yMatch.adjust] += yMatch.distance; }
+        proposed.width = Math.max(44, proposed.width);
+        proposed.height = Math.max(44, proposed.height);
+        setPlayerThemeV2DesignerGuides(
+            renderer, metrics,
+            xMatch ? xMatch.candidate : null,
+            yMatch ? yMatch.candidate : null
+        );
+        return proposed;
     }
 
     function updatePlayerThemeV2Layer(renderer, patch, recordHistory) {
@@ -7347,12 +7629,12 @@
     function playerThemeV2Align(renderer, mode) {
         var layer = activePlayerThemeV2Layer(renderer);
         var patch = {};
-        if ("left" === mode) { patch.x = 0; }
-        if ("center" === mode) { patch.x = (100 - layer.width) / 2; }
-        if ("right" === mode) { patch.x = 100 - layer.width; }
-        if ("top" === mode) { patch.y = 0; }
-        if ("middle" === mode) { patch.y = (100 - layer.height) / 2; }
-        if ("bottom" === mode) { patch.y = 100 - layer.height; }
+        if ("left" === mode) { patch.anchorX = "start"; patch.x = 0; }
+        if ("center" === mode) { patch.anchorX = "center"; patch.x = 0; }
+        if ("right" === mode) { patch.anchorX = "end"; patch.x = 0; }
+        if ("top" === mode) { patch.anchorY = "start"; patch.y = 0; }
+        if ("middle" === mode) { patch.anchorY = "center"; patch.y = 0; }
+        if ("bottom" === mode) { patch.anchorY = "end"; patch.y = 0; }
         updatePlayerThemeV2Layer(renderer, patch, true);
     }
 
@@ -7381,25 +7663,46 @@
             pushPlayerThemeV2History(renderer);
             ensurePlayerThemeV2ProfileOverride(renderer);
             layer = activePlayerThemeV2Layer(renderer);
-            var startX = event.clientX;
-            var startY = event.clientY;
+            var frozenMetrics = playerThemeV2StageMetrics(
+                renderer, renderer.__elyricThemeV2Profile, playerThemeV2ViewportRect()
+            );
+            var startPoint = frozenMetrics.inverse(event.clientX, event.clientY);
             var original = clonePlayerThemeV2Value(layer);
+            var pendingEvent = null;
+            var moveFrame = 0;
             if (box.setPointerCapture) { box.setPointerCapture(event.pointerId); }
-            var move = function (moveEvent) {
-                var metrics = playerThemeV2StageMetrics(layerId);
-                var dx = (moveEvent.clientX - startX) / Math.max(1, metrics.width) * 100;
-                var dy = (moveEvent.clientY - startY) / Math.max(1, metrics.height) * 100;
+            var renderMove = function () {
+                moveFrame = 0;
+                if (!pendingEvent) { return; }
+                var movePoint = frozenMetrics.inverse(pendingEvent.clientX, pendingEvent.clientY);
+                var dx = movePoint.x - startPoint.x;
+                var dy = movePoint.y - startPoint.y;
+                var proposed = clonePlayerThemeV2Value(original);
                 if (handle) {
-                    layer.width = snapPlayerThemeV2Value(Math.max(1, original.width + dx), [25, 33.3, 50, 66.7, 75, 100]);
-                    layer.height = snapPlayerThemeV2Value(Math.max(1, original.height + dy), [25, 33.3, 50, 66.7, 75, 100]);
+                    var angle = -(Number(original.rotation) || 0) * Math.PI / 180;
+                    var localDx = dx * Math.cos(angle) - dy * Math.sin(angle);
+                    var localDy = dx * Math.sin(angle) + dy * Math.cos(angle);
+                    proposed.width = snapPlayerThemeV2Value(Math.max(44, original.width + localDx), [120, 240, 300, 360, 480, 600, 900, 1200]);
+                    proposed.height = snapPlayerThemeV2Value(Math.max(44, original.height + localDy), [72, 120, 240, 300, 360, 450, 600, 900]);
                 } else {
-                    layer.x = snapPlayerThemeV2Value(original.x + dx, [0, 5, 10, 25, 50, 75, 90, 95, 100 - original.width]);
-                    layer.y = snapPlayerThemeV2Value(original.y + dy, [0, 5, 10, 25, 50, 75, 90, 95, 100 - original.height]);
+                    proposed.x = snapPlayerThemeV2Value(original.x + dx, [-600, -300, -120, -72, 0, 72, 120, 300, 600]);
+                    proposed.y = snapPlayerThemeV2Value(original.y + dy, [-600, -300, -120, -72, 0, 72, 120, 300, 600]);
                 }
+                proposed = snapPlayerThemeV2LayerGeometry(renderer, layerId, proposed, frozenMetrics, !!handle);
+                Object.keys(proposed).forEach(function (key) { layer[key] = proposed[key]; });
                 applyPlayerThemeV2Layer(renderer, layerId, layer);
                 syncPlayerThemeV2Designer(renderer);
             };
+            var move = function (moveEvent) {
+                pendingEvent = moveEvent;
+                if (!moveFrame) { moveFrame = requestAnimationFrame(renderMove); }
+            };
             var end = function () {
+                if (moveFrame) { cancelAnimationFrame(moveFrame); renderMove(); }
+                setPlayerThemeV2DesignerGuides(renderer, frozenMetrics, null, null);
+                if (box.releasePointerCapture) {
+                    try { box.releasePointerCapture(event.pointerId); } catch (error) { /* already released */ }
+                }
                 box.removeEventListener("pointermove", move);
                 box.removeEventListener("pointerup", end);
                 box.removeEventListener("pointercancel", end);
@@ -7465,6 +7768,9 @@
         ensurePlayerThemeV2State(renderer);
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-designer-open", open ? "true" : "false");
         setAttributeIfChanged(renderer.__elyricSettingsPanel, "data-elyric-designer-open", open ? "true" : "false");
+        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
+            setAttributeIfChanged(document.body, "data-elyric-designer-open", open ? "true" : "false");
+        }
         if (renderer.__elyricThemeV2DesignerToggle) {
             setAttributeIfChanged(renderer.__elyricThemeV2DesignerToggle, "aria-pressed", open ? "true" : "false");
         }
@@ -7477,26 +7783,30 @@
         if (renderer.__elyricThemeV2ProfileSelect) {
             renderer.__elyricThemeV2ProfileSelect.value = renderer.__elyricThemeV2Profile;
         }
-        var resolvedProfile = resolvedPlayerThemeV2Profile(
-            renderer.__elyricThemeV2,
-            renderer.__elyricThemeV2Profile
-        );
-        var hasOverride = !!renderer.__elyricThemeV2.layoutOverrides[renderer.__elyricThemeV2Profile];
         if (renderer.__elyricThemeV2InheritanceStatus) {
             replaceElementText(
                 renderer.__elyricThemeV2InheritanceStatus,
-                hasOverride ? "此尺寸使用独立布局" : resolvedProfile === renderer.__elyricThemeV2Profile
-                    ? "此尺寸使用安全默认布局" : "继承自 " + resolvedProfile
+                "landscape" === renderer.__elyricThemeV2Profile
+                    ? "横屏独立布局 · 1200 × 900"
+                    : "竖屏独立布局 · 900 × 1200"
             );
         }
         if (renderer.__elyricThemeV2InheritanceReset) {
-            renderer.__elyricThemeV2InheritanceReset.disabled = !hasOverride;
+            renderer.__elyricThemeV2InheritanceReset.disabled = false;
         }
         (renderer.__elyricThemeV2LayerButtons || []).forEach(function (button) {
             var selected = button.getAttribute("data-layer") === renderer.__elyricThemeV2SelectedLayer;
             setAttributeIfChanged(button, "aria-pressed", selected ? "true" : "false");
         });
+        var viewportTransform = renderer.__elyricThemeV2.viewportTransforms[renderer.__elyricThemeV2Profile];
+        var transformInputs = renderer.__elyricThemeV2TransformInputs || {};
+        ["scale", "offsetX", "offsetY"].forEach(function (key) {
+            if (transformInputs[key]) { transformInputs[key].value = viewportTransform[key]; }
+        });
         var controls = renderer.__elyricThemeV2GeometryInputs || {};
+        ["anchorX", "anchorY"].forEach(function (key) {
+            if (controls[key]) { controls[key].value = layer[key]; }
+        });
         ["x", "y", "width", "height", "rotation", "z", "opacity"].forEach(function (key) {
             if (!controls[key]) { return; }
             controls[key].value = "opacity" === key ? Math.round(layer[key] * 100) : layer[key];
@@ -7549,16 +7859,36 @@
         (renderer.__elyricThemeV2Boxes || []).forEach(function (box) {
             var id = box.getAttribute("data-elyric-v2-box");
             var boxLayer = resolvedPlayerThemeV2Layout(renderer, renderer.__elyricThemeV2Profile)[id];
-            var metrics = playerThemeV2StageMetrics(id);
-            box.style.left = (metrics.offsetX + boxLayer.x / 100 * metrics.width) + "px";
-            box.style.top = (metrics.offsetY + boxLayer.y / 100 * metrics.height) + "px";
-            box.style.width = (boxLayer.width / 100 * metrics.width) + "px";
-            box.style.height = (boxLayer.height / 100 * metrics.height) + "px";
+            var metrics = playerThemeV2StageMetrics(renderer, renderer.__elyricThemeV2Profile);
+            var rect = playerThemeV2RenderedRect(boxLayer, metrics);
+            box.style.left = rect.left + "px";
+            box.style.top = rect.top + "px";
+            box.style.width = rect.width + "px";
+            box.style.height = rect.height + "px";
             box.style.transform = "rotate(" + boxLayer.rotation + "deg)";
             box.setAttribute("data-selected", id === renderer.__elyricThemeV2SelectedLayer ? "true" : "false");
             box.setAttribute("data-locked", boxLayer.locked ? "true" : "false");
             box.setAttribute("data-hidden-layer", boxLayer.hidden ? "true" : "false");
         });
+        if (renderer.__elyricThemeV2Guides) {
+            var previewMetrics = playerThemeV2StageMetrics(renderer, renderer.__elyricThemeV2Profile);
+            var simulated = renderer.__elyricThemeV2Profile !== currentPlayerThemeV2Profile();
+            setAttributeIfChanged(
+                renderer.__elyricThemeV2Guides,
+                "data-simulated",
+                simulated ? "true" : "false"
+            );
+            setAttributeIfChanged(
+                renderer.__elyricThemeV2Guides,
+                "data-preview-label",
+                simulated ? ("portrait" === renderer.__elyricThemeV2Profile
+                    ? "竖屏预览 · 900 × 1200" : "横屏预览 · 1200 × 900") : "安全画布"
+            );
+            setDisplayStyle(renderer.__elyricThemeV2Guides, "--elyric-preview-left", previewMetrics.available.left + "px");
+            setDisplayStyle(renderer.__elyricThemeV2Guides, "--elyric-preview-top", previewMetrics.available.top + "px");
+            setDisplayStyle(renderer.__elyricThemeV2Guides, "--elyric-preview-width", previewMetrics.available.width + "px");
+            setDisplayStyle(renderer.__elyricThemeV2Guides, "--elyric-preview-height", previewMetrics.available.height + "px");
+        }
     }
 
     function createPlayerThemeV2TextInput(section, label, value, onChange, type) {
@@ -7609,18 +7939,45 @@
         var inheritanceStatus = document.createElement("span");
         inheritanceStatus.className = "elyric-v2-inheritance-status";
         section.appendChild(inheritanceStatus);
-        var inheritanceReset = createSettingsActionButton("恢复尺寸继承", "undo", function () {
+        var inheritanceReset = createSettingsActionButton("重置当前方向", "undo", function () {
             ensurePlayerThemeV2State(renderer);
             var profileId = renderer.__elyricThemeV2Profile;
-            if (!renderer.__elyricThemeV2.layoutOverrides[profileId]) { return; }
             pushPlayerThemeV2History(renderer);
-            renderer.__elyricThemeV2.layoutOverrides[profileId] = false;
+            renderer.__elyricThemeV2.layouts[profileId] = clonePlayerThemeV2Value(
+                playerThemeV4LayoutsForBase(renderer.__elyricThemeBaseLayout)[profileId]
+            );
+            renderer.__elyricThemeV2.viewportTransforms[profileId] = { scale: 1, offsetX: 0, offsetY: 0 };
             applyPlayerThemeV2State(renderer, renderer.__elyricThemeV2, profileId);
             buildPlayerThemeV2DesignerBoxes(renderer);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }, "elyric-v2-inheritance-reset");
         section.appendChild(inheritanceReset);
+
+        var transformGrid = document.createElement("div");
+        transformGrid.className = "elyric-v2-transform-grid";
+        var transformInputs = {};
+        [
+            ["scale", "整体缩放", .5, 1.6, .01],
+            ["offsetX", "水平偏移", -600, 600, 1],
+            ["offsetY", "垂直偏移", -600, 600, 1]
+        ].forEach(function (item) {
+            var label = document.createElement("label");
+            label.appendChild(document.createTextNode(item[1]));
+            var input = document.createElement("input");
+            input.type = "number"; input.min = item[2]; input.max = item[3]; input.step = item[4];
+            input.addEventListener("change", function () {
+                pushPlayerThemeV2History(renderer);
+                renderer.__elyricThemeV2.viewportTransforms[renderer.__elyricThemeV2Profile][item[0]]
+                    = normalizePlayerThemeV2Number(input.value, item[2], item[3], "scale" === item[0] ? 1 : 0);
+                applyPlayerThemeV2State(renderer, renderer.__elyricThemeV2, renderer.__elyricThemeV2Profile);
+                buildPlayerThemeV2DesignerBoxes(renderer);
+                storeCurrentPlayerThemeDesign(renderer);
+                scheduleUserPlayerPreferencesSave(renderer);
+            });
+            label.appendChild(input); transformGrid.appendChild(label); transformInputs[item[0]] = input;
+        });
+        section.appendChild(transformGrid);
 
         var layers = document.createElement("div");
         layers.className = "elyric-v2-layer-list";
@@ -7640,6 +7997,19 @@
         var geometry = document.createElement("div");
         geometry.className = "elyric-v2-geometry-grid";
         var geometryInputs = {};
+        [["anchorX", "水平锚点"], ["anchorY", "垂直锚点"]].forEach(function (item) {
+            var label = document.createElement("label");
+            label.appendChild(document.createTextNode(item[1]));
+            var select = document.createElement("select");
+            [["start", "起点"], ["center", "中心"], ["end", "终点"]].forEach(function (choice) {
+                var option = document.createElement("option"); option.value = choice[0];
+                option.appendChild(document.createTextNode(choice[1])); select.appendChild(option);
+            });
+            select.addEventListener("change", function () {
+                var patch = {}; patch[item[0]] = select.value; updatePlayerThemeV2Layer(renderer, patch, true);
+            });
+            label.appendChild(select); geometry.appendChild(label); geometryInputs[item[0]] = select;
+        });
         [
             ["x", "X", -100, 200, .1], ["y", "Y", -100, 200, .1],
             ["width", "宽", 1, 200, .1], ["height", "高", 1, 200, .1],
@@ -7651,6 +8021,8 @@
             var input = document.createElement("input");
             input.type = "number";
             input.min = item[2]; input.max = item[3]; input.step = item[4];
+            if ("x" === item[0] || "y" === item[0]) { input.min = -1200; input.max = 1200; input.step = 1; }
+            if ("width" === item[0] || "height" === item[0]) { input.min = 44; input.max = 2400; input.step = 1; }
             input.addEventListener("change", function () {
                 var value = Number(input.value);
                 var patch = {};
@@ -7855,6 +8227,7 @@
         renderer.__elyricThemeV2ProfileSelect = profileSelect;
         renderer.__elyricThemeV2InheritanceStatus = inheritanceStatus;
         renderer.__elyricThemeV2InheritanceReset = inheritanceReset;
+        renderer.__elyricThemeV2TransformInputs = transformInputs;
         renderer.__elyricThemeV2LayerButtons = layerButtons;
         renderer.__elyricThemeV2GeometryInputs = geometryInputs;
         renderer.__elyricThemeV2LockButton = lockButton;
@@ -8271,8 +8644,13 @@
             setSettingsPanelOpen(renderer, !renderer.__elyricSettingsOpen);
         });
         settingsButton.addEventListener("pointerdown", stopControlEvent);
-        tools.appendChild(settingsButton);
         control.appendChild(tools);
+
+        var safetyToolbar = document.createElement("div");
+        safetyToolbar.className = "elyric-player-safety-toolbar";
+        safetyToolbar.setAttribute("aria-label", "播放器安全工具栏");
+        safetyToolbar.appendChild(settingsButton);
+        control.appendChild(safetyToolbar);
 
         var visualizer = document.createElement("div");
         visualizer.className = "elyric-player-visualizer";
@@ -8477,6 +8855,28 @@
         );
         compositionSection.appendChild(artworkModeChoices.element);
         themeChoiceControls.artworkMode = artworkModeChoices.buttons;
+
+        var artworkMaterialChoices = createSegmentedControl(
+            renderer,
+            PLAYER_ARTWORK_MATERIALS,
+            "elyric-artwork-material-segments",
+            "elyric-artwork-material-choice",
+            "封面材质",
+            function (materialId) { setPlayerThemeChoice(renderer, "artworkMaterial", materialId, true); }
+        );
+        compositionSection.appendChild(artworkMaterialChoices.element);
+        themeChoiceControls.artworkMaterial = artworkMaterialChoices.buttons;
+
+        var controlMaterialChoices = createSegmentedControl(
+            renderer,
+            PLAYER_CONTROL_MATERIALS,
+            "elyric-control-material-segments",
+            "elyric-control-material-choice",
+            "控制区材质",
+            function (materialId) { setPlayerThemeChoice(renderer, "controlMaterial", materialId, true); }
+        );
+        compositionSection.appendChild(controlMaterialChoices.element);
+        themeChoiceControls.controlMaterial = controlMaterialChoices.buttons;
         var artworkOuterShapeChoices = createSegmentedControl(
             renderer,
             [{ id: "0", label: "外方" }, { id: "18", label: "外圆角" }, { id: "50", label: "外圆" }],
@@ -8499,13 +8899,12 @@
             renderer,
             compositionSection,
             [
-                "artworkScale", "artworkSize", "artworkX", "artworkY", "artworkInnerSize",
+                "artworkScale", "artworkInnerSize",
                 "artworkOuterRadius", "artworkInnerRadius", "artworkPadding", "artworkBorderWidth",
                 "artworkShadowDepth", "coverflowWidth", "coverflowHeight",
-                "metadataWidth", "metadataX", "metadataY", "metadataTitleSize",
+                "metadataTitleSize",
                 "metadataArtistSize", "metadataAlbumSize", "metadataLetterSpacing",
-                "metadataPadding", "metadataRadius", "metadataBlur", "metadataOpacity",
-                "lyricsWidth", "lyricsHeight", "lyricsX", "lyricsY"
+                "metadataPadding", "metadataRadius", "metadataBlur", "metadataOpacity"
             ],
             tuningInputs,
             tuningValues
@@ -8610,7 +9009,7 @@
         createPlayerTuningControls(
             renderer,
             visualizerSection,
-            ["visualizerX", "visualizerY", "visualizerRotation", "visualizerOpacity"],
+            [],
             tuningInputs,
             tuningValues
         );
@@ -8744,8 +9143,8 @@
             renderer,
             consoleSection,
             [
-                "progressWidth", "progressTrackHeight", "progressThumbSize",
-                "volumeWidth", "volumeTrackHeight", "volumeThumbSize",
+                "progressTrackHeight", "progressThumbSize",
+                "volumeTrackHeight", "volumeThumbSize",
                 "consoleBlur", "consoleOpacity"
             ],
             tuningInputs,
@@ -8852,6 +9251,7 @@
         renderer.__elyricPlayerProgress = progress;
         renderer.__elyricPlayerVolume = volume;
         renderer.__elyricPlayerTools = tools;
+        renderer.__elyricPlayerSafetyToolbar = safetyToolbar;
         renderer.__elyricPlayerCoverflow = coverflow;
         renderer.__elyricCoverflowArtworks = coverflowArtworks;
         renderer.__elyricCoverflowCaptions = coverflowCaptions;
@@ -8921,14 +9321,9 @@
         renderer.__elyricPlayerThemeRenameButton = renameThemeButton;
         renderer.__elyricPlayerThemeDeleteButton = deleteThemeButton;
         renderer.__elyricLyricFollowButton = followButton;
-        renderer.__elyricParametricViewportProfile = isCompactPlayerViewport() ? "compact" : "desktop";
-        var parametricViewportHandler = function () {
-            var profile = isCompactPlayerViewport() ? "compact" : "desktop";
-            if (profile !== renderer.__elyricParametricViewportProfile) {
-                renderer.__elyricParametricViewportProfile = profile;
-                if ("custom" !== renderer.__elyricPlayerLayout) {
-                    applyPlayerLayoutPresetDefaults(renderer, renderer.__elyricPlayerLayout || "album");
-                }
+        var parametricViewportHandler = function (event) {
+            if (event && "orientationchange" === event.type) {
+                playerThemeV2ActiveProfile = "";
             }
             var v2Profile = currentPlayerThemeV2Profile();
             if (renderer.__elyricThemeV2) {
@@ -8947,6 +9342,10 @@
         if ("undefined" !== typeof window && window.addEventListener) {
             window.addEventListener("resize", parametricViewportHandler);
             window.addEventListener("orientationchange", parametricViewportHandler);
+            if (window.visualViewport && window.visualViewport.addEventListener) {
+                window.visualViewport.addEventListener("resize", parametricViewportHandler);
+                window.visualViewport.addEventListener("scroll", parametricViewportHandler);
+            }
             renderer.__elyricParametricViewportHandler = parametricViewportHandler;
             renderer.__elyricThemeV2OnlineHandler = function () { flushPlayerThemeV2OfflineQueue(renderer); };
             window.addEventListener("online", renderer.__elyricThemeV2OnlineHandler);
@@ -9272,7 +9671,7 @@
                 false
             );
             setLyricScale(renderer, loadLyricScale(renderer), false);
-            PLAYER_TUNING_DEFINITIONS.forEach(function (definition) {
+            PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
                 setPlayerTuning(
                     renderer,
                     definition.id,
@@ -9326,6 +9725,10 @@
             && "undefined" !== typeof window && window.removeEventListener) {
             window.removeEventListener("resize", renderer.__elyricParametricViewportHandler);
             window.removeEventListener("orientationchange", renderer.__elyricParametricViewportHandler);
+            if (window.visualViewport && window.visualViewport.removeEventListener) {
+                window.visualViewport.removeEventListener("resize", renderer.__elyricParametricViewportHandler);
+                window.visualViewport.removeEventListener("scroll", renderer.__elyricParametricViewportHandler);
+            }
             renderer.__elyricParametricViewportHandler = null;
         }
         if (renderer.__elyricThemeV2OnlineHandler
@@ -9336,6 +9739,9 @@
         removePlayerThemeV2DesignerBoxes(renderer);
         if (renderer.__elyricThemeV2FontStyle && renderer.__elyricThemeV2FontStyle.parentNode) {
             renderer.__elyricThemeV2FontStyle.parentNode.removeChild(renderer.__elyricThemeV2FontStyle);
+        }
+        if (renderer.__elyricThemeV2SafeInsetProbe && renderer.__elyricThemeV2SafeInsetProbe.parentNode) {
+            renderer.__elyricThemeV2SafeInsetProbe.parentNode.removeChild(renderer.__elyricThemeV2SafeInsetProbe);
         }
         if (renderer.__elyricLyricFollowTimer) {
             clearTimeout(renderer.__elyricLyricFollowTimer);
@@ -9390,7 +9796,7 @@
         }
         syncPlayerPageState(renderer, false);
         if (document.body && document.body.style && document.body.style.removeProperty) {
-            PLAYER_TUNING_DEFINITIONS.forEach(function (definition) {
+            PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
                 document.body.style.removeProperty(definition.cssProperty);
             });
             PLAYER_THEME_COLOR_DEFINITIONS.forEach(function (definition) {
@@ -9400,7 +9806,7 @@
         if (renderer.itemsContainer
             && renderer.itemsContainer.style
             && renderer.itemsContainer.style.removeProperty) {
-            PLAYER_TUNING_DEFINITIONS.forEach(function (definition) {
+            PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
                 renderer.itemsContainer.style.removeProperty(definition.cssProperty);
             });
             PLAYER_THEME_COLOR_DEFINITIONS.forEach(function (definition) {
@@ -9408,7 +9814,6 @@
             });
         }
         if (renderer.itemsContainer && renderer.itemsContainer.removeAttribute) {
-            renderer.itemsContainer.removeAttribute("data-elyric-player-layout");
             renderer.itemsContainer.removeAttribute("data-elyric-has-lyrics");
             renderer.itemsContainer.removeAttribute("data-elyric-parametric");
         }
@@ -9436,6 +9841,7 @@
         renderer.__elyricPlayerProgress = null;
         renderer.__elyricPlayerVolume = null;
         renderer.__elyricPlayerTools = null;
+        renderer.__elyricPlayerSafetyToolbar = null;
         renderer.__elyricPlayerCoverflow = null;
         renderer.__elyricCoverflowArtworks = null;
         renderer.__elyricCoverflowCaptions = null;

@@ -66,6 +66,12 @@ public static class PlayerThemeV2Validator
     {
         "overview", "file", "audio", "image", "lyrics"
     }, StringComparer.Ordinal);
+    private static readonly HashSet<string> LegacyGeometryTuningIds = new(new[]
+    {
+        "artworkSize", "artworkX", "artworkY", "metadataWidth", "metadataX", "metadataY",
+        "lyricsWidth", "lyricsHeight", "lyricsX", "lyricsY", "visualizerX", "visualizerY",
+        "visualizerRotation", "visualizerOpacity", "progressWidth", "volumeWidth"
+    }, StringComparer.Ordinal);
 
     public static string NormalizeId(string? value, string parameterName = "id")
     {
@@ -160,15 +166,29 @@ public static class PlayerThemeV2Validator
     private static void ValidatePortableV3Document(JsonElement root)
     {
         RejectUnknownProperties(root, "document",
-            "format", "schemaVersion", "name", "baseTheme", "layouts", "background",
+            "format", "schemaVersion", "layoutModel", "name", "baseTheme", "layouts", "viewportTransforms", "background",
             "artwork", "metadata", "lyrics", "visualizer", "console", "mediaCard", "mediaFields");
         if (!TryGetPropertyIgnoreCase(root, "format", out _)
             || !TryGetPropertyIgnoreCase(root, "schemaVersion", out _))
         {
-            throw new ArgumentException("Theme V3 must declare its format and schema version.");
+            throw new ArgumentException("Theme V3/V4 must declare its format and schema version.");
         }
         ValidateOptionalEnum(root, "format", PlayerThemeV2Schema.DocumentFormat);
-        ValidateOptionalNumber(root, "schemaVersion", PlayerThemeV2Schema.Version, PlayerThemeV2Schema.Version);
+        ValidateOptionalNumber(root, "schemaVersion", PlayerThemeV2Schema.PreviousVersion, PlayerThemeV2Schema.Version);
+        var version = GetOptionalInteger(root, "schemaVersion", PlayerThemeV2Schema.PreviousVersion);
+        if (version == PlayerThemeV2Schema.Version)
+        {
+            if (!TryGetPropertyIgnoreCase(root, "layoutModel", out _))
+            {
+                throw new ArgumentException("Theme V4 must declare its anchored canvas layout model.");
+            }
+            ValidateOptionalEnum(root, "layoutModel", PlayerThemeV2Schema.LayoutModel);
+            if (!TryGetPropertyIgnoreCase(root, "viewportTransforms", out var viewportTransforms))
+            {
+                throw new ArgumentException("Theme V4 must contain both viewport transforms.");
+            }
+            ValidateViewportTransforms(viewportTransforms);
+        }
         ValidateOptionalString(root, "name", 80);
         ValidateOptionalEnum(root, "baseTheme",
             "album", "center", "mobile", "mint", "deck", "stack", "coverflow", "lyrics", "rose");
@@ -176,7 +196,7 @@ public static class PlayerThemeV2Validator
         {
             throw new ArgumentException("Theme V3 must contain responsive layouts.");
         }
-        ValidateLayoutsValue(layouts, Profiles, requireAllProfiles: true);
+        ValidateLayoutsValue(layouts, Profiles, requireAllProfiles: true, anchored: version == PlayerThemeV2Schema.Version);
 
         if (TryGetPropertyIgnoreCase(root, "background", out var background))
         {
@@ -196,14 +216,22 @@ public static class PlayerThemeV2Validator
         if (TryGetPropertyIgnoreCase(root, "artwork", out var artwork))
         {
             RequireObject(artwork, "artwork");
-            RejectUnknownProperties(artwork, "artwork",
+            var artworkKeys = new List<string>
+            {
                 "source", "url", "assetId", "fit", "focusX", "focusY", "clipPath",
-                "mode", "rotation", "scale", "size", "x", "y", "innerSize", "outerRadius",
+                "mode", "material", "rotation", "scale", "innerSize", "outerRadius",
                 "innerRadius", "padding", "borderWidth", "shadowDepth", "coverflowWidth",
-                "coverflowHeight", "frameColor");
+                "coverflowHeight", "frameColor"
+            };
+            if (version == PlayerThemeV2Schema.PreviousVersion)
+            {
+                artworkKeys.AddRange(new[] { "size", "x", "y" });
+            }
+            RejectUnknownProperties(artwork, "artwork", artworkKeys.ToArray());
             ValidateOptionalEnum(artwork, "source", "emby", "url", "asset");
             ValidateOptionalEnum(artwork, "fit", "cover", "contain", "fill", "none", "scale-down");
             ValidateOptionalEnum(artwork, "mode", "single", "coverflow");
+            ValidateOptionalEnum(artwork, "material", "plain", "vinyl", "poster", "turntable", "neumorphic", "deck", "stack", "coverflow");
             ValidateOptionalBoolean(artwork, "rotation");
             ValidateOptionalNumber(artwork, "focusX", 0, 100);
             ValidateOptionalNumber(artwork, "focusY", 0, 100);
@@ -214,22 +242,31 @@ public static class PlayerThemeV2Validator
             ValidateOptionalColor(artwork, "frameColor");
             ValidateMappedNumbers(artwork, new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["scale"] = "artworkScale", ["size"] = "artworkSize", ["x"] = "artworkX",
-                ["y"] = "artworkY", ["innerSize"] = "artworkInnerSize",
+                ["scale"] = "artworkScale", ["innerSize"] = "artworkInnerSize",
                 ["outerRadius"] = "artworkOuterRadius", ["innerRadius"] = "artworkInnerRadius",
                 ["padding"] = "artworkPadding", ["borderWidth"] = "artworkBorderWidth",
                 ["shadowDepth"] = "artworkShadowDepth", ["coverflowWidth"] = "coverflowWidth",
                 ["coverflowHeight"] = "coverflowHeight"
             });
+            if (version == PlayerThemeV2Schema.PreviousVersion)
+            {
+                ValidateMappedNumbers(artwork, new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["size"] = "artworkSize", ["x"] = "artworkX", ["y"] = "artworkY"
+                });
+            }
         }
 
         if (TryGetPropertyIgnoreCase(root, "metadata", out var metadata))
         {
             RequireObject(metadata, "metadata");
-            RejectUnknownProperties(metadata, "metadata",
-                "anchor", "align", "surface", "width", "x", "y", "titleSize", "artistSize",
-                "albumSize", "letterSpacing", "padding", "radius", "blur", "opacity",
-                "textColor", "surfaceColor");
+            var metadataKeys = new List<string>
+            {
+                "anchor", "align", "surface", "titleSize", "artistSize", "albumSize",
+                "letterSpacing", "padding", "radius", "blur", "opacity", "textColor", "surfaceColor"
+            };
+            if (version == PlayerThemeV2Schema.PreviousVersion) { metadataKeys.AddRange(new[] { "width", "x", "y" }); }
+            RejectUnknownProperties(metadata, "metadata", metadataKeys.ToArray());
             ValidateOptionalEnum(metadata, "anchor", "start", "center", "end");
             ValidateOptionalEnum(metadata, "align", "left", "center", "right");
             ValidateOptionalEnum(metadata, "surface", "none", "glass", "inset", "embossed", "floating");
@@ -237,23 +274,33 @@ public static class PlayerThemeV2Validator
             ValidateOptionalColor(metadata, "surfaceColor");
             ValidateMappedNumbers(metadata, new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["width"] = "metadataWidth", ["x"] = "metadataX", ["y"] = "metadataY",
                 ["titleSize"] = "metadataTitleSize", ["artistSize"] = "metadataArtistSize",
                 ["albumSize"] = "metadataAlbumSize", ["letterSpacing"] = "metadataLetterSpacing",
                 ["padding"] = "metadataPadding", ["radius"] = "metadataRadius",
                 ["blur"] = "metadataBlur", ["opacity"] = "metadataOpacity"
             });
+            if (version == PlayerThemeV2Schema.PreviousVersion)
+            {
+                ValidateMappedNumbers(metadata, new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["width"] = "metadataWidth", ["x"] = "metadataX", ["y"] = "metadataY"
+                });
+            }
         }
 
         if (TryGetPropertyIgnoreCase(root, "lyrics", out var lyrics))
         {
             RequireObject(lyrics, "lyrics");
-            RejectUnknownProperties(lyrics, "lyrics",
-                "style", "alignment", "scale", "surface", "width", "height", "x", "y",
+            var lyricKeys = new List<string>
+            {
+                "style", "alignment", "scale", "surface",
                 "lineHeight", "inactiveOpacity", "padding", "radius", "blur", "opacity",
                 "letterSpacing", "pastSize", "currentSize", "futureSize", "currentWeight",
                 "pastColor", "currentColor", "futureColor", "surfaceColor", "showSecondLine",
-                "showThirdAndLaterLines", "followDelayMs", "typography");
+                "showThirdAndLaterLines", "followDelayMs", "typography"
+            };
+            if (version == PlayerThemeV2Schema.PreviousVersion) { lyricKeys.AddRange(new[] { "width", "height", "x", "y" }); }
+            RejectUnknownProperties(lyrics, "lyrics", lyricKeys.ToArray());
             ValidateOptionalEnum(lyrics, "style", "classic", "focus", "gradient", "apple", "minimal");
             ValidateOptionalEnum(lyrics, "alignment", "left", "center", "right");
             ValidateOptionalEnum(lyrics, "surface", "none", "glass", "inset", "embossed", "floating");
@@ -267,14 +314,20 @@ public static class PlayerThemeV2Validator
             }
             ValidateMappedNumbers(lyrics, new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["width"] = "lyricsWidth", ["height"] = "lyricsHeight", ["x"] = "lyricsX",
-                ["y"] = "lyricsY", ["lineHeight"] = "lyricLineGap",
+                ["lineHeight"] = "lyricLineGap",
                 ["inactiveOpacity"] = "lyricInactiveOpacity", ["padding"] = "lyricsPadding",
                 ["radius"] = "lyricsRadius", ["blur"] = "lyricsBlur", ["opacity"] = "lyricsOpacity",
                 ["letterSpacing"] = "lyricLetterSpacing", ["pastSize"] = "lyricPastSize",
                 ["currentSize"] = "lyricCurrentSize", ["futureSize"] = "lyricFutureSize",
                 ["currentWeight"] = "lyricCurrentWeight"
             });
+            if (version == PlayerThemeV2Schema.PreviousVersion)
+            {
+                ValidateMappedNumbers(lyrics, new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["width"] = "lyricsWidth", ["height"] = "lyricsHeight", ["x"] = "lyricsX", ["y"] = "lyricsY"
+                });
+            }
             if (TryGetPropertyIgnoreCase(lyrics, "typography", out var typography))
             {
                 ValidateTypographyCollection(typography);
@@ -288,9 +341,12 @@ public static class PlayerThemeV2Validator
         if (TryGetPropertyIgnoreCase(root, "visualizer", out var visualizer))
         {
             RequireObject(visualizer, "visualizer");
-            RejectUnknownProperties(visualizer, "visualizer",
-                "style", "frequencyLayout", "width", "height", "amplitude", "colorMode",
-                "colors", "x", "y", "rotation", "opacity", "analysis");
+            var visualizerKeys = new List<string>
+            {
+                "style", "frequencyLayout", "width", "height", "amplitude", "colorMode", "colors", "analysis"
+            };
+            if (version == PlayerThemeV2Schema.PreviousVersion) { visualizerKeys.AddRange(new[] { "x", "y", "rotation", "opacity" }); }
+            RejectUnknownProperties(visualizer, "visualizer", visualizerKeys.ToArray());
             ValidateOptionalEnum(visualizer, "style",
                 "spectrum", "mirror", "waveform", "fall", "curve", "line", "chroma", "balls", "pulse");
             ValidateOptionalEnum(visualizer, "frequencyLayout", "centerOut", "lowToHigh", "radial");
@@ -298,11 +354,14 @@ public static class PlayerThemeV2Validator
             ValidateOptionalNumber(visualizer, "width", 10, 100);
             ValidateOptionalNumber(visualizer, "height", 2, 30);
             ValidateOptionalNumber(visualizer, "amplitude", 25, 140);
-            ValidateMappedNumbers(visualizer, new Dictionary<string, string>(StringComparer.Ordinal)
+            if (version == PlayerThemeV2Schema.PreviousVersion)
             {
-                ["x"] = "visualizerX", ["y"] = "visualizerY",
-                ["rotation"] = "visualizerRotation", ["opacity"] = "visualizerOpacity"
-            });
+                ValidateMappedNumbers(visualizer, new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["x"] = "visualizerX", ["y"] = "visualizerY",
+                    ["rotation"] = "visualizerRotation", ["opacity"] = "visualizerOpacity"
+                });
+            }
             ValidateOptionalColorArray(visualizer, "colors");
             if (TryGetPropertyIgnoreCase(visualizer, "analysis", out var analysis))
             {
@@ -313,17 +372,28 @@ public static class PlayerThemeV2Validator
         if (TryGetPropertyIgnoreCase(root, "console", out var consoleStyle))
         {
             RequireObject(consoleStyle, "console");
-            RejectUnknownProperties(consoleStyle, "console",
-                "progressWidth", "progressHeight", "progressThumbSize", "volumeWidth", "volumeHeight",
+            var consoleKeys = new List<string>
+            {
+                "material", "progressHeight", "progressThumbSize", "volumeHeight",
                 "volumeThumbSize", "blur", "opacity", "progressActive", "progressTrack",
-                "volumeActive", "volumeTrack", "safeArea");
+                "volumeActive", "volumeTrack", "safeArea"
+            };
+            if (version == PlayerThemeV2Schema.PreviousVersion) { consoleKeys.AddRange(new[] { "progressWidth", "volumeWidth" }); }
+            RejectUnknownProperties(consoleStyle, "console", consoleKeys.ToArray());
+            ValidateOptionalEnum(consoleStyle, "material", "glass", "minimal", "neumorphic", "deck", "poster");
             ValidateMappedNumbers(consoleStyle, new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["progressWidth"] = "progressWidth", ["progressHeight"] = "progressTrackHeight",
-                ["progressThumbSize"] = "progressThumbSize", ["volumeWidth"] = "volumeWidth",
+                ["progressHeight"] = "progressTrackHeight", ["progressThumbSize"] = "progressThumbSize",
                 ["volumeHeight"] = "volumeTrackHeight", ["volumeThumbSize"] = "volumeThumbSize",
                 ["blur"] = "consoleBlur", ["opacity"] = "consoleOpacity"
             });
+            if (version == PlayerThemeV2Schema.PreviousVersion)
+            {
+                ValidateMappedNumbers(consoleStyle, new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["progressWidth"] = "progressWidth", ["volumeWidth"] = "volumeWidth"
+                });
+            }
             ValidateOptionalNumber(consoleStyle, "safeArea", 44, 180);
             foreach (var colorName in new[] { "progressActive", "progressTrack", "volumeActive", "volumeTrack" })
             {
@@ -359,27 +429,32 @@ public static class PlayerThemeV2Validator
         }
         RequireObject(v2, "v2");
 
-        if (!TryGetPropertyIgnoreCase(v2, "layouts", out var layouts))
-        {
-            return;
-        }
-        RequireObject(layouts, "layouts");
-
         var version = GetOptionalInteger(v2, "schemaVersion", PlayerThemeV2Schema.LegacyVersion);
-        if (version is not (PlayerThemeV2Schema.LegacyVersion or PlayerThemeV2Schema.Version))
+        if (version is not (PlayerThemeV2Schema.LegacyVersion or PlayerThemeV2Schema.PreviousVersion or PlayerThemeV2Schema.Version))
         {
             throw new ArgumentException("Theme schema version is unsupported.");
         }
+        if (!TryGetPropertyIgnoreCase(v2, "layouts", out var layouts))
+        {
+            if (version == PlayerThemeV2Schema.Version)
+            {
+                throw new ArgumentException("Theme V4 must contain both anchored layouts.");
+            }
+            return;
+        }
+        RequireObject(layouts, "layouts");
         ValidateLayoutsValue(
             layouts,
-            version == PlayerThemeV2Schema.Version ? Profiles : LegacyProfiles,
-            requireAllProfiles: false);
+            version >= PlayerThemeV2Schema.PreviousVersion ? Profiles : LegacyProfiles,
+            requireAllProfiles: version == PlayerThemeV2Schema.Version,
+            anchored: version == PlayerThemeV2Schema.Version);
     }
 
     private static void ValidateLayoutsValue(
         JsonElement layouts,
         HashSet<string> allowedProfiles,
-        bool requireAllProfiles)
+        bool requireAllProfiles,
+        bool anchored = false)
     {
         RequireObject(layouts, "layouts");
         var seenProfiles = new HashSet<string>(StringComparer.Ordinal);
@@ -390,6 +465,7 @@ public static class PlayerThemeV2Validator
                 throw new ArgumentException("Theme contains an unknown responsive profile.");
             }
             seenProfiles.Add(profile.Name);
+            var seenLayers = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var layer in profile.Value.EnumerateObject())
             {
@@ -397,8 +473,13 @@ public static class PlayerThemeV2Validator
                 {
                     throw new ArgumentException("Theme contains an unknown editable layer.");
                 }
+                seenLayers.Add(layer.Name);
 
-                ValidateLayer(layer.Value);
+                ValidateLayer(layer.Value, anchored);
+            }
+            if (anchored && !Layers.SetEquals(seenLayers))
+            {
+                throw new ArgumentException("Theme V4 layouts must contain all editable layers.");
             }
         }
         if (requireAllProfiles && !allowedProfiles.SetEquals(seenProfiles))
@@ -407,10 +488,21 @@ public static class PlayerThemeV2Validator
         }
     }
 
-    private static void ValidateLayer(JsonElement layer)
+    private static void ValidateLayer(JsonElement layer, bool anchored)
     {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in layer.EnumerateObject())
         {
+            seen.Add(property.Name);
+            if (property.Name is "anchorX" or "anchorY")
+            {
+                if (!anchored || property.Value.ValueKind != JsonValueKind.String
+                    || property.Value.GetString() is not ("start" or "center" or "end"))
+                {
+                    throw new ArgumentException("Layer anchor is unsupported.");
+                }
+                continue;
+            }
             if (property.Name is "hidden" or "locked")
             {
                 if (property.Value.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
@@ -433,8 +525,8 @@ public static class PlayerThemeV2Validator
 
             var valid = property.Name switch
             {
-                "x" or "y" => value is >= -100 and <= 200,
-                "width" or "height" => value is >= 1 and <= 200,
+                "x" or "y" => anchored ? value is >= -1200 and <= 1200 : value is >= -100 and <= 200,
+                "width" or "height" => anchored ? value is >= 44 and <= 2400 : value is >= 1 and <= 200,
                 "rotation" => value is >= -360 and <= 360,
                 "z" => value is >= 0 and <= 1000,
                 "opacity" => value is >= 0 and <= 1,
@@ -445,11 +537,61 @@ public static class PlayerThemeV2Validator
                 throw new ArgumentException("Layer geometry is outside its supported range.");
             }
         }
+        if (anchored)
+        {
+            var required = new[]
+            {
+                "anchorX", "anchorY", "x", "y", "width", "height",
+                "rotation", "z", "opacity", "hidden", "locked"
+            };
+            if (required.Any(name => !seen.Contains(name)))
+            {
+                throw new ArgumentException("Theme V4 layers must contain complete anchored geometry.");
+            }
+        }
+    }
+
+    private static void ValidateViewportTransforms(JsonElement transforms)
+    {
+        RequireObject(transforms, "viewportTransforms");
+        RejectUnknownProperties(transforms, "viewportTransforms", PlayerThemeV2Schema.ResponsiveProfiles);
+        foreach (var profile in PlayerThemeV2Schema.ResponsiveProfiles)
+        {
+            if (!TryGetPropertyIgnoreCase(transforms, profile, out var transform))
+            {
+                throw new ArgumentException("Theme V4 must define both viewport transforms.");
+            }
+            RequireObject(transform, $"viewportTransforms.{profile}");
+            RejectUnknownProperties(transform, $"viewportTransforms.{profile}", "scale", "offsetX", "offsetY");
+            foreach (var property in new[] { "scale", "offsetX", "offsetY" })
+            {
+                if (!TryGetPropertyIgnoreCase(transform, property, out _))
+                {
+                    throw new ArgumentException("Theme V4 viewport transforms must be complete.");
+                }
+            }
+            ValidateOptionalNumber(transform, "scale", .5, 1.6);
+            ValidateOptionalNumber(transform, "offsetX", -600, 600);
+            ValidateOptionalNumber(transform, "offsetY", -600, 600);
+        }
     }
 
     private static void ValidateThemeParameterFamilies(JsonElement root)
     {
+        var internalVersion = PlayerThemeV2Schema.LegacyVersion;
+        if (TryGetPropertyIgnoreCase(root, "v2", out var versionedV2)
+            && versionedV2.ValueKind == JsonValueKind.Object)
+        {
+            internalVersion = GetOptionalInteger(versionedV2, "schemaVersion", PlayerThemeV2Schema.LegacyVersion);
+        }
         ValidateRangedObject(root, "tuning", TuningRanges);
+        if (internalVersion == PlayerThemeV2Schema.Version
+            && TryGetPropertyIgnoreCase(root, "tuning", out var v4Tuning)
+            && v4Tuning.ValueKind == JsonValueKind.Object
+            && v4Tuning.EnumerateObject().Any(property => LegacyGeometryTuningIds.Contains(property.Name)))
+        {
+            throw new ArgumentException("Theme V4 tuning cannot contain duplicate geometry fields.");
+        }
         ValidateHexColorObject(root, "colors", ThemeColorIds);
         ValidateBooleanObject(root, "mediaFields", MediaFieldIds);
 
@@ -457,9 +599,11 @@ public static class PlayerThemeV2Validator
         {
             RequireObject(choices, "choices");
             RejectUnknownProperties(choices, "choices",
-                "artworkMode", "metadataAnchor", "metadataAlign",
+                "artworkMode", "artworkMaterial", "controlMaterial", "metadataAnchor", "metadataAlign",
                 "metadataSurface", "lyricsSurface", "mediaSurface");
             ValidateOptionalEnum(choices, "artworkMode", "single", "coverflow");
+            ValidateOptionalEnum(choices, "artworkMaterial", "plain", "vinyl", "poster", "turntable", "neumorphic", "deck", "stack", "coverflow");
+            ValidateOptionalEnum(choices, "controlMaterial", "glass", "minimal", "neumorphic", "deck", "poster");
             ValidateOptionalEnum(choices, "metadataAnchor", "start", "center", "end");
             ValidateOptionalEnum(choices, "metadataAlign", "left", "center", "right");
             foreach (var name in new[] { "metadataSurface", "lyricsSurface", "mediaSurface" })
@@ -503,13 +647,31 @@ public static class PlayerThemeV2Validator
         }
         RequireObject(v2, "v2");
         RejectUnknownProperties(v2, "v2",
-            "schemaVersion", "layouts", "layoutOverrides", "lyrics", "artwork",
+            "schemaVersion", "layoutModel", "layouts", "layoutOverrides", "viewportTransforms", "lyrics", "artwork",
             "visualizer", "popupStyle", "controls", "typography");
         ValidateOptionalNumber(v2, "schemaVersion", PlayerThemeV2Schema.LegacyVersion, PlayerThemeV2Schema.Version);
         var v2Version = GetOptionalInteger(v2, "schemaVersion", PlayerThemeV2Schema.LegacyVersion);
-        var responsiveProfiles = v2Version == PlayerThemeV2Schema.Version
+        var responsiveProfiles = v2Version >= PlayerThemeV2Schema.PreviousVersion
             ? PlayerThemeV2Schema.ResponsiveProfiles
             : PlayerThemeV2Schema.LegacyResponsiveProfiles;
+
+        if (v2Version == PlayerThemeV2Schema.Version)
+        {
+            if (!TryGetPropertyIgnoreCase(v2, "layoutModel", out _))
+            {
+                throw new ArgumentException("Theme V4 must declare its anchored canvas layout model.");
+            }
+            ValidateOptionalEnum(v2, "layoutModel", PlayerThemeV2Schema.LayoutModel);
+            if (!TryGetPropertyIgnoreCase(v2, "viewportTransforms", out var transforms))
+            {
+                throw new ArgumentException("Theme V4 must contain both viewport transforms.");
+            }
+            ValidateViewportTransforms(transforms);
+            if (TryGetPropertyIgnoreCase(v2, "layoutOverrides", out _))
+            {
+                throw new ArgumentException("Theme V4 does not support layout inheritance overrides.");
+            }
+        }
 
         if (TryGetPropertyIgnoreCase(v2, "layoutOverrides", out var layoutOverrides))
         {
