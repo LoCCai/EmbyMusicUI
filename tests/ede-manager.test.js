@@ -122,16 +122,14 @@ try {
         "restore must preserve the replaced fixed file");
 
     fs.rmSync(backupRoot, { recursive: true, force: true });
-    const arrowDestroyEde = vulnerableEde
-        .replace("function destroy() {", "const destroy = () => {")
-        .replace("}\nconst lifecycle", "};\nconst lifecycle");
-    fs.writeFileSync(target, arrowDestroyEde, "utf8");
-    const arrowDestroyInstall = run("install");
-    expectSuccess(arrowDestroyInstall, "EDE repair with an arrow-function destroy helper");
-    const arrowDestroyFixed = fs.readFileSync(target, "utf8");
-    assert(arrowDestroyFixed.includes("ede.destroyIntervalIds.forEach(id => clearInterval(id));"));
-    assert(!arrowDestroyFixed.includes("window.ede.destroyIntervalIds.map(id => clearInterval(id));"),
-        "globally unique timer cleanup lines should be repairable even when destroy uses another function syntax");
+    const serverDestroyEde = vulnerableEde.replace("function destroy() {", "function destroyAllInterval() {");
+    fs.writeFileSync(target, serverDestroyEde, "utf8");
+    const serverDestroyInstall = run("install");
+    expectSuccess(serverDestroyInstall, "EDE repair with the server's destroyAllInterval helper");
+    const serverDestroyFixed = fs.readFileSync(target, "utf8");
+    assert(serverDestroyFixed.includes("ede.destroyIntervalIds.forEach(id => clearInterval(id));"));
+    assert(!serverDestroyFixed.includes("window.ede.destroyIntervalIds.map(id => clearInterval(id));"),
+        "the verified server destroyAllInterval helper should receive the timer guard");
 
     fs.rmSync(target);
     const absent = run("install");
