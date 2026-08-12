@@ -107,8 +107,9 @@ prompt_features() {
         say "请选择要执行的功能："
         say "  1) 安装或更新歌词播放器前端"
         say "  2) 安装或更新服务端插件 DLL"
-        say "  3) 修复 EDE 1.47 页面生命周期"
-        say "  4) 退出"
+        say "  3) 修复 EDE 1.47 页面生命周期与 AMD 加载冲突"
+        say "  4) 卸载本项目并恢复安装前原文件"
+        say "  5) 退出"
         say "可以输入单个数字，也可以用空格分隔多个数字，例如：1 2 3"
         printf '输入功能序号：'
         IFS= read -r feature_input || fail "没有读取到功能选择。"
@@ -116,6 +117,7 @@ prompt_features() {
         selected_features=
         feature_input_valid=1
         exit_requested=0
+        uninstall_requested=0
 
         set -f
         for feature_number in $feature_input; do
@@ -127,6 +129,9 @@ prompt_features() {
                     esac
                     ;;
                 4)
+                    uninstall_requested=1
+                    ;;
+                5)
                     exit_requested=1
                     ;;
                 *) feature_input_valid=0 ;;
@@ -135,6 +140,15 @@ prompt_features() {
         set +f
 
         selected_features=${selected_features# }
+        if [ "$uninstall_requested" -eq 1 ]; then
+            if [ "$feature_input_valid" -eq 1 ] &&
+               [ "$exit_requested" -eq 0 ] &&
+               [ -z "$selected_features" ]; then
+                selected_features=uninstall
+                return
+            fi
+            feature_input_valid=0
+        fi
         if [ "$exit_requested" -eq 1 ]; then
             if [ "$feature_input_valid" -eq 1 ] && [ -z "$selected_features" ]; then
                 exit 0
@@ -152,7 +166,7 @@ prompt_features() {
             selected_features=${selected_features# }
             return
         fi
-        say "输入无效。请只输入 1、2、3，多个功能用空格分隔；4 必须单独输入。"
+        say "输入无效。1、2、3 可用空格组合；4（恢复原装）和 5（退出）必须单独输入。"
     done
 }
 
@@ -250,6 +264,44 @@ run_feature_bundle() {
     say "请清除 Emby 站点缓存或强制刷新页面后验收。"
 }
 
+run_uninstall_bundle() {
+    [ -f "$PLUGIN_INSTALLER" ] || fail "缺少 $PLUGIN_INSTALLER"
+    [ -f "$EDE_MANAGER" ] || fail "缺少 $EDE_MANAGER"
+    confirm_bundle_persistence
+
+    say ""
+    say "目标容器：$container"
+    say "即将恢复安装前状态："
+    say "  - 恢复 Emby 原版 lyrics.js 与 lyrics.css"
+    say "  - 卸载 EmbyLyricEnhance 插件 DLL（保留主题数据和安全备份）"
+    say "  - 恢复 EDE 修改前文件；原 EDE 的兼容问题也会随之恢复"
+    printf '确认继续吗？请输入 YES：'
+    IFS= read -r uninstall_answer || fail "没有读取到恢复确认。"
+    if [ "$uninstall_answer" != "YES" ]; then
+        say "已取消，未修改容器。"
+        return
+    fi
+
+    say ""
+    say "[恢复 1/3] 正在恢复 EDE 修改前文件……"
+    run_ede_action uninstall
+
+    say ""
+    say "[恢复 2/3] 正在恢复 Emby 原版歌词前端……"
+    sh "$SCRIPT_DIR/docker-install.sh" "$container" original
+
+    say ""
+    say "[恢复 3/3] 正在卸载服务端插件 DLL……"
+    sh "$PLUGIN_INSTALLER" "$container" uninstall
+
+    say ""
+    say "正在重启容器以卸载 DLL……"
+    docker restart "$container" >/dev/null
+    say "容器已重启。"
+    say "本项目已卸载并恢复安装前原文件；持久备份、插件配置和用户主题数据仍保留。"
+    say "请清除 Emby 站点缓存或强制刷新页面后验收。"
+}
+
 recover_original_from_container_image() {
     image_id=$(docker inspect -f '{{.Image}}' "$container" 2>/dev/null || true)
     [ -n "$image_id" ] || fail "无法读取容器 $container 的不可变镜像 ID。"
@@ -313,7 +365,11 @@ running=$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || tru
 case "$action" in
     '')
         prompt_features
-        run_feature_bundle
+        if [ "$selected_features" = "uninstall" ]; then
+            run_uninstall_bundle
+        else
+            run_feature_bundle
+        fi
         exit 0
         ;;
     all)
@@ -340,6 +396,10 @@ case "$action" in
         [ -f "$EDE_MANAGER" ] || fail "缺少 $EDE_MANAGER"
         confirm_bundle_persistence
         run_ede_action restore
+        exit 0
+        ;;
+    uninstall|restore-original)
+        run_uninstall_bundle
         exit 0
         ;;
 esac

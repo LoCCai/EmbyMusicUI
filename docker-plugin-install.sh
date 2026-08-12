@@ -142,15 +142,15 @@ fi
 docker inspect "$container" >/dev/null 2>&1 || fail "找不到容器：$container"
 
 case "$action" in
-    install|install-restart|rollback|rollback-restart|status|backups) ;;
-    *) fail "未知操作：$action（支持 install、install-restart、rollback、rollback-restart、status、backups）" ;;
+    install|install-restart|rollback|rollback-restart|uninstall|uninstall-restart|status|backups) ;;
+    *) fail "未知操作：$action（支持 install、rollback、uninstall、status、backups 及带 -restart 的变体）" ;;
 esac
 
 if [ -n "$backup_name" ]; then
     case "$backup_name" in
         *[!A-Za-z0-9._-]*) fail "备份名包含非法字符。" ;;
-        install-*|rollback-safety-*) ;;
-        *) fail "备份名必须来自 backups 输出中的 install-* 或 rollback-safety-*。" ;;
+        install-*|rollback-safety-*|uninstall-safety-*) ;;
+        *) fail "备份名必须来自 backups 输出中的 install-*、rollback-safety-* 或 uninstall-safety-*。" ;;
     esac
 fi
 
@@ -182,7 +182,7 @@ if [ "$action" = "backups" ]; then
     docker exec "$container" /bin/sh -c '
 backup_root=$1
 found=0
-for directory in "$backup_root"/install-* "$backup_root"/rollback-safety-*; do
+for directory in "$backup_root"/install-* "$backup_root"/rollback-safety-* "$backup_root"/uninstall-safety-*; do
     [ -d "$directory" ] || continue
     found=1
     state=available
@@ -273,6 +273,56 @@ printf "备份集：%s\n" "$backup_set"
     say "单文件插件 DLL 已复制到 $remote_plugins；旧版独立 Core DLL 已清理。"
     say "旧插件文件（若存在）已成组保存在 $remote_backup。"
     report_frontend_configuration_support
+    restart_if_requested
+    exit 0
+fi
+
+if [ "$action" = "uninstall" ] || [ "$action" = "uninstall-restart" ]; then
+    docker exec -u 0 "$container" /bin/sh -c '
+set -eu
+plugins=$1
+backup_root=$2
+names="EmbyLyricEnhance.dll EmbyLyricEnhance.Core.dll"
+safety="$backup_root/uninstall-safety-$(date +%Y%m%d-%H%M%S)-$$"
+
+mkdir -p "$plugins" "$safety"
+found=0
+for name in $names; do
+    if [ -f "$plugins/$name" ]; then
+        cp -p "$plugins/$name" "$safety/$name"
+        found=1
+    else
+        : > "$safety/$name.missing"
+    fi
+done
+
+if [ "$found" -eq 0 ]; then
+    rm -rf "$safety"
+    echo "EmbyLyricEnhance 插件 DLL 当前未安装，无需重复卸载。"
+    exit 0
+fi
+
+remove_ok=1
+for name in $names; do
+    rm -f "$plugins/$name" || remove_ok=0
+done
+if [ "$remove_ok" -ne 1 ]; then
+    echo "错误：插件卸载不完整，正在恢复卸载前文件。" >&2
+    set +e
+    for name in $names; do
+        if [ -f "$safety/$name" ]; then
+            cp -p "$safety/$name" "$plugins/$name"
+        else
+            rm -f "$plugins/$name"
+        fi
+    done
+    exit 1
+fi
+
+printf "卸载前插件已保存到：%s\n" "$safety"
+' sh "$remote_plugins" "$remote_backup"
+
+    say "EmbyLyricEnhance 插件 DLL 已卸载，配置和主题数据未删除。"
     restart_if_requested
     exit 0
 fi

@@ -209,6 +209,11 @@ install_enhanced() {
 switch_original() {
     require_targets
     require_managed_target
+    if [ "$(sha256_file "$TARGET_JS")" = "$EXPECTED_JS" ] &&
+       [ "$(sha256_file "$TARGET_CSS")" = "$EXPECTED_CSS" ]; then
+        say "当前已是 Emby $VERSION 原版歌词文件，无需重复恢复。"
+        return
+    fi
     verify_original_backups
     atomic_pair_replace "$ORIGINAL_ROOT/lyrics.js" "$ORIGINAL_ROOT/lyrics.css"
     say "已切换到 Emby $VERSION 原版歌词文件，增强备份仍保留。"
@@ -271,13 +276,13 @@ case "${1:-status}" in
             switch_enhanced
         fi
         ;;
-    original|undo)
+    original|undo|uninstall)
         switch_original
         ;;
     status)
         show_status
         ;;
     *)
-        fail "未知命令：$1（支持 install、original、enhanced、status、recover-original）"
+        fail "未知命令：$1（支持 install、original、uninstall、enhanced、status、recover-original）"
         ;;
 esac

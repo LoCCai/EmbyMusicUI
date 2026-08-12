@@ -171,6 +171,27 @@ esac
         "plugin-only installation must restart exactly once");
 
     resetLog();
+    const cancelledUninstall = runInteractive("4\nNO\n", null, ["emby-test"]);
+    expectSuccess(cancelledUninstall, "cancelled full restoration");
+    assert(cancelledUninstall.stdout.includes("已取消，未修改容器"));
+    assert.strictEqual(fs.readFileSync(dockerLog, "utf8").includes("ede-manager.sh uninstall"), false,
+        "a cancelled restoration must not run any destructive component");
+
+    resetLog();
+    const uninstall = runInteractive("4\nYES\n", null, ["emby-test"]);
+    expectSuccess(uninstall, "confirmed full restoration");
+    const uninstallLog = fs.readFileSync(dockerLog, "utf8");
+    assert(uninstall.stdout.includes("本项目已卸载并恢复安装前原文件"));
+    assert(uninstallLog.includes("ede-manager.sh uninstall"),
+        "full restoration should restore the original EDE file");
+    assert(uninstallLog.includes("container-manager.sh original"),
+        "full restoration should restore the original lyrics frontend pair");
+    assert(uninstallLog.includes("uninstall-safety-"),
+        "full restoration should preserve and remove the project plugin DLLs");
+    assert.strictEqual(logLines("restart emby-test").length, 1,
+        "full restoration must restart the container exactly once after removing the DLL");
+
+    resetLog();
     const failedFrontend = runInteractive("1 2 3\n", null, ["emby-test"], {
         FAKE_FAIL_COMPONENT: "frontend"
     });

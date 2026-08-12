@@ -36,7 +36,7 @@ sh docker-install.sh
 
 Without a container argument, the script searches the name, image, and status of running containers for `emby` (case-insensitive) and presents matching containers as a numbered list. The list always includes a manual-input option. If no match exists, it lists every running container and accepts an explicit **container name or container ID**, not an image name.
 
-The container is selected once. The next menu offers frontend injection, server plugin DLL installation, and the guarded EDE 1.47 lifecycle repair. Enter one number such as `1`, or a space-separated set such as `1 2 3`. Duplicate numbers are removed. When DLL installation is selected, the container is restarted exactly once after every selected step succeeds; a failed step stops the remaining work and suppresses the restart.
+The container is selected once. The menu offers frontend injection, server plugin DLL installation, the guarded EDE 1.47 lifecycle/AMD repair, and a confirmed full restoration. Enter one install number, or a space-separated set such as `1 2 3`. Option `4` is exclusive and restores the original frontend and EDE files, safely removes this project's DLLs, preserves configuration/themes/backups, and restarts once.
 
 Common non-interactive bundles:
 
@@ -44,6 +44,7 @@ Common non-interactive bundles:
 sh docker-install.sh <container-name-or-id> all
 sh docker-install.sh <container-name-or-id> plugin
 sh docker-install.sh <container-name-or-id> ede
+sh docker-install.sh <container-name-or-id> uninstall
 ```
 
 The original frontend-only management commands remain available:
@@ -57,7 +58,7 @@ sh docker-install.sh <container-name-or-id> status
 
 `undo` is accepted as an alias for `original`.
 
-The EDE repair keeps an original backup under `/config/emby-lyric-enhance/ede-1.47/`, safely skips containers without EDE, and rejects unrecognized versions. Inspect or restore it with `ede-status` and `ede-restore`.
+The EDE repair keeps an original backup under `/config/emby-lyric-enhance/ede-1.47/`, safely skips containers without EDE, and rejects unrecognized versions. It also disables the embedded Danmaku UMD bundle's anonymous AMD registration so it cannot pollute Emby's Alameda queue and produce random `/web/modules/common/...` 404 paths. Inspect or restore it with `ede-status` and `ede-restore`.
 
 No Emby restart is required after switching. Force-refresh Emby Web and clear the site cache only if the old frontend remains cached.
 

@@ -5,6 +5,8 @@ action=${1:-install}
 target=${EDE_TARGET:-/system/dashboard-ui/ede.user.js}
 backup_root=${EDE_BACKUP_ROOT:-/config/emby-lyric-enhance/ede-1.47}
 original="$backup_root/original/ede.user.js"
+amd_vulnerable='"function"==typeof define&&define.amd?define(e):'
+amd_fixed='"function"==typeof define&&define.amd&&!1?define(e):'
 
 say() {
     printf '%s\n' "$*"
@@ -58,13 +60,41 @@ END { print found + 0 }
 ' "$target"
 }
 
-is_fixed() {
+is_lifecycle_fixed() {
     [ "$(count_in_scope destroy "ede.destroyIntervalIds.forEach(id => clearInterval(id));")" -eq 1 ] &&
         [ "$(count_in_scope beforeDestroy "const detail = e && e.detail;")" -eq 1 ] &&
         [ "$(count_in_scope beforeDestroy "if (window.ede && window.ede.danmaku) {")" -eq 1 ] &&
         [ "$(count_in_scope onViewShow "const detail = e && e.detail ? e.detail : {};")" -eq 1 ] &&
         [ "$(count_in_scope onViewShow "window.ede.itemId = params.id || '';")" -eq 1 ] &&
         [ "$(count_fixed "window.ede.itemId = e.detail.params.id ? e.detail.params.id : '';")" -eq 0 ]
+}
+
+is_lifecycle_vulnerable() {
+    [ "$(count_in_scope destroy "window.ede.destroyIntervalIds.map(id => clearInterval(id));")" -eq 1 ] &&
+        [ "$(count_in_scope destroy "window.ede.destroyIntervalIds = [];")" -eq 1 ] &&
+        [ "$(count_in_scope beforeDestroy "if (e.detail.type !== 'video-osd') {")" -eq 1 ] &&
+        [ "$(count_in_scope beforeDestroy "if (window.ede.danmaku) {")" -eq 1 ] &&
+        [ "$(count_in_scope onViewShow "if (e.detail.type === 'video-osd') {")" -eq 1 ] &&
+        [ "$(count_in_scope onViewShow "window.ede.itemId = e.detail.params.id ? e.detail.params.id : '';")" -eq 1 ]
+}
+
+is_amd_fixed() {
+    [ "$(count_fixed "$amd_vulnerable")" -eq 0 ] &&
+        [ "$(count_fixed "$amd_fixed")" -eq 1 ]
+}
+
+is_amd_vulnerable() {
+    [ "$(count_fixed "$amd_vulnerable")" -eq 1 ] &&
+        [ "$(count_fixed "$amd_fixed")" -eq 0 ]
+}
+
+is_recognized() {
+    { is_lifecycle_fixed || is_lifecycle_vulnerable; } &&
+        { is_amd_fixed || is_amd_vulnerable; }
+}
+
+is_fixed() {
+    is_lifecycle_fixed && is_amd_fixed
 }
 
 warn_provider() {
@@ -77,13 +107,22 @@ warn_provider() {
 status() {
     if [ ! -f "$target" ]; then
         say "EDE：未找到 $target"
-    elif is_fixed; then
-        say "EDE：页面生命周期修复已应用。"
-    elif [ "$(count_fixed "window.ede.itemId = e.detail.params.id ? e.detail.params.id : '';")" -eq 1 ]; then
-        say "EDE：检测到待修复的 1.47 代码。"
-    else
+        return
+    fi
+    if ! is_recognized; then
         say "EDE：文件存在，但不是已识别的 1.47 原版或本项目修复版。"
         return 1
+    fi
+
+    if is_lifecycle_fixed; then
+        say "EDE 页面生命周期：已修复"
+    else
+        say "EDE 页面生命周期：待修复"
+    fi
+    if is_amd_fixed; then
+        say "EDE Danmaku AMD 隔离：已修复"
+    else
+        say "EDE Danmaku AMD 隔离：待修复（可能污染 Alameda 模块队列并导致随机 404）"
     fi
 
     if [ -f "$original" ]; then
@@ -99,11 +138,13 @@ install_fix() {
         return
     fi
     if is_fixed; then
-        say "EDE 1.47 页面生命周期修复已存在，无需重复修改。"
+        say "EDE 1.47 页面生命周期与 Danmaku AMD 隔离修复均已存在，无需重复修改。"
         warn_provider
         return
     fi
 
+    amd_vulnerable_count=$(count_fixed "$amd_vulnerable")
+    amd_fixed_count=$(count_fixed "$amd_fixed")
     destroy_map_global=$(count_fixed "window.ede.destroyIntervalIds.map(id => clearInterval(id));")
     destroy_map_scope=$(count_in_scope destroy "window.ede.destroyIntervalIds.map(id => clearInterval(id));")
     destroy_reset_global=$(count_fixed "window.ede.destroyIntervalIds = [];")
@@ -116,13 +157,9 @@ install_fix() {
     detail_show_scope=$(count_in_scope onViewShow "if (e.detail.type === 'video-osd') {")
     item_id_global=$(count_fixed "window.ede.itemId = e.detail.params.id ? e.detail.params.id : '';")
     item_id_scope=$(count_in_scope onViewShow "window.ede.itemId = e.detail.params.id ? e.detail.params.id : '';")
-    if [ "$destroy_map_scope" -ne 1 ] ||
-       [ "$destroy_reset_scope" -ne 1 ] ||
-       [ "$detail_hide_scope" -ne 1 ] ||
-       [ "$danmaku_scope" -ne 1 ] ||
-       [ "$detail_show_scope" -ne 1 ] ||
-       [ "$item_id_scope" -ne 1 ]; then
+    if ! is_recognized; then
         say "EDE 1.47 特征计数（全局/目标函数）：" >&2
+        say "  amd-vulnerable=$amd_vulnerable_count amd-fixed=$amd_fixed_count" >&2
         say "  timer-map=$destroy_map_global/$destroy_map_scope timer-reset=$destroy_reset_global/$destroy_reset_scope" >&2
         say "  beforeDestroy-view=$detail_hide_global/$detail_hide_scope beforeDestroy-danmaku=$danmaku_global/$danmaku_scope" >&2
         say "  onViewShow-view=$detail_show_global/$detail_show_scope onViewShow-itemId=$item_id_global/$item_id_scope" >&2
@@ -135,13 +172,30 @@ install_fix() {
         cp -p "$target" "$backup_candidate"
         mv -f "$backup_candidate" "$original"
         say "EDE 原始文件已备份到 $original"
-    elif ! cmp -s "$original" "$target"; then
-        fail "现有 EDE 原始备份与当前待修复文件不同，未覆盖备份或目标文件。"
+    else
+        old_target=$target
+        target=$original
+        if ! is_recognized; then
+            target=$old_target
+            fail "现有 EDE 原始备份不是已识别的 1.47 文件，未覆盖备份或目标文件。"
+        fi
+        target=$old_target
     fi
+
+    mkdir -p "$backup_root/upgrade-safety"
+    safety="$backup_root/upgrade-safety/ede.user.js.$(date +%Y%m%d-%H%M%S)-$$"
+    cp -p "$target" "$safety"
+    say "本次修复前文件已保存到 $safety"
 
     candidate="$target.elyric-new.$$"
     trap 'rm -f -- "$candidate"' 0 HUP INT TERM
-    awk '
+    awk -v amd_vulnerable="$amd_vulnerable" -v amd_fixed="$amd_fixed" '
+function replace_literal(line, needle, replacement, position) {
+    position = index(line, needle)
+    if (!position) return line
+    amd_replacements++
+    return substr(line, 1, position - 1) replacement substr(line, position + length(needle))
+}
 function indent(line, value) {
     value = line
     sub(/[^ \t].*$/, "", value)
@@ -166,6 +220,7 @@ function scope_for(line) {
     return ""
 }
 {
+    $0 = replace_literal($0, amd_vulnerable, amd_fixed)
     if (!scope) {
         scope = scope_for($0)
         if (scope) {
@@ -211,6 +266,9 @@ function scope_for(line) {
         if (started && depth <= 0) scope = ""
     }
 }
+END {
+    if (amd_replacements > 1) exit 42
+}
 ' "$target" > "$candidate"
     chmod 0644 "$candidate"
 
@@ -224,7 +282,7 @@ function scope_for(line) {
 
     mv -f "$candidate" "$target"
     trap - 0 HUP INT TERM
-    say "EDE 1.47 页面生命周期修复已原子应用。"
+    say "EDE 1.47 页面生命周期与 Danmaku AMD 隔离修复已原子应用。"
     warn_provider
 }
 
@@ -246,9 +304,30 @@ restore_original() {
     warn_provider
 }
 
+uninstall_fix() {
+    if [ ! -f "$target" ]; then
+        say "未找到 $target，当前容器未安装 EDE，无需恢复。"
+        return
+    fi
+    if [ -f "$original" ]; then
+        if cmp -s "$original" "$target"; then
+            say "EDE 1.47 当前已经是修改前原文件，无需重复恢复。"
+            return
+        fi
+        restore_original
+        return
+    fi
+    if is_lifecycle_vulnerable && is_amd_vulnerable; then
+        say "EDE 1.47 当前已经是修复前原文件，且没有本项目备份，无需恢复。"
+        return
+    fi
+    fail "EDE 已被修改但找不到本项目原始备份：$original。为避免覆盖未知版本，未做修改。"
+}
+
 case "$action" in
     install|fix) install_fix ;;
     status) status ;;
     restore|original) restore_original ;;
-    *) fail "未知操作：$action（支持 install、status、restore）" ;;
+    uninstall) uninstall_fix ;;
+    *) fail "未知操作：$action（支持 install、status、restore、uninstall）" ;;
 esac

@@ -260,7 +260,37 @@ exec /usr/bin/mv "$@"
     assert(noMatchSelection.stdout.includes("没有自动发现"));
     assert(fs.readFileSync(dockerLog, "utf8").includes("inspect manually-entered-emby"));
 
-    console.log("docker plugin discovery, install, backup, rollback, restart and persistence checks: ok");
+    const beforeUninstall = fs.readFileSync(path.join(remotePlugins, "EmbyLyricEnhance.dll"), "utf8");
+    fs.writeFileSync(dockerLog, "", "utf8");
+    expectSuccess(run("uninstall-restart"), "plugin uninstall with restart");
+    assert(!fs.existsSync(path.join(remotePlugins, "EmbyLyricEnhance.dll")),
+        "uninstall should remove the project plugin DLL");
+    assert(!fs.existsSync(path.join(remotePlugins, "EmbyLyricEnhance.Core.dll")),
+        "uninstall should also remove the obsolete project Core DLL");
+    const uninstallSafety = fs.readdirSync(remoteBackup)
+        .filter((name) => name.startsWith("uninstall-safety-"))
+        .sort()
+        .pop();
+    assert(uninstallSafety, "uninstall should preserve a restorable safety backup");
+    assert.strictEqual(
+        fs.readFileSync(path.join(remoteBackup, uninstallSafety, "EmbyLyricEnhance.dll"), "utf8"),
+        beforeUninstall,
+        "the uninstall safety backup should contain the exact removed DLL"
+    );
+    assert.strictEqual(
+        fs.readFileSync(dockerLog, "utf8").split(/\r?\n/).filter((line) => line === "restart emby-test").length,
+        1,
+        "uninstall-restart should restart exactly once"
+    );
+
+    expectSuccess(run("uninstall"), "idempotent plugin uninstall");
+    assert(!fs.existsSync(path.join(remotePlugins, "EmbyLyricEnhance.dll")));
+
+    expectSuccess(run("rollback", uninstallSafety), "restore an uninstall safety backup");
+    assert.strictEqual(fs.readFileSync(path.join(remotePlugins, "EmbyLyricEnhance.dll"), "utf8"), beforeUninstall,
+        "an uninstall safety backup should remain usable through the existing rollback command");
+
+    console.log("docker plugin discovery, install, uninstall, backup, rollback, restart and persistence checks: ok");
 } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
 }

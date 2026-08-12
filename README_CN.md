@@ -40,9 +40,10 @@ sh docker-install.sh
 
 1. 安装或更新歌词播放器前端
 2. 安装或更新服务端插件 DLL
-3. 修复 EDE 1.47 页面生命周期
+3. 修复 EDE 1.47 页面生命周期与内嵌 Danmaku 的 AMD 加载冲突
+4. 卸载本项目并恢复安装前原文件
 
-支持单选和空格分隔多选，例如输入 `1` 只安装前端，输入 `1 2 3` 会依次执行全部三项。重复编号会自动去重，逗号、越界编号或其他非法输入会被拒绝并要求重新输入。只要选择了 DLL，脚本会等所有选中功能成功完成后再统一重启容器一次；任一功能失败时立即停止，不执行后续功能，也不会重启容器。
+安装功能支持单选和空格分隔多选，例如输入 `1` 只安装前端，输入 `1 2 3` 会依次执行全部三项。恢复原装必须单独输入 `4` 并再次输入 `YES` 确认。恢复会还原 Emby 原版 `lyrics.js`/`lyrics.css`、恢复 EDE 修改前文件、备份后卸载本项目 DLL，并统一重启容器一次；插件配置、用户主题和全部安全备份默认保留。
 
 常用非交互组合命令：
 
@@ -50,9 +51,10 @@ sh docker-install.sh
 sh docker-install.sh <容器名或ID> all
 sh docker-install.sh <容器名或ID> plugin
 sh docker-install.sh <容器名或ID> ede
+sh docker-install.sh <容器名或ID> uninstall
 ```
 
-`all` 等同于交互输入 `1 2 3`。`plugin` 安装 DLL 并重启一次，`ede` 只应用 EDE 修复且不重启。
+`all` 等同于交互输入 `1 2 3`。`plugin` 安装 DLL 并重启一次，`ede` 只应用 EDE 修复且不重启。`uninstall` 与菜单 4 相同，会要求输入 `YES` 后恢复原装。
 
 原有前端管理命令继续兼容，也可以直接传参：
 
@@ -71,7 +73,7 @@ sh docker-install.sh <容器名或ID> undo
 
 切换文件后不需要重启 Emby，更不要为了切换而重建容器。请强制刷新浏览器；仍显示旧内容时，再清除 Emby 站点缓存。
 
-EDE 修复只识别经过验证的 1.47 代码特征。原文件会持久备份到 `/config/emby-lyric-enhance/ede-1.47/original/ede.user.js`，重复执行是幂等的；未安装 EDE 时安全跳过，未知版本则拒绝修改。可用以下命令检查或恢复：
+EDE 修复只识别经过验证的 1.47 代码特征。除了页面生命周期保护，它还禁用内嵌 Danmaku UMD 包的匿名 AMD 注册，避免污染 Emby Alameda 模块队列并随机请求 `/web/modules/common/common/...` 等错误路径。原文件会持久备份到 `/config/emby-lyric-enhance/ede-1.47/original/ede.user.js`，每次增量修改前还会创建安全副本；重复执行是幂等的，未知版本则拒绝修改。可用以下命令检查或恢复：
 
 ```bash
 sh docker-install.sh <容器名或ID> ede-status
