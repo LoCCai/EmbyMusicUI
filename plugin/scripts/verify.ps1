@@ -24,11 +24,6 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& $node (Join-Path $repositoryRoot "tests\adapter.test.js")
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
 & $node (Join-Path $repositoryRoot "tests\plugin-integration.test.js")
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
@@ -40,6 +35,16 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 & $node (Join-Path $repositoryRoot "tests\anchored-canvas-v4.test.js")
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
+& $node (Join-Path $repositoryRoot "tests\single-root-osd.test.js")
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
+& $node (Join-Path $repositoryRoot "tests\videoosd-runtime.test.js")
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

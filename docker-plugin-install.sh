@@ -33,14 +33,14 @@ restart_if_requested() {
 
 report_frontend_configuration_support() {
     if docker exec "$container" /bin/sh -c '
-lyrics=/system/dashboard-ui/videoosd/lyrics.js
-[ -f "$lyrics" ] && grep -q "EmbyLyricEnhance/PublicConfiguration" "$lyrics"
+videoosd=/system/dashboard-ui/videoosd/videoosd.js
+[ -f "$videoosd" ] && grep -q "EmbyLyricEnhance/PublicConfiguration" "$videoosd"
 ' >/dev/null 2>&1; then
         say "Emby Web 前端适配器：已包含 DLL 公共配置读取。"
     else
-        say "警告：当前 Emby Web 歌词文件未包含 DLL 配置读取。"
+        say "警告：当前 Emby Web VideoOsd 文件未包含 DLL 配置读取。"
         say "请再执行：sh docker-install.sh '$container' install"
-        say "只更新 EmbyLyricEnhance.dll 不会自动修改 /system/dashboard-ui/videoosd/lyrics.js。"
+        say "只更新 EmbyLyricEnhance.dll 不会自动修改 /system/dashboard-ui/videoosd/videoosd.js。"
     fi
 }
 

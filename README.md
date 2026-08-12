@@ -19,8 +19,8 @@ Current adapter: **Emby Server 4.9.5.0**
 - Supports Emby artwork, private image uploads, HTTPS artwork, private WOFF2 fonts, HTTPS WOFF2 fonts, polygon clipping, and independent three-tier lyric typography
 - Integrates metadata, artwork, seeking, volume/mute, stop, previous/play/next, shuffle, repeat, queue, annotation, and artwork-rotation controls
 - Offers an optional C# settings layer for administrator-controlled defaults and theme override policy
-- Preserves Emby's native line selection, seek action, and scrolling
-- Injects only into the lyric-specific module; it does not patch the shared `listview.js` or `emby-itemscontainer.js`
+- Owns lyric line selection, click-to-seek, following, and manual-scroll pause inside the single root
+- Injects only into `videoosd.js/css`; it does not patch the shared `listview.js` or `emby-itemscontainer.js`
 - Safely renders lyric text with DOM text nodes; only `<br>` is treated as markup
 - Keeps persistent original/enhanced backups and supports switching between them
 - Refuses unknown files through exact Emby 4.9.5.0 SHA-256 checks
@@ -80,7 +80,7 @@ Only orientation selects layout: landscape covers desktop, landscape tablet, and
 
 The theme library can save, duplicate, rename, delete, and restore designs through the current Emby account. Theme snapshots include all frequency-analysis values, artwork source, three lyric tiers, follow delay, media-information fields, popup styling, and control safety settings. Artwork can use the current Emby image, a private upload, or an HTTPS URL. Lyrics can be positioned and sized freely; primary, secondary, and later lines have independent font source, size, weight, italic, spacing, line height, color, opacity, stroke, shadow, glow, and played/current/future colors.
 
-The shell owns presentation and interaction while playback, seeking, queue state, and casting remain delegated to Emby's native playback session. It does not start a second audio engine. A custom button is disabled when its corresponding native action is unavailable.
+The shell owns presentation and interaction while playback, seeking, queue state, and casting remain delegated to Emby's active `playbackmanager` session. It does not start a second audio engine. A custom button is disabled when its corresponding capability is unavailable.
 
 Use the shell's **Style** selector to switch themes immediately:
 
@@ -94,7 +94,7 @@ Use the shell's **Style** selector to switch themes immediately:
 
 Switching does not require a refresh, reinjection, or Emby restart. Current settings are synchronized to the authenticated Emby user's workspace and retained in `localStorage` for migration and offline recovery.
 
-The shell is mounted at the document level while visibility remains owned by the active lyric playback page. Leaving playback, opening a native queue view, covering the page, or detaching the lyric container removes all page-level layout state and restores Emby's native UI. Reopening lyrics restores the saved layout and removes stale duplicates.
+`VideoOsd.onResume/onPause/destroy` owns a single `.elyric-player-root`. Artwork, metadata, the owned lyric viewport, visualizer, transport, queue, media card, settings, and designer all live under that root. The adapter no longer positions or clicks native lyric, queue, or transport DOM. Native OSD nodes are hidden only after a successful mount and are restored exactly on failure or teardown. Add `?elyric=off` to the URL to keep the native OSD for the current session without deleting theme data.
 
 Lyric rendering remains an Emby Web frontend adapter. It covers Emby Web and clients that reuse that frontend, but cannot force native Android, iOS, or TV lyric views to use these themes. The optional C# plugin supplies server settings only and does not change this client boundary.
 
@@ -121,6 +121,8 @@ The 4.9.5.0 adapter changes only:
 ```text
 /system/dashboard-ui/videoosd/lyrics.js
 /system/dashboard-ui/videoosd/lyrics.css
+/system/dashboard-ui/videoosd/videoosd.js
+/system/dashboard-ui/videoosd/videoosd.css
 ```
 
 The payload is stored in:
@@ -130,11 +132,11 @@ adapters/4.9.5.0/lyrics.inject.js
 adapters/4.9.5.0/lyrics.inject.css
 ```
 
-It does not modify shared list rendering, `videoosd.js`, or `videoosd.html`.
+It does not modify shared list rendering or `videoosd.html`. The original `lyrics.js/css` pair is restored while the payload is injected into `videoosd.js/css`.
 
 ## Smooth timing
 
-The word layer uses `requestAnimationFrame` to interpolate playback position between native callbacks, normally updating at the display refresh rate. Interpolation starts only after two consecutive native samples confirm forward playback. It stops for pause, buffering, seeking, or a hidden page, and never extrapolates one sample for more than 800 ms. Emby's native line selection and scrolling retain their original cadence.
+The word layer uses `requestAnimationFrame` to interpolate playback position between PlaybackBridge callbacks. It stops for pause, seeking, teardown, or a hidden page and never extrapolates one sample for more than 800 ms. Clicking an owned lyric row seeks through the bridge.
 
 Played and active words share the highlight style, so the highlighted portion grows cumulatively from the beginning of the line through the current word instead of lighting only one word at a time.
 
@@ -147,10 +149,12 @@ The installer recognizes these unmodified Emby 4.9.5.0 files:
 ```text
 lyrics.js   32b712b634d0191da1dec23eebd63bde2a94bba67ba1fd6cea5b2959309649bb
 lyrics.css  82c4df323c0a6dd100863d0e261a5e09317530c8f39cd55c203ebac8899224b7
+videoosd.js 8c254d3a3844ee80f9d03205c94b04e60bc5440f44cf776e697c3ce96fd69687
+videoosd.css 491e78881253de76cad25f76af3132cb13daf207bd865de92ccc8a68ac2bf3a7
 ```
 
 Installation stops if a file was modified by another patch, the version is unknown, a backup is incomplete, or the injection anchor is not unique.
 
-Run `plugin\scripts\verify.ps1` on Windows to check the parameter registry contract, strict server validation, user-isolated theme storage, revision conflicts, atomic recovery, asset limits, frontend integration, safe rendering, canvas/settings interaction, theme persistence, playback delegation, lyric timing, and installer behavior. The installer records a frontend build ID and SHA-256 values for the generated `lyrics.js` and `lyrics.css` pair. A real Emby deployment still requires updating the DLL and both frontend files, restarting Emby for the DLL, clearing the site cache, and validating actual tracks.
+Run `plugin\scripts\verify.ps1` on Windows to check the parameter registry, server validation, user themes, the single-root DOM, VideoOsd lifecycle, PlaybackBridge, owned lyrics/queue, and four-file atomic rollback. A real Emby deployment still requires updating the DLL and four frontend files, restarting Emby for the DLL, clearing the site cache, and validating actual tracks.
 
 The legacy `replacement/` files and `main.template.sh` belong to the previous Emby 4.8.11.0 global-hook adapter. Do not inject both adapters into one container.

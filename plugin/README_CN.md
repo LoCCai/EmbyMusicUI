@@ -144,7 +144,7 @@ sh docker-plugin-install.sh <Emby容器名> install-restart
 sh docker-install.sh <Emby容器名> install
 ```
 
-DLL 安装脚本会检查活动 `lyrics.js`。若尚未包含 `EmbyLyricEnhance/PublicConfiguration`，会输出第二条命令的提示。
+DLL 安装脚本会检查活动 `videoosd.js`。若尚未包含 `EmbyLyricEnhance/PublicConfiguration`，会输出第二条命令的提示。
 
 若第二条命令检测到旧增强标记但原版备份缺失，请先拉取最新安装器后重新执行。新安装器会从当前容器的不可变镜像中提取原文件，通过 4.9.5.0 指纹校验后补回 `/config` 备份，不会删除或重建正在运行的 Emby 容器。
 

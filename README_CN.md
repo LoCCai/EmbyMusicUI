@@ -13,14 +13,14 @@ EmbyLyricEnhance 用于增强 Emby Web 歌词显示。
 - 接管歌词播放页的整屏视觉层，提供九套只读内置预设和不设人为数量上限的用户主题库
 - 使用统一 `PlayerThemeV2` 注册表连接编辑控件、校验、CSS/Canvas 渲染、序列化、迁移与服务端规则
 - 封面、歌曲信息、歌词、频谱、进度、播放控制、音量和辅助按钮支持拖拽、缩放、旋转、层级、隐藏、锁定、对齐、吸附、键盘微调与撤销/重做
-- 桌面、平板、手机竖屏和手机横屏分别保存归一化布局；未编辑尺寸继承最近布局，并始终保留设置入口安全区
+- 只保存 landscape 与 portrait 两套锚定画布；横屏手机使用 compact 运行模式，并始终保留设置入口安全区
 - 整合歌曲/歌手/专辑/封面、进度、音量、静音、停止、上一首、播放暂停、下一首、随机、循环、队列、注音和封面旋转开关
 - 封面内外层尺寸/圆角/XY、歌曲信息、歌词三态文字与背景、频谱、进度条、音量条均可独立定位和造型
 - 媒体信息弹卡可选展示歌曲、文件、音频、图像和歌词流；PC/横屏从信息按钮附近展开，手机竖屏使用底部安全抽屉
 - 中心对称胶囊频谱替代高密度柱状墙，并保留频谱尺寸、幅度、形态和配色调节
 - 可选 C# 插件设置层：管理员统一配置服务器默认主题和显示参数，并可锁定主题策略
-- 保留 Emby 原生整行选中、点击跳转和滚动行为
-- 仅在歌词专属模块中注入，不修改通用的 `listview.js` 和 `emby-itemscontainer.js`
+- 自有歌词实现整行选中、点击跳转、自动跟随与手动滚动暂停
+- 只在 `videoosd.js/css` 注入，不修改通用的 `listview.js` 和 `emby-itemscontainer.js`
 - 歌词文本使用 DOM `textContent` 安全渲染，只把 `<br>` 识别为换行
 - 自动备份，可在原版和增强版之间反复切换
 - 通过 4.9.5.0 文件 SHA-256 和唯一注入锚点阻止误覆盖其他版本
@@ -43,7 +43,7 @@ sh docker-install.sh
 3. 修复 EDE 1.47 页面生命周期与内嵌 Danmaku 的 AMD 加载冲突
 4. 卸载本项目并恢复安装前原文件
 
-安装功能支持单选和空格分隔多选，例如输入 `1` 只安装前端，输入 `1 2 3` 会依次执行全部三项。恢复原装必须单独输入 `4` 并再次输入 `YES` 确认。恢复会还原 Emby 原版 `lyrics.js`/`lyrics.css`、恢复 EDE 修改前文件、备份后卸载本项目 DLL，并统一重启容器一次；插件配置、用户主题和全部安全备份默认保留。
+安装功能支持单选和空格分隔多选，例如输入 `1` 只安装前端，输入 `1 2 3` 会依次执行全部三项。恢复原装必须单独输入 `4` 并再次输入 `YES` 确认。恢复会还原 Emby 原版 `videoosd.js/css` 与 `lyrics.js/css`、恢复 EDE 修改前文件、备份后卸载本项目 DLL，并统一重启容器一次；插件配置、用户主题和全部安全备份默认保留。
 
 常用非交互组合命令：
 
@@ -102,7 +102,7 @@ sh docker-install.sh <容器名或ID> ede-restore
 
 播放器草稿和命名主题优先写入 0.3.0 用户主题服务，以当前认证用户为边界同步到其他浏览器和设备；旧 `DisplayPreferences.CustomPrefs` 仅用于首次迁移与兼容。`localStorage` 继续作为离线回退、待同步队列和旧版本迁移来源。
 
-这个面板负责界面与交互，实际播放、进度跳转和队列状态仍交给 Emby 原生播放内核；因此不会另起一套音频播放器，也不会绕过 Emby 的播放会话。自有音量滑杆在拖动期间即时更新填充颜色和百分比，再把数值同步给当前播放页的 Emby 音量控件；静音按钮把当前音量设为 0，再次点击恢复静音前音量，避免同时触发两个原生状态造成反转。原生控件暂不可用时，对应自有按钮会禁用。
+这个面板负责界面与交互，实际播放、进度跳转和队列状态仍交给 Emby `playbackmanager` 的当前播放会话；因此不会另起一套音频播放器。自有音量滑杆、静音、上下首、随机、循环、队列和投屏均调用正式播放接口，对应能力不可用时按钮会禁用。
 
 设置抽屉中的“歌词样式”选择器可以即时切换以下主题：
 
@@ -116,11 +116,11 @@ sh docker-install.sh <容器名或ID> ede-restore
 
 切换立即生效，不需要刷新、重新注入或重启 Emby。歌词主题与其他播放器偏好一同保存到当前用户的 Emby `DisplayPreferences.CustomPrefs`；同一账户在其他浏览器或设备打开歌词页时会恢复。旧的 `localStorage` 主题值（键名 `emby-lyric-enhance.theme`）会自动迁移，并在离线时继续作为回退。
 
-整屏播放器的视觉层放在页面顶层，但其可见性严格归整个音乐播放页控制。歌词和播放队列继续使用 Emby 原生数据与点击事件，但都显示在增强界面上方；在两者之间切换不会退出整屏界面。只有离开播放页、页面被隐藏、被其他页面覆盖或播放页脱离文档时，才撤销页面级布局并还原 Emby 原生界面；再次打开时恢复所选布局，并清理可能残留的重复播放器和设置抽屉。
+整屏播放器由 `VideoOsd.onResume/onPause/destroy` 管理，所有可见播放器元素、歌词、队列、设置、媒体卡和设计器都位于唯一的 `.elyric-player-root` 内。歌词直接读取当前媒体的默认字幕流，队列直接读取结构化播放列表；不再复用或定位 Emby 原生歌词、队列和按钮 DOM。单根成功挂载后才隐藏原生 OSD，初始化异常、离开页面或销毁时逐项恢复原状态。当前会话可在 URL 加 `?elyric=off` 强制使用原生 OSD，不会删除主题数据。
 
 歌词渲染仍是 Emby Web 前端适配器，覆盖 Emby Web 及复用该 Web 前端的客户端，不会强制改变 Android、iOS 或电视端的原生歌词页面。可选 C# 插件只提供服务器设置层，不会改变这一客户端边界。
 
-如果安装了 C# 插件，它的颜色、字号等默认值只会被最新前端适配器读取。因此插件 DLL 和 `/system/dashboard-ui/videoosd/lyrics.js` 需要分别更新；只运行 `docker-plugin-install.sh` 不会改动 Emby Web 文件。
+如果安装了 C# 插件，它的颜色、字号等默认值只会被最新前端适配器读取。因此插件 DLL 和四个受管前端文件需要分别更新；只运行 `docker-plugin-install.sh` 不会改动 Emby Web 文件。
 
 ## 备份与容器更新警告
 
@@ -130,10 +130,14 @@ sh docker-install.sh <容器名或ID> ede-restore
 /config/emby-lyric-enhance/4.9.5.0/
 ├── original/
 │   ├── lyrics.js
-│   └── lyrics.css
+│   ├── lyrics.css
+│   ├── videoosd.js
+│   └── videoosd.css
 └── enhanced/
     ├── lyrics.js
-    └── lyrics.css
+    ├── lyrics.css
+    ├── videoosd.js
+    └── videoosd.css
 ```
 
 > **不要通过删除、重建容器或重建镜像来切换原版/增强版。** 注入发生在容器的 `/system` 中，容器更新或重建会覆盖该目录，当前增强效果会消失。
@@ -142,7 +146,7 @@ sh docker-install.sh <容器名或ID> ede-restore
 
 如果脚本未检测到 `/config` 持久挂载，会先警告并要求确认。
 
-如果当前 `/system` 已是旧增强版，但 `/config/emby-lyric-enhance/4.9.5.0/original/` 丢失，新版安装器会从当前 Emby 容器的不可变镜像 ID 创建一个不启动的临时容器，只提取原版 `lyrics.js/css`。两个文件必须通过 Emby 4.9.5.0 SHA-256 校验才会补回备份并继续注入；正在运行的 Emby 容器不会被删除或重建。
+如果当前 `/system` 已是旧增强版，但原版备份丢失，新版安装器会从当前 Emby 容器的不可变镜像 ID 创建一个不启动的临时容器，提取并校验四个原文件；正在运行的 Emby 容器不会被删除或重建。
 
 ## 修改范围
 
@@ -151,6 +155,8 @@ sh docker-install.sh <容器名或ID> ede-restore
 ```text
 /system/dashboard-ui/videoosd/lyrics.js
 /system/dashboard-ui/videoosd/lyrics.css
+/system/dashboard-ui/videoosd/videoosd.js
+/system/dashboard-ui/videoosd/videoosd.css
 ```
 
 不会修改：
@@ -158,7 +164,6 @@ sh docker-install.sh <容器名或ID> ede-restore
 ```text
 /system/dashboard-ui/modules/emby-elements/emby-itemscontainer/emby-itemscontainer.js
 /system/dashboard-ui/modules/listview/listview.js
-/system/dashboard-ui/videoosd/videoosd.js
 /system/dashboard-ui/videoosd/videoosd.html
 ```
 
@@ -171,19 +176,19 @@ adapters/4.9.5.0/lyrics.inject.css
 
 ## 工作原理
 
-`lyrics.js` 原生请求返回 `TrackEvents` 后，适配器按 `StartPositionTicks + 原始顺序` 稳定排序，并把相同开始时间的事件合并为一个歌词项目。增强 LRC 示例：
+`videoosd.js` 中的自有歌词仓库取得 `TrackEvents` 后，按 `StartPositionTicks + 原始顺序` 稳定排序，并把相同开始时间的事件合并为一个歌词项目。增强 LRC 示例：
 
 ```text
 <00:59.62>四<00:59.87>周<01:00.24>环<01:01.49>
 ```
 
-会转换为带绝对开始、结束时间的逐字数据。每次 Emby 调用 `onTimeUpdate(positionTicks, runtimeTicks)` 时，先执行原生整行选中和滚动，再按绝对播放位置将字词设置为 `pending`、`active` 或 `played`，因此快进和后退不依赖旧状态。`played` 与 `active` 使用相同高亮样式，高亮会从行首累积到当前字，而不是只点亮正在播放的单个字。
+会转换为带绝对开始、结束时间的逐字数据。PlaybackBridge 收到当前播放器的时间事件后，按绝对播放位置更新自有歌词的 `pending`、`active`、`played` 状态；点击歌词行直接调用 `seek()`。
 
 歌曲最后一组增强歌词可以省略末尾闭合时间标签。如果最后一个字已经超过事件的默认结束时间，适配器只为该字补一个 1 秒安全边界；中间歌词仍必须在下一行开始前闭合，避免跨行高亮。
 
 逐字层使用 `requestAnimationFrame` 在相邻原生回调之间插值播放位置，通常按显示器刷新率更新。只有连续两次原生位置表明播放正在前进时才会启动插值；暂停、缓冲、前后跳转或页面隐藏时立即停止。单次最多外推 800ms，避免播放器停止回调后歌词继续自行前进。Emby 原生整行选择与滚动频率保持不变。
 
-歌词虚拟列表变化由 `MutationObserver` 监听；新增或复用的可见节点会根据 `data-index` 重建。歌词文本永远不会整体写入 `innerHTML`，因此 `<img>`、`<script>` 和事件属性只会显示成文字。
+歌词文本永远不会整体写入 `innerHTML`，因此 `<img>`、`<script>` 和事件属性只会显示成文字。切歌会使旧请求失效，并按项目、媒体源和字幕流缓存结果。
 
 ## 版本校验
 
@@ -195,6 +200,12 @@ lyrics.js
 
 lyrics.css
 82c4df323c0a6dd100863d0e261a5e09317530c8f39cd55c203ebac8899224b7
+
+videoosd.js
+8c254d3a3844ee80f9d03205c94b04e60bc5440f44cf776e697c3ce96fd69687
+
+videoosd.css
+491e78881253de76cad25f76af3132cb13daf207bd865de92ccc8a68ac2bf3a7
 ```
 
 文件已被其他插件修改、Emby 版本不同、原始备份不完整或注入锚点数量不为 1 时，安装会停止。
@@ -202,14 +213,15 @@ lyrics.css
 开发者可运行：
 
 ```bash
-node tests/adapter.test.js
+node tests/videoosd-runtime.test.js
+node tests/single-root-osd.test.js
 node tests/theme-v2-contract.test.js
 node tests/plugin-integration.test.js
 node tests/docker-install.test.js
 node tests/ede-manager.test.js
 ```
 
-或在 Windows 使用 `plugin\scripts\verify.ps1`，同时验证参数注册表完整性、严格服务端校验、用户隔离、无限主题 CRUD、原子恢复、revision 冲突、资源限制、画布/设置互斥、安全入口、账户同步、歌词与播放控制及安装器行为。真实部署仍需同时更新 DLL、`lyrics.js`、`lyrics.css`，重启 Emby 加载 DLL，清理站点缓存后再用真实歌曲验收。
+或在 Windows 使用 `plugin\scripts\verify.ps1`，同时验证参数注册表、服务端校验、用户主题、单根 DOM、VideoOsd 生命周期、PlaybackBridge、自有歌词/队列及四文件原子安装回退。真实部署仍需更新 DLL 和四个前端文件，重启 Emby 加载 DLL，清理站点缓存后再用真实歌曲验收。
 
 ## 旧版本说明
 

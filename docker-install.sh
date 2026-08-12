@@ -272,7 +272,7 @@ run_uninstall_bundle() {
     say ""
     say "目标容器：$container"
     say "即将恢复安装前状态："
-    say "  - 恢复 Emby 原版 lyrics.js 与 lyrics.css"
+    say "  - 恢复 Emby 原版 videoosd.js/css 与 lyrics.js/css"
     say "  - 卸载 EmbyLyricEnhance 插件 DLL（保留主题数据和安全备份）"
     say "  - 恢复 EDE 修改前文件；原 EDE 的兼容问题也会随之恢复"
     printf '确认继续吗？请输入 YES：'
@@ -328,14 +328,15 @@ recover_original_from_container_image() {
     recovery_container=$(docker create "$image_id") || fail "无法从当前镜像创建不启动的临时容器。"
     [ -n "$recovery_container" ] || fail "临时容器 ID 为空。"
 
-    docker cp "$recovery_container:/system/dashboard-ui/videoosd/lyrics.js" "$recovery_dir/lyrics.js" >/dev/null ||
-        fail "无法从镜像提取原版 lyrics.js。"
-    docker cp "$recovery_container:/system/dashboard-ui/videoosd/lyrics.css" "$recovery_dir/lyrics.css" >/dev/null ||
-        fail "无法从镜像提取原版 lyrics.css。"
+    for recovery_name in videoosd.js videoosd.css lyrics.js lyrics.css; do
+        docker cp "$recovery_container:/system/dashboard-ui/videoosd/$recovery_name" "$recovery_dir/$recovery_name" >/dev/null ||
+            fail "无法从镜像提取原版 $recovery_name。"
+    done
 
     docker exec -u 0 "$container" /bin/sh -c "mkdir -p '$REMOTE_ROOT/recovered-original'"
-    docker cp "$recovery_dir/lyrics.js" "$container:$REMOTE_ROOT/recovered-original/lyrics.js" >/dev/null
-    docker cp "$recovery_dir/lyrics.css" "$container:$REMOTE_ROOT/recovered-original/lyrics.css" >/dev/null
+    for recovery_name in videoosd.js videoosd.css lyrics.js lyrics.css; do
+        docker cp "$recovery_dir/$recovery_name" "$container:$REMOTE_ROOT/recovered-original/$recovery_name" >/dev/null
+    done
     docker exec -u 0 \
         -e ELYRIC_PAYLOAD_ROOT="$REMOTE_ROOT/adapter" \
         -e ELYRIC_RECOVERY_ROOT="$REMOTE_ROOT/recovered-original" \
@@ -442,10 +443,13 @@ docker cp "$MANAGER" "$container:$REMOTE_ROOT/container-manager.sh" >/dev/null
 case "$action" in
     install|enhanced|original|undo)
         if docker exec "$container" /bin/sh -c '
-target=/system/dashboard-ui/videoosd/lyrics.js
+target=/system/dashboard-ui/videoosd/videoosd.js
+legacy_target=/system/dashboard-ui/videoosd/lyrics.js
 original=/config/emby-lyric-enhance/4.9.5.0/original
-grep -Fq "ELYRIC_ENHANCE_BEGIN:4.9.5.0" "$target" 2>/dev/null &&
-    { [ ! -f "$original/lyrics.js" ] || [ ! -f "$original/lyrics.css" ]; }
+{ grep -Fq "ELYRIC_ENHANCE_BEGIN:4.9.5.0" "$target" 2>/dev/null ||
+  grep -Fq "ELYRIC_ENHANCE_BEGIN:4.9.5.0" "$legacy_target" 2>/dev/null; } &&
+    { [ ! -f "$original/videoosd.js" ] || [ ! -f "$original/videoosd.css" ] ||
+      [ ! -f "$original/lyrics.js" ] || [ ! -f "$original/lyrics.css" ]; }
 '; then
             recover_original_from_container_image
         fi

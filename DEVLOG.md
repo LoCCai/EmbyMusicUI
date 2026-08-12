@@ -1,5 +1,16 @@
 # 开发日志
 
+## VideoOsd 单根播放器（0.3.1）
+
+- 将前端生命周期从 `LyricsRenderer` 迁到 `VideoOsd.onResume/onPause/destroy`；恢复原版 `lyrics.js/css`，增强载荷只注入 `videoosd.js/css`
+- 所有可见播放元素与弹层统一收进 `.elyric-player-root`，成功挂载后才隐藏原生 OSD，失败或卸载时逐项恢复 `aria-hidden`、`inert`、可见性和交互状态
+- 新建 PlaybackBridge，正式调用 Emby 4.9.5.0 `playbackmanager`、`approuter` 和 `playerselection`，移除模拟点击原生按钮与原生歌词/队列选择器
+- 自有歌词从默认字幕流读取 `TrackEvents`，支持逐字、多行、credit、点击跳转、自动跟随、切歌请求失效和缓存，并区分加载、无歌词、纯音乐与失败状态
+- 自有队列直接读取 `getPlaylist()`，支持点播、移除和拖放排序；队列、媒体卡、设置及设计器统一处理互斥、遮罩、焦点与 Escape
+- 保留 Theme V4、九套内置主题、十八份横竖屏布局、用户主题、JSON 导入导出和服务端存储；增加 `?elyric=off` 会话级原生回退
+- 安装器改为校验、备份、生成、原子替换和恢复 `videoosd.js/css`、`lyrics.js/css` 四文件，支持从旧歌词 Hook 迁移且任一失败整组回滚
+- 新增真实 VideoOsd 运行时夹具，覆盖单根挂载、歌词、seek、队列、切歌取消、能力缺失、关键模块失败、音频/视频分流、生命周期清理和原生恢复
+
 ## PlayerThemeV2 与用户主题库（0.3.0）
 
 - 建立统一参数注册表，当前覆盖 400 余个标量与响应式图层字段；每项均声明默认值、前端校验、编辑器、CSS/Canvas 绑定、序列化、迁移和明确的服务端校验规则

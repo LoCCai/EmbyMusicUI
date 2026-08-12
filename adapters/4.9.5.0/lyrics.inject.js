@@ -1,7 +1,12 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.12-anchored-canvas-v4 */
+/* ELYRIC_BUILD:2026.08.12-single-root-osd-v5 */
 ;(function () {
     "use strict";
+
+    if ("undefined" !== typeof location
+        && /(?:^|[?&])elyric=off(?:&|$)/i.test(String(location.search || ""))) {
+        return;
+    }
 
     var TICKS_PER_SECOND = 10000000;
     var MAX_INTERPOLATION_MS = 800;
@@ -43,21 +48,6 @@
     var PLAYER_ASSETS_PATH = "EmbyLyricEnhance/Assets";
     var PLAYER_THEME_V2_OFFLINE_QUEUE_KEY = "emby-lyric-enhance.theme-v2.offline-queue";
     var PUBLIC_CONFIGURATION_PATH = "EmbyLyricEnhance/PublicConfiguration";
-    var NATIVE_PLAYER_SELECTORS = {
-        back: [".headerBackButton"],
-        cast: [".headerCastButton"],
-        previous: [".btnPreviousTrack"],
-        playPause: [".videoOsd-btnPause"],
-        stop: [".btnVideoOsd-stop"],
-        next: [".btnNextTrack", ".btnNextTrackTopRight"],
-        lyrics: [".btnLyrics"],
-        shuffle: [".btnOsdShuffle-bottom", ".btnOsdShuffle-topright", ".btnOsdShuffle"],
-        repeat: [".btnOsdRepeatMode-bottom", ".btnOsdRepeatMode-topright", ".btnOsdRepeatMode"],
-        queue: [".btnPlayQueue"],
-        mute: [".buttonMute"],
-        volume: [".videoOsdVolumeSlider"],
-        seek: [".videoOsdPositionSlider"]
-    };
     var PLAYER_LAYOUTS = [
         { id: "album", label: "编辑唱片" },
         { id: "center", label: "Spotify 海报" },
@@ -1090,10 +1080,7 @@
 
     function playerThemeV2LayerElement(renderer, layerId) {
         if ("lyrics" === layerId) {
-            var section = renderer.itemsContainer && renderer.itemsContainer.closest
-                ? renderer.itemsContainer.closest('.osdContentSection[data-contentsection="lyrics"]')
-                : null;
-            return section || renderer.itemsContainer;
+            return renderer.__elyricLyricViewport || renderer.itemsContainer;
         }
         if ("artwork" === layerId) {
             return renderer.__elyricPlayerThemeChoices
@@ -1153,7 +1140,9 @@
             probe.style.cssText = "position:fixed;visibility:hidden;pointer-events:none;"
                 + "padding-top:env(safe-area-inset-top,0px);padding-right:env(safe-area-inset-right,0px);"
                 + "padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px)";
-            document.body.appendChild(probe);
+            var probeHost = renderer && renderer.__elyricRoot && renderer.__elyricRoot.appendChild
+                ? renderer.__elyricRoot : document.body;
+            probeHost.appendChild(probe);
             if (renderer) { renderer.__elyricThemeV2SafeInsetProbe = probe; }
         }
         var computed = window.getComputedStyle(probe);
@@ -1794,9 +1783,9 @@
         showThirdAndLaterLines: true
     };
     var serverConfigurationPromise = null;
-    var originalGetItemsInternal = LyricsRenderer.prototype.getItemsInternal;
-    var originalOnTimeUpdate = LyricsRenderer.prototype.onTimeUpdate;
-    var originalDestroy = LyricsRenderer.prototype.destroy;
+    var originalVideoOsdOnResume = VideoOsd.prototype.onResume;
+    var originalVideoOsdOnPause = VideoOsd.prototype.onPause;
+    var originalVideoOsdDestroy = VideoOsd.prototype.destroy;
 
     function cloneEvent(event) {
         var clone = {};
@@ -2122,6 +2111,121 @@
             return window.ApiClient;
         }
         return null;
+    }
+
+    function createPlaybackBridge(videoOsd) {
+        var manager = _playbackmanager && _playbackmanager.default;
+        if (!manager || !manager.getCurrentPlayer || !manager.getPlayerState) {
+            throw new Error("Emby playback manager is unavailable");
+        }
+        var destroyed = false;
+        function player() { return manager.getCurrentPlayer() || videoOsd.currentPlayer; }
+        function call(name) {
+            var args = Array.prototype.slice.call(arguments, 1);
+            if (destroyed || "function" !== typeof manager[name]) {
+                return Promise.reject(new Error("Unsupported playback capability: " + name));
+            }
+            return Promise.resolve(manager[name].apply(manager, args));
+        }
+        var bridge = {
+            capabilities: {},
+            getSnapshot: function () {
+                var currentPlayer = player();
+                var state = currentPlayer ? manager.getPlayerState(currentPlayer) : { PlayState: {} };
+                var playState = state && state.PlayState || {};
+                var currentItem = manager.currentItem ? manager.currentItem(currentPlayer) : null;
+                return {
+                    player: currentPlayer,
+                    item: currentItem || state && state.NowPlayingItem || null,
+                    positionTicks: Number(playState.PositionTicks) || 0,
+                    runtimeTicks: Number(state && state.NowPlayingItem && state.NowPlayingItem.RunTimeTicks)
+                        || Number(currentItem && currentItem.RunTimeTicks) || 0,
+                    paused: !!playState.IsPaused,
+                    muted: !!playState.IsMuted,
+                    volume: Number(playState.VolumeLevel) || 0,
+                    shuffle: manager.getShuffle ? !!manager.getShuffle(currentPlayer) : false,
+                    repeatMode: manager.getRepeatMode ? manager.getRepeatMode(currentPlayer) : "RepeatNone",
+                    playlistItemId: state && state.PlaylistItemId || null,
+                    playlistIndex: Number(state && state.PlaylistIndex),
+                    playlistLength: Number(state && state.PlaylistLength) || 0
+                };
+            },
+            subscribe: function (listener) {
+                var eventNames = ["timeupdate", "playbackstart", "playbackstop", "pause", "unpause", "volumechange",
+                    "shufflechange", "repeatmodechange", "playlistitemadd", "playlistitemremove", "playlistitemmove"];
+                var boundPlayer = player();
+                var handler = function () { if (!destroyed) { listener(bridge.getSnapshot()); } };
+                var bindPlayer = function (nextPlayer) {
+                    if (!_events || !_events.default || !_events.default.on || nextPlayer === boundPlayer) { return; }
+                    if (boundPlayer && _events.default.off) {
+                        eventNames.forEach(function (name) { _events.default.off(boundPlayer, name, handler); });
+                    }
+                    boundPlayer = nextPlayer;
+                    if (boundPlayer) {
+                        eventNames.forEach(function (name) { _events.default.on(boundPlayer, name, handler); });
+                    }
+                };
+                var playerChangeHandler = function () {
+                    bindPlayer(player());
+                    handler();
+                };
+                if (_events && _events.default && _events.default.on) {
+                    eventNames.forEach(function (name) {
+                        _events.default.on(manager, name, handler);
+                        if (boundPlayer) { _events.default.on(boundPlayer, name, handler); }
+                    });
+                    _events.default.on(manager, "playerchange", playerChangeHandler);
+                }
+                return function () {
+                    if (_events && _events.default && _events.default.off) {
+                        eventNames.forEach(function (name) {
+                            _events.default.off(manager, name, handler);
+                            if (boundPlayer) { _events.default.off(boundPlayer, name, handler); }
+                        });
+                        _events.default.off(manager, "playerchange", playerChangeHandler);
+                    }
+                };
+            },
+            seek: function (ticks) { return call("seek", Math.max(0, Number(ticks) || 0), player()); },
+            playPause: function () { return call("playPause", player()); },
+            previous: function () { return call("previousTrack", player()); },
+            next: function () { return call("nextTrack", player()); },
+            stop: function () { return call("stop", player()); },
+            setVolume: function (value) { return call("setVolume", Math.max(0, Math.min(100, Number(value) || 0)), player()); },
+            toggleMute: function () { return call("toggleMute", player()); },
+            setShuffle: function (value) { return call("setShuffle", !!value, player()); },
+            setRepeatMode: function (value) { return call("setRepeatMode", value, player()); },
+            getQueue: function () { return call("getPlaylist", {}, player()); },
+            playQueueItem: function (id) { return call("setCurrentPlaylistItem", id, player()); },
+            removeQueueItems: function (ids) { return call("removeFromPlaylist", ids, player()); },
+            moveQueueItem: function (id, index) { return call("movePlaylistItem", id, index, player()); },
+            goBack: function () {
+                if (_approuter && _approuter.default && _approuter.default.back) {
+                    return Promise.resolve(_approuter.default.back());
+                }
+                return Promise.reject(new Error("Emby router is unavailable"));
+            },
+            showCastMenu: function (anchor) {
+                if ("undefined" !== typeof Emby && Emby.importModule) {
+                    return Promise.resolve(Emby.importModule("./modules/playback/playerselection.js"))
+                        .then(function (module) { return (module.default || module).show(anchor); });
+                }
+                return Promise.reject(new Error("Emby player selection is unavailable"));
+            },
+            destroy: function () { destroyed = true; }
+        };
+        var managerCapabilities = {
+            seek: "seek", playPause: "playPause", previous: "previousTrack", next: "nextTrack", stop: "stop",
+            setVolume: "setVolume", toggleMute: "toggleMute", setShuffle: "setShuffle",
+            setRepeatMode: "setRepeatMode", getQueue: "getPlaylist", playQueueItem: "setCurrentPlaylistItem",
+            removeQueueItems: "removeFromPlaylist", moveQueueItem: "movePlaylistItem"
+        };
+        Object.keys(managerCapabilities).forEach(function (name) {
+            bridge.capabilities[name] = "function" === typeof manager[managerCapabilities[name]];
+        });
+        bridge.capabilities.goBack = !!(_approuter && _approuter.default && _approuter.default.back);
+        bridge.capabilities.showCastMenu = "undefined" !== typeof Emby && !!Emby.importModule;
+        return bridge;
     }
 
     function requestServerConfiguration(renderer) {
@@ -4385,7 +4489,7 @@
             }
             setMediaPanelOpen(renderer, false);
             if (renderer.__elyricQueueOpen) {
-                setQueueOpen(renderer, false, true);
+                setQueueOpen(renderer, false);
             }
         }
         renderer.__elyricSettingsOpen = open;
@@ -4511,7 +4615,7 @@
         if (open) {
             setSettingsPanelOpen(renderer, false);
             if (renderer.__elyricQueueOpen) {
-                setQueueOpen(renderer, false, true);
+                setQueueOpen(renderer, false);
             }
         }
         renderer.__elyricMediaOpen = open;
@@ -4549,7 +4653,7 @@
             return;
         }
         if (false !== pageVisible
-            && (renderer.__elyricSettingsOpen || renderer.__elyricMediaOpen)) {
+            && (renderer.__elyricSettingsOpen || renderer.__elyricMediaOpen || renderer.__elyricQueueOpen)) {
             removeAttributeIfPresent(scrim, "hidden");
         } else {
             setAttributeIfChanged(scrim, "hidden", "hidden");
@@ -4581,6 +4685,9 @@
     }
 
     function findPlayerPage(renderer) {
+        if (renderer && renderer.__elyricPlayerPage) {
+            return renderer.__elyricPlayerPage;
+        }
         var element = renderer.itemsContainer;
         while (element) {
             if (element.classList && element.classList.contains("view-videoosd-videoosd")) {
@@ -4635,12 +4742,9 @@
             "data-elyric-has-lyrics",
             hasLyrics ? "true" : "false"
         );
-        if (renderer.__elyricLyricsEmpty) {
-            if (hasLyrics) {
-                setAttributeIfChanged(renderer.__elyricLyricsEmpty, "hidden", "hidden");
-            } else {
-                removeAttributeIfPresent(renderer.__elyricLyricsEmpty, "hidden");
-            }
+        if (hasLyrics) { setOwnedLyricStatus(renderer, "ready"); }
+        else if (!renderer.__elyricLyricStatusState || "ready" === renderer.__elyricLyricStatusState) {
+            setOwnedLyricStatus(renderer, "empty");
         }
         if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
             setAttributeIfChanged(
@@ -4945,68 +5049,6 @@
             + ":" + String(seconds).padStart(2, "0");
     }
 
-    function isNativeControlCandidate(element) {
-        if (!(element
-            && element !== document.body
-            && !(element.classList && element.classList.contains("hide"))
-            && !element.disabled)) {
-            return false;
-        }
-        var ancestor = element.parentNode;
-        while (ancestor && ancestor !== document.body) {
-            if ((ancestor.classList && ancestor.classList.contains("hide"))
-                || (ancestor.getAttribute && "true" === ancestor.getAttribute("aria-hidden"))) {
-                return false;
-            }
-            ancestor = ancestor.parentNode;
-        }
-        return true;
-    }
-
-    function findNativeControl(renderer, selectors) {
-        var playerPage = renderer.__elyricPlayerPage || findPlayerPage(renderer);
-        var roots = [playerPage, document.body || renderer.itemsContainer];
-        var fallback = null;
-        for (var rootIndex = 0; rootIndex < roots.length; rootIndex++) {
-            var root = roots[rootIndex];
-            if (!root || !root.querySelectorAll || (rootIndex && root === roots[0])) {
-                continue;
-            }
-            for (var selectorIndex = 0; selectorIndex < selectors.length; selectorIndex++) {
-                var elements = root.querySelectorAll(selectors[selectorIndex]);
-                for (var elementIndex = 0; elementIndex < elements.length; elementIndex++) {
-                    var element = elements[elementIndex];
-                    if ((!renderer.__elyricThemeControl
-                        || !renderer.__elyricThemeControl.contains
-                        || !renderer.__elyricThemeControl.contains(element))
-                        && isNativeControlCandidate(element)) {
-                        fallback = fallback || element;
-                        if (!element.getBoundingClientRect) {
-                            return element;
-                        }
-                        var bounds = element.getBoundingClientRect();
-                        if (!bounds || (bounds.width > 0 && bounds.height > 0)) {
-                            return element;
-                        }
-                    }
-                }
-            }
-        }
-        return fallback;
-    }
-
-    function triggerNativeClick(renderer, action) {
-        var target = findNativeControl(renderer, NATIVE_PLAYER_SELECTORS[action] || []);
-        if (!target) {
-            return false;
-        }
-        if (target.click) {
-            target.click();
-        } else if (target.dispatchEvent) {
-            target.dispatchEvent({ type: "click", target: target, currentTarget: target });
-        }
-        return true;
-    }
 
     function setPlayPausePresentation(renderer, playing) {
         renderer.__elyricPlaybackActive = !!playing;
@@ -5309,6 +5351,7 @@
         renderer.__elyricVisualizerAgcGain = agcGain;
 
         var previousRaw = renderer.__elyricVisualizerRawBands;
+        var currentRaw = rawBands.slice(0);
         var flux = 0;
         var low = 0;
         var middle = 0;
@@ -5324,7 +5367,7 @@
             else if (frequencies[i] < 4000) { middle += energy; middleCount++; }
             else { high += energy; highCount++; }
         }
-        renderer.__elyricVisualizerRawBands = rawBands.slice(0);
+        renderer.__elyricVisualizerRawBands = currentRaw;
         renderer.__elyricVisualizerMetrics = renderer.__elyricVisualizerMetrics || {};
         renderer.__elyricVisualizerMetrics.low = low / Math.max(1, lowCount);
         renderer.__elyricVisualizerMetrics.mid = middle / Math.max(1, middleCount);
@@ -5716,39 +5759,127 @@
         renderer.__elyricVisualizerFrameId = requestAnimationFrame(step);
     }
 
-    function ensureNativeLyricsView(renderer, force) {
-        if (renderer.__elyricQueueOpen) {
-            return;
-        }
-        var lyricsControl = findNativeControl(renderer, NATIVE_PLAYER_SELECTORS.lyrics || []);
-        if (!lyricsControl) {
-            return;
-        }
-        var active = !!(lyricsControl.classList
-            && lyricsControl.classList.contains("toggleButton-active"));
-        if (active) {
-            renderer.__elyricNativeLyricsPendingUntil = 0;
-            return;
-        }
-        var now = Date.now();
-        if (force || now >= (renderer.__elyricNativeLyricsPendingUntil || 0)) {
-            renderer.__elyricNativeLyricsPendingUntil = now + 900;
-            triggerNativeClick(renderer, "lyrics");
-        }
+    function renderOwnedQueue(renderer) {
+        var panel = renderer.__elyricQueuePanel;
+        var bridge = renderer.__elyricPlaybackBridge;
+        if (!panel || !bridge) { return Promise.resolve(); }
+        panel.setAttribute("data-elyric-loading", "true");
+        return bridge.getQueue().then(function (result) {
+            if (!renderer.__elyricQueuePanel) { return; }
+            var items = result && result.Items || (Array.isArray(result) ? result : []);
+            var snapshot = bridge.getSnapshot();
+            var body = renderer.__elyricQueueBody;
+            while (body.firstChild) { body.removeChild(body.firstChild); }
+            if (!items.length) {
+                var empty = document.createElement("p");
+                empty.className = "elyric-player-queue-empty";
+                empty.appendChild(document.createTextNode("播放队列为空"));
+                body.appendChild(empty);
+            }
+            items.forEach(function (item, index) {
+                var playlistItemId = item.PlaylistItemId || "";
+                var row = document.createElement("div");
+                row.className = "elyric-player-queue-row";
+                row.setAttribute("data-playlist-item-id", playlistItemId);
+                row.setAttribute("aria-current", playlistItemId === snapshot.playlistItemId || index === snapshot.playlistIndex ? "true" : "false");
+                row.setAttribute("draggable", bridge.capabilities.moveQueueItem && playlistItemId ? "true" : "false");
+                var playButton = document.createElement("button");
+                playButton.className = "elyric-player-queue-main";
+                playButton.setAttribute("type", "button");
+                playButton.setAttribute("aria-label", "播放 " + (item.Name || "未命名曲目"));
+                var title = document.createElement("strong");
+                title.appendChild(document.createTextNode(item.Name || "未命名曲目"));
+                var detail = document.createElement("span");
+                detail.appendChild(document.createTextNode(playerArtistText(item)));
+                playButton.appendChild(title); playButton.appendChild(detail);
+                playButton.addEventListener("click", function () {
+                    if (playlistItemId) { bridge.playQueueItem(playlistItemId); }
+                });
+                row.appendChild(playButton);
+                var removeButton = document.createElement("button");
+                removeButton.className = "elyric-player-queue-remove";
+                removeButton.setAttribute("type", "button");
+                removeButton.setAttribute("aria-label", "从队列移除 " + (item.Name || "未命名曲目"));
+                removeButton.disabled = !bridge.capabilities.removeQueueItems || !playlistItemId;
+                setButtonIcon(removeButton, "close");
+                removeButton.addEventListener("click", function (event) {
+                    stopControlEvent(event);
+                    if (!removeButton.disabled) {
+                        bridge.removeQueueItems([playlistItemId]).then(function () {
+                            return renderOwnedQueue(renderer);
+                        });
+                    }
+                });
+                row.appendChild(removeButton);
+                row.addEventListener("dragstart", function (event) {
+                    if (!bridge.capabilities.moveQueueItem || !playlistItemId) {
+                        if (event.preventDefault) { event.preventDefault(); }
+                        return;
+                    }
+                    renderer.__elyricDraggedQueueItem = { id: playlistItemId, index: index };
+                    row.setAttribute("data-elyric-dragging", "true");
+                    if (event.dataTransfer) {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", playlistItemId);
+                    }
+                });
+                row.addEventListener("dragend", function () {
+                    renderer.__elyricDraggedQueueItem = null;
+                    row.removeAttribute("data-elyric-dragging");
+                });
+                row.addEventListener("dragover", function (event) {
+                    if (renderer.__elyricDraggedQueueItem && event.preventDefault) {
+                        event.preventDefault();
+                        if (event.dataTransfer) { event.dataTransfer.dropEffect = "move"; }
+                    }
+                });
+                row.addEventListener("drop", function (event) {
+                    var dragged = renderer.__elyricDraggedQueueItem;
+                    if (event.preventDefault) { event.preventDefault(); }
+                    renderer.__elyricDraggedQueueItem = null;
+                    if (!dragged || dragged.index === index) { return; }
+                    bridge.moveQueueItem(dragged.id, index).then(function () {
+                        return renderOwnedQueue(renderer);
+                    });
+                });
+                body.appendChild(row);
+            });
+            panel.setAttribute("data-elyric-loading", "false");
+        }, function () {
+            if (renderer.__elyricQueuePanel) {
+                renderer.__elyricQueuePanel.setAttribute("data-elyric-loading", "error");
+            }
+        });
     }
 
-    function setQueueOpen(renderer, open, activateNative) {
+    function resetDisplayConfigurationRequest(renderer) {
+        renderer.__elyricConfigurationRequested = false;
+        renderer.__elyricActiveApiClient = null;
+    }
+
+    function setQueueOpen(renderer, open) {
         open = !!open;
+        var wasOpen = !!renderer.__elyricQueueOpen;
+        if (open) {
+            setSettingsPanelOpen(renderer, false);
+            setMediaPanelOpen(renderer, false);
+        }
         renderer.__elyricQueueOpen = open;
         var queueButton = renderer.__elyricPlayerButtons && renderer.__elyricPlayerButtons.queue;
         setAttributeIfChanged(queueButton, "aria-pressed", open ? "true" : "false");
         setAttributeIfChanged(queueButton, "data-elyric-active", open ? "true" : "false");
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-queue-open", open ? "true" : "false");
+        if (renderer.__elyricQueuePanel) {
+            if (open) { removeAttributeIfPresent(renderer.__elyricQueuePanel, "hidden"); }
+            else { setAttributeIfChanged(renderer.__elyricQueuePanel, "hidden", "hidden"); }
+        }
         syncPlayerPageState(renderer, isThemeContextVisible(renderer));
-        if (open && activateNative) {
-            triggerNativeClick(renderer, "queue");
-        } else if (!open && activateNative) {
-            ensureNativeLyricsView(renderer, true);
+        syncPlayerOverlayScrim(renderer);
+        if (open) {
+            renderOwnedQueue(renderer);
+            if (!wasOpen) { focusPlayerOverlay(renderer.__elyricQueuePanel); }
+        } else if (wasOpen) {
+            restorePlayerOverlayFocus(renderer.__elyricQueuePanel, queueButton);
         }
     }
 
@@ -5758,8 +5889,8 @@
             return true;
         }
         while (target) {
-            if ((target.getAttribute && "playqueue" === target.getAttribute("data-contentsection"))
-                || (target.classList && target.classList.contains("osdPlayQueue"))) {
+            if (target === renderer.__elyricQueuePanel
+                || (renderer.__elyricQueuePanel && renderer.__elyricQueuePanel.contains(target))) {
                 return true;
             }
             target = target.parentNode;
@@ -5775,7 +5906,7 @@
         var handler = function (event) {
             if (renderer.__elyricQueueOpen
                 && !isQueueInteractionTarget(renderer, event && event.target)) {
-                setQueueOpen(renderer, false, true);
+                setQueueOpen(renderer, false);
             }
         };
         eventHost.addEventListener("pointerdown", handler, true);
@@ -5789,11 +5920,11 @@
             setMediaPanelOpen(renderer, false);
         }
         if ("queue" === action) {
-            setQueueOpen(renderer, !renderer.__elyricQueueOpen, true);
+            setQueueOpen(renderer, !renderer.__elyricQueueOpen);
             return;
         }
         if ("mute" === action) {
-            togglePlayerMute(renderer);
+            if (renderer.__elyricPlaybackBridge) { renderer.__elyricPlaybackBridge.toggleMute(); }
             return;
         }
         if ("playPause" === action) {
@@ -5803,7 +5934,24 @@
             renderer.__elyricOptimisticPlayingUntil = Date.now() + 1200;
             setPlayPausePresentation(renderer, !playing);
         }
-        triggerNativeClick(renderer, action);
+        var bridge = renderer.__elyricPlaybackBridge;
+        if (!bridge) { return; }
+        var actions = {
+            back: "goBack", cast: "showCastMenu", previous: "previous", playPause: "playPause",
+            stop: "stop", next: "next"
+        };
+        if ("shuffle" === action) {
+            var shuffleSnapshot = bridge.getSnapshot();
+            bridge.setShuffle(!shuffleSnapshot.shuffle);
+        } else if ("repeat" === action) {
+            var repeatSnapshot = bridge.getSnapshot();
+            var repeatModes = ["RepeatNone", "RepeatAll", "RepeatOne"];
+            var repeatIndex = repeatModes.indexOf(repeatSnapshot.repeatMode);
+            bridge.setRepeatMode(repeatModes[(repeatIndex + 1) % repeatModes.length]);
+        } else if (actions[action]) {
+            if ("cast" === action) { bridge.showCastMenu(renderer.__elyricPlayerButtons.cast); }
+            else { bridge[actions[action]](); }
+        }
     }
 
     var PLAYER_ICON_PATHS = {
@@ -5900,37 +6048,24 @@
         return button;
     }
 
-    function dispatchNativeSeekEvent(target, type) {
-        if (!target || !target.dispatchEvent) {
-            return;
-        }
-        if ("undefined" !== typeof Event) {
-            target.dispatchEvent(new Event(type, { bubbles: true }));
-        } else {
-            target.dispatchEvent({ type: type, target: target, currentTarget: target });
-        }
-    }
 
     function seekFromPlayerControl(renderer) {
         var control = renderer.__elyricProgressSlider;
-        var target = findNativeControl(renderer, NATIVE_PLAYER_SELECTORS.seek);
-        if (!control || !target) {
+        var bridge = renderer.__elyricPlaybackBridge;
+        if (!control || !bridge || !bridge.capabilities.seek) {
             renderer.__elyricScrubbing = false;
             return;
         }
         var controlMaximum = Number(control.max) || 1000;
-        var targetMaximum = Number(target.max) || 100;
         var percentage = Math.min(1, Math.max(0, Number(control.value) / controlMaximum));
-        target.value = String(percentage * targetMaximum);
-        dispatchNativeSeekEvent(target, "input");
-        dispatchNativeSeekEvent(target, "change");
+        bridge.seek(percentage * (renderer.__elyricLastRuntimeTicks || 0));
         renderer.__elyricScrubbing = false;
     }
 
     function volumeFromPlayerControl(renderer, eventType) {
         var control = renderer.__elyricVolumeSlider;
-        var target = findNativeControl(renderer, NATIVE_PLAYER_SELECTORS.volume);
-        if (!control || !target) {
+        var bridge = renderer.__elyricPlaybackBridge;
+        if (!control || !bridge || !bridge.capabilities.setVolume) {
             renderer.__elyricVolumeScrubbing = false;
             return;
         }
@@ -5940,8 +6075,7 @@
         if (percentage > 0) {
             renderer.__elyricLastAudibleVolume = percentage;
         }
-        target.value = String(percentage);
-        dispatchNativeSeekEvent(target, eventType);
+        bridge.setVolume(percentage);
         if ("change" === eventType) {
             renderer.__elyricVolumeScrubbing = false;
         }
@@ -5954,7 +6088,7 @@
         if (!button) {
             return;
         }
-        var muted = value <= 0;
+        var muted = arguments.length > 2 ? !!arguments[2] : value <= 0;
         setButtonIcon(button, muted ? "volumeMute" : "volume");
         setAttributeIfChanged(button, "aria-label", muted ? "取消静音" : "静音");
         setAttributeIfChanged(button, "title", muted ? "取消静音" : "静音");
@@ -5964,12 +6098,12 @@
     }
 
     function togglePlayerMute(renderer) {
-        var target = findNativeControl(renderer, NATIVE_PLAYER_SELECTORS.volume);
+        var bridge = renderer.__elyricPlaybackBridge;
         var control = renderer.__elyricVolumeSlider;
-        if (!target || !control) {
+        if (!bridge || !control) {
             return false;
         }
-        var current = Math.min(100, Math.max(0, Number(target.value) || 0));
+        var current = Math.min(100, Math.max(0, Number(bridge.getSnapshot().volume) || 0));
         var next;
         if (current > 0) {
             renderer.__elyricLastAudibleVolume = current;
@@ -5977,13 +6111,11 @@
         } else {
             next = Math.min(100, Math.max(1, Number(renderer.__elyricLastAudibleVolume) || 50));
         }
-        target.value = String(next);
         control.value = String(next);
         control.setAttribute("value", String(next));
         setDisplayStyle(control, "--elyric-player-volume", next + "%");
         syncVolumePresentation(renderer, next);
-        dispatchNativeSeekEvent(target, "input");
-        dispatchNativeSeekEvent(target, "change");
+        bridge.setVolume(next);
         return true;
     }
 
@@ -5992,17 +6124,19 @@
         if (!control || renderer.__elyricVolumeScrubbing) {
             return;
         }
-        var target = findNativeControl(renderer, NATIVE_PLAYER_SELECTORS.volume);
-        var value = target ? Math.min(100, Math.max(0, Number(target.value) || 0)) : 0;
-        control.disabled = !target;
-        control.setAttribute("aria-disabled", target ? "false" : "true");
+        var bridge = renderer.__elyricPlaybackBridge;
+        var snapshot = bridge && bridge.getSnapshot ? bridge.getSnapshot() : null;
+        var value = snapshot ? Math.min(100, Math.max(0, Number(snapshot.volume) || 0)) : 0;
+        var enabled = !!(bridge && bridge.capabilities.setVolume);
+        control.disabled = !enabled;
+        control.setAttribute("aria-disabled", enabled ? "false" : "true");
         control.value = String(value);
         control.setAttribute("value", control.value);
         setDisplayStyle(control, "--elyric-player-volume", value + "%");
         if (value > 0) {
             renderer.__elyricLastAudibleVolume = value;
         }
-        syncVolumePresentation(renderer, value);
+        syncVolumePresentation(renderer, value, !!(snapshot && snapshot.muted) || value <= 0);
     }
 
     function playerArtistText(item) {
@@ -6378,35 +6512,22 @@
             return;
         }
         renderer.__elyricCoverflowPreviewAt = now + 2000;
-        var root = renderer.__elyricPlayerPage || findPlayerPage(renderer)
-            || ("undefined" !== typeof document ? document.body : null);
-        if (!root || !root.querySelector) {
-            return;
-        }
-        var queue = root.querySelector('.osdContentSection[data-contentsection="playqueue"]')
-            || root.querySelector(".osdPlayQueue");
-        if (!queue || !queue.querySelectorAll) {
-            return;
-        }
-        var rows = queue.querySelectorAll(".listItem");
-        var sideIndexes = [0, 1, -1, 2, 3];
-        sideIndexes.forEach(function (rowIndex, cardIndex) {
-            if (rowIndex < 0 || !rows[rowIndex]) {
-                return;
-            }
-            var row = rows[rowIndex];
-            var sourceImage = row.querySelector && row.querySelector("img");
-            var sourceText = row.querySelector && row.querySelector(".listItemBodyText");
-            var sourceUrl = sourceImage && (sourceImage.getAttribute("src")
-                || sourceImage.getAttribute("data-src"));
-            if (sourceUrl) {
-                renderer.__elyricCoverflowArtworks[cardIndex].setAttribute("src", sourceUrl);
-                renderer.__elyricCoverflowArtworks[cardIndex].removeAttribute("hidden");
-            }
-            if (sourceText && sourceText.textContent) {
-                replaceElementText(renderer.__elyricCoverflowCaptions[cardIndex], sourceText.textContent);
-            }
-        });
+        var bridge = renderer.__elyricPlaybackBridge;
+        if (!bridge || !bridge.getQueue) { return; }
+        bridge.getQueue().then(function (result) {
+            var rows = result && result.Items || [];
+            var sideIndexes = [0, 1, Math.max(0, bridge.getSnapshot().playlistIndex), 2, 3];
+            sideIndexes.forEach(function (rowIndex, cardIndex) {
+                var item = rows[rowIndex];
+                if (!item || !renderer.__elyricCoverflowArtworks) { return; }
+                var sourceUrl = playerArtworkUrl(renderer, item);
+                if (sourceUrl) {
+                    renderer.__elyricCoverflowArtworks[cardIndex].setAttribute("src", sourceUrl);
+                    renderer.__elyricCoverflowArtworks[cardIndex].removeAttribute("hidden");
+                }
+                replaceElementText(renderer.__elyricCoverflowCaptions[cardIndex], item.Name || playerArtistText(item));
+            });
+        }).catch(function () {});
     }
 
     function updatePlayerTransportState(renderer) {
@@ -6414,20 +6535,21 @@
         if (!buttons) {
             return;
         }
+        var bridge = renderer.__elyricPlaybackBridge;
+        var snapshot = bridge && bridge.getSnapshot ? bridge.getSnapshot() : null;
         ["back", "cast", "previous", "playPause", "stop", "next", "shuffle", "repeat", "queue", "mute"].forEach(function (action) {
             var button = buttons[action];
-            var nativeControl = "mute" === action
-                ? findNativeControl(renderer, NATIVE_PLAYER_SELECTORS.volume)
-                : findNativeControl(renderer, NATIVE_PLAYER_SELECTORS[action] || []);
             if (!button) {
                 return;
             }
-            button.disabled = !nativeControl;
-            button.setAttribute("aria-disabled", nativeControl ? "false" : "true");
-            if ("playPause" === action && nativeControl) {
-                var playbackLabel = nativeControl.getAttribute
-                    && (nativeControl.getAttribute("aria-label") || nativeControl.getAttribute("title")) || "";
-                var playing = /暂停|pause/i.test(playbackLabel);
+            var capabilityNames = { previous: "previous", next: "next", playPause: "playPause", stop: "stop",
+                shuffle: "setShuffle", repeat: "setRepeatMode", queue: "getQueue", mute: "toggleMute",
+                back: "goBack", cast: "showCastMenu" };
+            var enabled = !!(bridge && bridge.capabilities[capabilityNames[action]]);
+            button.disabled = !enabled;
+            button.setAttribute("aria-disabled", enabled ? "false" : "true");
+            if ("playPause" === action && snapshot) {
+                var playing = !snapshot.paused;
                 var optimisticUntil = Number(renderer.__elyricOptimisticPlayingUntil) || 0;
                 if (optimisticUntil > Date.now()) {
                     if (playing === renderer.__elyricOptimisticPlaying) {
@@ -6441,12 +6563,11 @@
                 setPlayPausePresentation(renderer, playing);
             }
             var active = "mute" === action
-                ? Number(nativeControl && nativeControl.value) <= 0
+                ? !!(snapshot && snapshot.muted)
                 : ("queue" === action
                 ? !!renderer.__elyricQueueOpen
-                : !!(nativeControl
-                && nativeControl.classList
-                && nativeControl.classList.contains("toggleButton-active")));
+                : "shuffle" === action ? !!(snapshot && snapshot.shuffle)
+                : "repeat" === action ? !!(snapshot && snapshot.repeatMode !== "RepeatNone") : false);
             button.setAttribute("data-elyric-active", active ? "true" : "false");
             if ("queue" === action || "mute" === action) {
                 button.setAttribute("aria-pressed", active ? "true" : "false");
@@ -6472,6 +6593,10 @@
         var safePosition = Math.max(0, renderer.__elyricLastPositionTicks);
         var progress = safeRuntime > 0 ? Math.min(1, safePosition / safeRuntime) : 0;
         if (renderer.__elyricProgressSlider) {
+            var seekEnabled = !!(renderer.__elyricPlaybackBridge
+                && renderer.__elyricPlaybackBridge.capabilities.seek && safeRuntime > 0);
+            renderer.__elyricProgressSlider.disabled = !seekEnabled;
+            renderer.__elyricProgressSlider.setAttribute("aria-disabled", seekEnabled ? "false" : "true");
             renderer.__elyricProgressSlider.value = String(Math.round(progress * 1000));
             renderer.__elyricProgressSlider.setAttribute("value", renderer.__elyricProgressSlider.value);
             renderer.__elyricProgressSlider.setAttribute(
@@ -7717,7 +7842,8 @@
 
     function buildPlayerThemeV2DesignerBoxes(renderer) {
         removePlayerThemeV2DesignerBoxes(renderer);
-        if (!renderer.__elyricThemeV2DesignerOpen || !document.body) { return; }
+        var designerHost = renderer.__elyricRoot;
+        if (!renderer.__elyricThemeV2DesignerOpen || !designerHost) { return; }
         ensurePlayerThemeV2State(renderer);
         renderer.__elyricThemeV2Boxes = [];
         var guideHost = document.createElement("div");
@@ -7725,7 +7851,7 @@
         guideHost.setAttribute("aria-hidden", "true");
         guideHost.appendChild(document.createElement("i"));
         guideHost.appendChild(document.createElement("i"));
-        document.body.appendChild(guideHost);
+        designerHost.appendChild(guideHost);
         renderer.__elyricThemeV2Guides = guideHost;
         var profileLayout = resolvedPlayerThemeV2Layout(renderer, renderer.__elyricThemeV2Profile);
         PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
@@ -7743,7 +7869,7 @@
             handle.className = "elyric-v2-resize-handle";
             handle.setAttribute("aria-hidden", "true");
             box.appendChild(handle);
-            document.body.appendChild(box);
+            designerHost.appendChild(box);
             installPlayerThemeV2BoxPointer(renderer, box, layerId, false);
             installPlayerThemeV2BoxPointer(renderer, handle, layerId, true);
             renderer.__elyricThemeV2Boxes.push(box);
@@ -7758,7 +7884,7 @@
             setPlayerThemeV2DesignerOpen(renderer, false);
             setSettingsPanelOpen(renderer, true);
         });
-        document.body.appendChild(exitButton);
+        designerHost.appendChild(exitButton);
         renderer.__elyricThemeV2ExitButton = exitButton;
         syncPlayerThemeV2Designer(renderer);
     }
@@ -8419,7 +8545,7 @@
     function createThemeControl(renderer) {
         ensurePlayerThemeLibrary(renderer);
         var control = document.createElement("div");
-        control.className = "elyric-player-shell elyric-theme-picker";
+        control.className = "elyric-player-root elyric-player-shell elyric-theme-picker";
         control.setAttribute("data-elyric-control", "player");
         control.setAttribute("role", "region");
         control.setAttribute("aria-label", "歌词增强音乐播放器");
@@ -8427,6 +8553,7 @@
         control.setAttribute("data-elyric-playback-active", "false");
         control.setAttribute("data-elyric-queue-open", "false");
         control.setAttribute("data-elyric-manual-scroll", "false");
+        renderer.__elyricRoot = control;
 
         var topbar = document.createElement("div");
         topbar.className = "elyric-player-topbar";
@@ -8444,6 +8571,10 @@
         background.setAttribute("aria-hidden", "true");
         control.appendChild(background);
 
+        var stage = document.createElement("div");
+        stage.className = "elyric-player-stage";
+        control.appendChild(stage);
+
         var identity = document.createElement("div");
         identity.className = "elyric-player-identity";
 
@@ -8455,7 +8586,7 @@
         artwork.setAttribute("hidden", "hidden");
         artworkStage.appendChild(artwork);
         identity.appendChild(artworkStage);
-        control.appendChild(identity);
+        stage.appendChild(identity);
 
         var coverflow = document.createElement("div");
         coverflow.className = "elyric-player-coverflow";
@@ -8478,7 +8609,7 @@
             coverflowArtworks.push(coverflowArtwork);
             coverflowCaptions.push(coverflowCaption);
         }
-        control.appendChild(coverflow);
+        stage.appendChild(coverflow);
 
         var metadata = document.createElement("div");
         metadata.className = "elyric-player-metadata";
@@ -8494,7 +8625,16 @@
         metadata.appendChild(artist);
         metadata.appendChild(album);
         metadata.appendChild(format);
-        control.appendChild(metadata);
+        stage.appendChild(metadata);
+
+        var lyricViewport = document.createElement("div");
+        lyricViewport.className = "elyric-player-lyric-viewport lyricsScroller";
+        lyricViewport.setAttribute("role", "list");
+        lyricViewport.setAttribute("aria-label", "同步歌词");
+        lyricViewport.setAttribute("tabindex", "0");
+        stage.appendChild(lyricViewport);
+        renderer.itemsContainer = lyricViewport;
+        renderer.__elyricLyricViewport = lyricViewport;
 
         var lyricsEmpty = document.createElement("div");
         lyricsEmpty.className = "elyric-player-lyrics-empty";
@@ -8507,14 +8647,16 @@
         lyricsEmptyHint.appendChild(document.createTextNode("当前媒体没有提供歌词，播放控制仍可正常使用。"));
         lyricsEmpty.appendChild(lyricsEmptyTitle);
         lyricsEmpty.appendChild(lyricsEmptyHint);
-        control.appendChild(lyricsEmpty);
+        lyricViewport.appendChild(lyricsEmpty);
+        renderer.__elyricLyricsEmptyTitle = lyricsEmptyTitle;
+        renderer.__elyricLyricsEmptyHint = lyricsEmptyHint;
 
         var transport = document.createElement("div");
         transport.className = "elyric-player-transport";
         transport.appendChild(createPlayerButton(renderer, "previous", "上一首", "previous"));
         transport.appendChild(createPlayerButton(renderer, "playPause", "播放或暂停", "play"));
         transport.appendChild(createPlayerButton(renderer, "next", "下一首", "next"));
-        control.appendChild(transport);
+        stage.appendChild(transport);
 
         var progress = document.createElement("div");
         progress.className = "elyric-player-progress";
@@ -8549,7 +8691,7 @@
         progress.appendChild(positionText);
         progress.appendChild(progressSlider);
         progress.appendChild(durationText);
-        control.appendChild(progress);
+        stage.appendChild(progress);
 
         var volume = document.createElement("div");
         volume.className = "elyric-player-volume";
@@ -8580,7 +8722,7 @@
         volumeValue.setAttribute("aria-live", "polite");
         volumeValue.appendChild(document.createTextNode("100%"));
         volume.appendChild(volumeValue);
-        control.appendChild(volume);
+        stage.appendChild(volume);
 
         var tools = document.createElement("div");
         tools.className = "elyric-player-tools";
@@ -8644,7 +8786,7 @@
             setSettingsPanelOpen(renderer, !renderer.__elyricSettingsOpen);
         });
         settingsButton.addEventListener("pointerdown", stopControlEvent);
-        control.appendChild(tools);
+        stage.appendChild(tools);
 
         var safetyToolbar = document.createElement("div");
         safetyToolbar.className = "elyric-player-safety-toolbar";
@@ -8660,7 +8802,31 @@
         visualizerCanvas.className = "elyric-player-visualizer-canvas";
         visualizerCanvas.setAttribute("aria-hidden", "true");
         visualizer.appendChild(visualizerCanvas);
-        control.appendChild(visualizer);
+        stage.appendChild(visualizer);
+
+        var queuePanel = document.createElement("aside");
+        queuePanel.className = "elyric-player-queue-panel";
+        queuePanel.setAttribute("role", "dialog");
+        queuePanel.setAttribute("aria-label", "播放队列");
+        queuePanel.setAttribute("aria-modal", "true");
+        queuePanel.setAttribute("hidden", "hidden");
+        var queueHeader = document.createElement("div");
+        queueHeader.className = "elyric-player-queue-header";
+        var queueTitle = document.createElement("strong");
+        queueTitle.appendChild(document.createTextNode("播放队列"));
+        var queueClose = document.createElement("button");
+        queueClose.className = "elyric-player-settings-close";
+        queueClose.setAttribute("type", "button");
+        queueClose.setAttribute("aria-label", "关闭播放队列");
+        setButtonIcon(queueClose, "close");
+        queueClose.addEventListener("click", function (event) {
+            stopControlEvent(event); setQueueOpen(renderer, false);
+        });
+        queueHeader.appendChild(queueTitle); queueHeader.appendChild(queueClose);
+        var queueBody = document.createElement("div");
+        queueBody.className = "elyric-player-queue-body";
+        queuePanel.appendChild(queueHeader); queuePanel.appendChild(queueBody);
+        control.appendChild(queuePanel);
 
         var followButton = document.createElement("button");
         followButton.className = "elyric-lyric-follow-button";
@@ -8685,6 +8851,7 @@
             stopControlEvent(event);
             setSettingsPanelOpen(renderer, false);
             setMediaPanelOpen(renderer, false);
+            setQueueOpen(renderer, false);
         });
 
         var settingsPanel = document.createElement("div");
@@ -9243,6 +9410,7 @@
         renderer.__elyricVisualizerColorModeButtons = visualizerColorModeChoices.buttons;
         renderer.__elyricAlignmentButtons = alignmentChoices.buttons;
         renderer.__elyricPlayerBackground = background;
+        renderer.__elyricPlayerStage = stage;
         renderer.__elyricPlayerIdentity = identity;
         renderer.__elyricPlayerArtworkStage = artworkStage;
         renderer.__elyricPlayerArtwork = artwork;
@@ -9260,6 +9428,7 @@
         renderer.__elyricPlayerAlbum = album;
         renderer.__elyricPlayerFormat = format;
         renderer.__elyricLyricsEmpty = lyricsEmpty;
+        renderer.__elyricLyricViewport = lyricViewport;
         renderer.__elyricProgressSlider = progressSlider;
         renderer.__elyricPlayerPosition = positionText;
         renderer.__elyricPlayerDuration = durationText;
@@ -9279,6 +9448,8 @@
         renderer.__elyricMediaBody = mediaBody;
         renderer.__elyricMediaOpen = false;
         renderer.__elyricVisualizer = visualizer;
+        renderer.__elyricQueuePanel = queuePanel;
+        renderer.__elyricQueueBody = queueBody;
         renderer.__elyricVisualizerCanvas = visualizerCanvas;
         renderer.__elyricVisualizerContext = visualizerCanvas.getContext
             ? visualizerCanvas.getContext("2d")
@@ -9376,7 +9547,8 @@
                 return;
             }
             if (event && "Escape" === event.key
-                && (renderer.__elyricSettingsOpen || renderer.__elyricMediaOpen || renderer.__elyricThemeV2DesignerOpen)) {
+                && (renderer.__elyricSettingsOpen || renderer.__elyricMediaOpen
+                    || renderer.__elyricQueueOpen || renderer.__elyricThemeV2DesignerOpen)) {
                 if (event.preventDefault) {
                     event.preventDefault();
                 }
@@ -9385,6 +9557,7 @@
                 }
                 setSettingsPanelOpen(renderer, false);
                 setMediaPanelOpen(renderer, false);
+                setQueueOpen(renderer, false);
                 if (renderer.__elyricThemeV2DesignerOpen) {
                     setPlayerThemeV2DesignerOpen(renderer, false);
                 }
@@ -9396,7 +9569,9 @@
                         ? renderer.__elyricSettingsPanel
                         : renderer.__elyricMediaOpen
                             ? renderer.__elyricMediaPanel
-                            : null,
+                            : renderer.__elyricQueueOpen
+                                ? renderer.__elyricQueuePanel
+                                : null,
                     event
                 );
             }
@@ -9440,11 +9615,14 @@
     }
 
     function getThemeControlHost(renderer) {
-        var container = renderer.itemsContainer;
-        if (document.body && document.body.appendChild) {
-            return document.body;
+        if (renderer && renderer.__elyricRoot && renderer.__elyricRoot.appendChild) {
+            return renderer.__elyricRoot;
         }
-        return container;
+        var container = renderer && renderer.itemsContainer;
+        if (container && container.appendChild) {
+            return container;
+        }
+        return document.body;
     }
 
     function removeStaleThemeControls(host, currentControl, currentSettingsPanel, currentMediaPanel) {
@@ -9562,24 +9740,12 @@
         if (!control) {
             return;
         }
-        var pageVisible = isThemeContextVisible(renderer);
-        if (pageVisible) {
-            removeAttributeIfPresent(control, "hidden");
-            setAttributeIfChanged(control, "aria-hidden", "false");
-            syncSettingsPanelVisibility(renderer, true);
-            syncMediaPanelVisibility(renderer, true);
-            syncPlayerPageState(renderer, true);
-        } else {
-            if (renderer.__elyricThemeV2DesignerOpen) {
-                setPlayerThemeV2DesignerOpen(renderer, false);
-            }
-            syncSettingsPanelVisibility(renderer, false);
-            syncMediaPanelVisibility(renderer, false);
-            setAttributeIfChanged(control, "hidden", "hidden");
-            setAttributeIfChanged(control, "aria-hidden", "true");
-            syncPlayerPageState(renderer, false);
-        }
-        syncPlayerOverlayScrim(renderer, pageVisible);
+        removeAttributeIfPresent(control, "hidden");
+        setAttributeIfChanged(control, "aria-hidden", "false");
+        syncSettingsPanelVisibility(renderer, true);
+        syncMediaPanelVisibility(renderer, true);
+        syncPlayerPageState(renderer, true);
+        syncPlayerOverlayScrim(renderer, true);
         syncVisualizerAnimation(renderer);
     }
 
@@ -9591,7 +9757,7 @@
         ensureThemeState(renderer);
         applyTheme(renderer, renderer.__elyricTheme, false);
 
-        var visible = isThemeContextVisible(renderer);
+        var visible = !!renderer.__elyricPlayerPage;
         if (!renderer.__elyricThemeControl) {
             if (!visible) {
                 return;
@@ -9693,7 +9859,7 @@
             syncThemeControlVisibility(renderer);
             return;
         }
-        var host = getThemeControlHost(renderer);
+        var host = renderer.__elyricMountHost || document.body || getThemeControlHost(renderer);
         removeStaleThemeControls(
             host,
             renderer.__elyricThemeControl,
@@ -9708,7 +9874,6 @@
             renderer.__elyricLastPositionTicks || 0,
             renderer.__elyricLastRuntimeTicks || 0
         );
-        ensureNativeLyricsView(renderer, false);
         syncThemeControlVisibility(renderer);
     }
 
@@ -9818,6 +9983,9 @@
             renderer.itemsContainer.removeAttribute("data-elyric-parametric");
         }
         renderer.__elyricThemeControl = null;
+        renderer.__elyricRoot = null;
+        renderer.__elyricPlayerStage = null;
+        renderer.__elyricLyricViewport = null;
         renderer.__elyricThemeSelect = null;
         renderer.__elyricLayoutSelect = null;
         renderer.__elyricThemeButtons = null;
@@ -9851,6 +10019,9 @@
         renderer.__elyricPlayerAlbum = null;
         renderer.__elyricPlayerFormat = null;
         renderer.__elyricLyricsEmpty = null;
+        renderer.__elyricLyricsEmptyTitle = null;
+        renderer.__elyricLyricsEmptyHint = null;
+        renderer.__elyricLyricStatusState = null;
         renderer.__elyricPlayerItemSignature = null;
         renderer.__elyricProgressSlider = null;
         renderer.__elyricPlayerPosition = null;
@@ -9869,6 +10040,8 @@
         renderer.__elyricOverlayKeyHandler = null;
         renderer.__elyricPreferenceStatus = null;
         renderer.__elyricSettingsOpen = false;
+        renderer.__elyricQueuePanel = null;
+        renderer.__elyricQueueBody = null;
         renderer.__elyricMediaButton = null;
         renderer.__elyricMediaPanel = null;
         renderer.__elyricMediaBody = null;
@@ -10030,6 +10203,44 @@
         });
 
         element.setAttribute("data-elyric-render", renderKey);
+    }
+
+    function createOwnedLyricRows(renderer) {
+        var container = renderer && renderer.itemsContainer;
+        if (!container || !container.appendChild) {
+            return;
+        }
+        var emptyState = renderer.__elyricLyricsEmpty;
+        while (container.firstChild) {
+            container.removeChild(container.firstChild);
+        }
+        (renderer.__elyricItems || []).forEach(function (item, index) {
+            var row = document.createElement("button");
+            row.className = "lyricsItem secondaryText";
+            row.setAttribute("type", "button");
+            row.setAttribute("role", "listitem");
+            row.setAttribute("data-index", String(index));
+            row.setAttribute("aria-label", String(item && item.Text || "歌词"));
+            var body = document.createElement("span");
+            body.className = "listItemBodyText";
+            row.appendChild(body);
+            row.addEventListener("click", function (event) {
+                stopControlEvent(event);
+                var lyric = item && item.__elyric;
+                var bridge = renderer.__elyricPlaybackBridge;
+                if (lyric && bridge && bridge.seek) {
+                    Promise.resolve(bridge.seek(lyric.startTicks)).catch(function () {});
+                    resumeLyricFollowing(renderer, true);
+                }
+            });
+            container.appendChild(row);
+            renderLyricElement(renderer, row);
+        });
+        if (emptyState && !emptyState.parentNode) {
+            renderer.__elyricLyricsEmpty = emptyState;
+            container.appendChild(emptyState);
+        }
+        syncLyricAvailability(renderer);
     }
 
     function renderVisibleLyrics(renderer) {
@@ -10251,44 +10462,204 @@
         }
     }
 
-    LyricsRenderer.prototype.getItemsInternal = function () {
-        var renderer = this;
-        return originalGetItemsInternal.apply(this, arguments).then(function (events) {
-            renderer.__elyricDestroyed = false;
-            renderer.__elyricGeneration = (renderer.__elyricGeneration || 0) + 1;
-            renderer.__elyricItems = prepareEnhancedLyrics(events);
-            ensureObserver(renderer);
+    function ownedTrack(item) {
+        var sources = item && item.MediaSources || [];
+        var requestedSourceId = item && item.MediaSourceId;
+        var source = requestedSourceId
+            ? sources.filter(function (candidate) { return candidate.Id === requestedSourceId; })[0]
+            : null;
+        source = source || sources[0];
+        var streams = source && source.MediaStreams || [];
+        for (var i = 0; i < streams.length; i++) {
+            if ("Subtitle" === streams[i].Type && streams[i].Index === source.DefaultSubtitleStreamIndex) {
+                return { source: source, track: streams[i] };
+            }
+        }
+        return null;
+    }
+
+    function loadOwnedLyrics(renderer, item) {
+        var selected = ownedTrack(item);
+        var apiClient = activeApiClient(renderer);
+        var requestId = (renderer.__elyricLyricRequestId || 0) + 1;
+        renderer.__elyricLyricRequestId = requestId;
+        renderer.__elyricGeneration = (renderer.__elyricGeneration || 0) + 1;
+        renderer.__elyricItems = [];
+        setOwnedLyricStatus(renderer, "loading");
+        createOwnedLyricRows(renderer);
+        if (!selected || !apiClient || !apiClient.getJSON) {
+            setOwnedLyricStatus(renderer, "empty");
+            syncLyricAvailability(renderer); return Promise.resolve([]);
+        }
+        var cacheKey = [item.Id, selected.source.Id, selected.track.Index].join(":");
+        renderer.__elyricLyricCache = renderer.__elyricLyricCache || {};
+        if (renderer.__elyricLyricCache[cacheKey]) {
+            renderer.__elyricItems = renderer.__elyricLyricCache[cacheKey];
+            setOwnedLyricStatus(renderer, hasMeaningfulLyricItems(renderer.__elyricItems)
+                ? "ready"
+                : renderer.__elyricItems.length ? "instrumental" : "empty");
+            createOwnedLyricRows(renderer); return Promise.resolve(renderer.__elyricItems);
+        }
+        var url = apiClient.getUrl("Items/" + item.Id + "/" + selected.source.Id
+            + "/Subtitles/" + selected.track.Index + "/Stream.js", {});
+        return Promise.resolve(apiClient.getJSON(url)).then(function (result) {
+            if (renderer.__elyricDestroyed || requestId !== renderer.__elyricLyricRequestId) { return []; }
+            var items = prepareEnhancedLyrics(result && result.TrackEvents || []);
+            renderer.__elyricLyricCache[cacheKey] = items;
+            renderer.__elyricItems = items;
+            setOwnedLyricStatus(renderer, hasMeaningfulLyricItems(items)
+                ? "ready"
+                : items && items.length ? "instrumental" : "empty");
+            createOwnedLyricRows(renderer);
+            return items;
+        }, function () {
+            if (requestId === renderer.__elyricLyricRequestId) {
+                renderer.__elyricItems = [];
+                setOwnedLyricStatus(renderer, "error");
+                createOwnedLyricRows(renderer);
+            }
+            return [];
+        });
+    }
+
+    function restoreNativeOsd(renderer) {
+        (renderer.__elyricNativeNodes || []).forEach(function (entry) {
+            var node = entry.node;
+            if (!node) { return; }
+            if (null === entry.ariaHidden) { node.removeAttribute("aria-hidden"); }
+            else { node.setAttribute("aria-hidden", entry.ariaHidden); }
+            if (entry.inert) { node.setAttribute("inert", ""); } else { node.removeAttribute("inert"); }
+            node.style.visibility = entry.visibility;
+            node.style.pointerEvents = entry.pointerEvents;
+        });
+        renderer.__elyricNativeNodes = [];
+    }
+
+    function hideNativeOsd(renderer) {
+        var page = renderer.__elyricPlayerPage;
+        if (!page) { return; }
+        renderer.__elyricNativeNodes = [];
+        var candidates = Array.prototype.slice.call(page.children || []);
+        var nativeHeader = document.querySelector ? document.querySelector(".skinHeader") : null;
+        if (nativeHeader && candidates.indexOf(nativeHeader) < 0) { candidates.push(nativeHeader); }
+        Array.prototype.forEach.call(candidates, function (node) {
+            if (node === renderer.__elyricThemeControl
+                || (renderer.__elyricThemeControl && renderer.__elyricThemeControl.contains(node))) { return; }
+            renderer.__elyricNativeNodes.push({
+                node: node, ariaHidden: node.getAttribute("aria-hidden"),
+                inert: node.hasAttribute ? node.hasAttribute("inert") : null !== node.getAttribute("inert"),
+                visibility: node.style.visibility, pointerEvents: node.style.pointerEvents
+            });
+            node.setAttribute("aria-hidden", "true"); node.setAttribute("inert", "");
+            node.style.visibility = "hidden"; node.style.pointerEvents = "none";
+        });
+    }
+
+    function updateOwnedPlayer(renderer, snapshot) {
+        if (!snapshot) { return; }
+        var itemChanged = snapshot.item && (!renderer.currentItem || renderer.currentItem.Id !== snapshot.item.Id);
+        renderer.currentItem = snapshot.item || renderer.currentItem || null;
+        renderer.__elyricPlaybackActive = !snapshot.paused;
+        updatePlayerControl(renderer, snapshot.positionTicks, snapshot.runtimeTicks);
+        updateWordStates(renderer, snapshot.positionTicks);
+        syncSmoothClock(renderer, snapshot.positionTicks, snapshot.runtimeTicks);
+        if (itemChanged) { renderer.__elyricActiveApiClient = null; loadOwnedLyrics(renderer, renderer.currentItem); }
+    }
+
+    function mountOwnedPlayer(videoOsd) {
+        if (videoOsd.__elyricRenderer) { return; }
+        var page = videoOsd.view || videoOsd.element || document.querySelector(".view-videoosd-videoosd");
+        var manager = _playbackmanager && _playbackmanager.default;
+        var currentPlayer = manager && manager.getCurrentPlayer ? manager.getCurrentPlayer() : null;
+        if (!page || !currentPlayer) { return; }
+        var currentItem = manager.currentItem ? manager.currentItem(currentPlayer) : null;
+        if (!currentItem || "Audio" !== currentItem.MediaType) { return; }
+        var renderer = {
+            __elyricDestroyed: false, __elyricPlayerPage: page, __elyricMountHost: page,
+            currentItem: null, itemsContainer: document.createElement("div")
+        };
+        try {
+            renderer.__elyricPlaybackBridge = createPlaybackBridge(videoOsd);
+            renderer.currentItem = renderer.__elyricPlaybackBridge.getSnapshot().item;
             ensureDisplayConfiguration(renderer);
             ensureThemeControl(renderer);
-            syncLyricAvailability(renderer);
-            return renderer.__elyricItems;
-        });
-    };
-
-    LyricsRenderer.prototype.onTimeUpdate = function (positionTicks, runtimeTicks) {
-        originalOnTimeUpdate.apply(this, arguments);
-        ensureObserver(this);
-        ensureDisplayConfiguration(this);
-        ensureThemeControl(this);
-        updatePlayerControl(this, positionTicks, runtimeTicks);
-        renderVisibleLyrics(this);
-        updateWordStates(this, positionTicks);
-        syncSmoothClock(this, positionTicks, runtimeTicks);
-    };
-
-    LyricsRenderer.prototype.destroy = function () {
-        this.__elyricDestroyed = true;
-        cancelSmoothFrame(this);
-        removeDisplayConfiguration(this);
-        removeThemeControl(this);
-        if (this.__elyricObserver) {
-            this.__elyricObserver.disconnect();
+            if (!renderer.__elyricThemeControl || !renderer.__elyricThemeControl.parentNode) {
+                throw new Error("Custom player root failed to mount");
+            }
+            hideNativeOsd(renderer);
+            renderer.__elyricBridgeUnsubscribe = renderer.__elyricPlaybackBridge.subscribe(function (snapshot) {
+                updateOwnedPlayer(renderer, snapshot);
+            });
+            loadOwnedLyrics(renderer, renderer.currentItem);
+            updateOwnedPlayer(renderer, renderer.__elyricPlaybackBridge.getSnapshot());
+            videoOsd.__elyricRenderer = renderer;
+        } catch (error) {
+            renderer.__elyricDestroyed = true;
+            renderer.__elyricLyricRequestId = (renderer.__elyricLyricRequestId || 0) + 1;
+            if (renderer.__elyricBridgeUnsubscribe) { renderer.__elyricBridgeUnsubscribe(); }
+            if (renderer.__elyricPlaybackBridge) { renderer.__elyricPlaybackBridge.destroy(); }
+            restoreNativeOsd(renderer);
+            removeDisplayConfiguration(renderer);
+            if (renderer.__elyricThemeControl) { removeThemeControl(renderer); }
+            console.error("Emby Lyric Enhance failed safely; native OSD restored", error);
         }
-        this.__elyricObserver = null;
-        this.__elyricObservedParent = null;
-        this.__elyricItems = null;
-        this.__elyricClock = null;
-        return originalDestroy.apply(this, arguments);
+    }
+
+    function setOwnedLyricStatus(renderer, state) {
+        state = state || "empty";
+        renderer.__elyricLyricStatusState = state;
+        var messages = {
+            loading: ["正在加载歌词", "正在读取当前媒体的默认歌词流…"],
+            empty: ["暂无同步歌词", "当前媒体没有提供歌词，播放控制仍可正常使用。"],
+            instrumental: ["纯音乐", "歌词流标记为纯音乐，律动和播放控制仍会继续工作。"],
+            error: ["歌词加载失败", "无法读取当前歌词流；切歌或重新进入播放器后会再次尝试。"]
+        };
+        var status = renderer.__elyricLyricsEmpty;
+        if (!status) { return; }
+        setAttributeIfChanged(status, "data-elyric-state", state);
+        if ("ready" === state) {
+            setAttributeIfChanged(status, "hidden", "hidden");
+            return;
+        }
+        var message = messages[state] || messages.empty;
+        replaceElementText(renderer.__elyricLyricsEmptyTitle, message[0]);
+        replaceElementText(renderer.__elyricLyricsEmptyHint, message[1]);
+        removeAttributeIfPresent(status, "hidden");
+    }
+
+    function unmountOwnedPlayer(videoOsd) {
+        var renderer = videoOsd && videoOsd.__elyricRenderer;
+        if (!renderer) { return; }
+        renderer.__elyricDestroyed = true;
+        renderer.__elyricLyricRequestId = (renderer.__elyricLyricRequestId || 0) + 1;
+        cancelSmoothFrame(renderer);
+        if (renderer.__elyricBridgeUnsubscribe) { renderer.__elyricBridgeUnsubscribe(); }
+        if (renderer.__elyricPlaybackBridge) { renderer.__elyricPlaybackBridge.destroy(); }
+        restoreNativeOsd(renderer);
+        removeDisplayConfiguration(renderer);
+        removeThemeControl(renderer);
+        videoOsd.__elyricRenderer = null;
+    }
+
+    VideoOsd.prototype.onResume = function () {
+        var result = originalVideoOsdOnResume.apply(this, arguments);
+        var instance = this;
+        var generation = (instance.__elyricMountGeneration || 0) + 1;
+        instance.__elyricMountGeneration = generation;
+        Promise.resolve().then(function () {
+            if (instance.__elyricMountGeneration === generation) { mountOwnedPlayer(instance); }
+        });
+        return result;
+    };
+    VideoOsd.prototype.onPause = function () {
+        this.__elyricMountGeneration = (this.__elyricMountGeneration || 0) + 1;
+        unmountOwnedPlayer(this);
+        return originalVideoOsdOnPause.apply(this, arguments);
+    };
+    VideoOsd.prototype.destroy = function () {
+        this.__elyricMountGeneration = (this.__elyricMountGeneration || 0) + 1;
+        unmountOwnedPlayer(this);
+        return originalVideoOsdDestroy.apply(this, arguments);
     };
 })();
 /* ELYRIC_ENHANCE_END:4.9.5.0 */
