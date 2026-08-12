@@ -285,6 +285,11 @@ const ApiClient = {
             error.status = 404;
             return Promise.reject(error);
         }
+        if (themeApiMode === "server-error") {
+            const error = new Error("theme api server failure");
+            error.status = 500;
+            return Promise.reject(error);
+        }
         if (themeApiMode === "healthy") {
             const payload = request.data && typeof request.data === "string"
                 ? JSON.parse(request.data)
@@ -807,8 +812,11 @@ function createLyricElement(index) {
     assert.strictEqual(renderer.__elyricOverlayScrim.parentNode, document.body,
         "settings and media details should share a document-level modal scrim");
     assert.strictEqual(settingsPanel.getAttribute("hidden"), "hidden");
+    settingsPanel.scrollTop = 640;
     renderer.__elyricSettingsButton.click();
     assert.strictEqual(settingsPanel.getAttribute("hidden"), null);
+    assert.strictEqual(settingsPanel.scrollTop, 0,
+        "opening settings from a closed state should always reveal the theme library header");
     assert.strictEqual(document.activeElement, settingsPanel.querySelector(".elyric-player-settings-close"),
         "opening settings should move keyboard focus into the dialog");
     assert.strictEqual(renderer.__elyricOverlayScrim.getAttribute("hidden"), null,
@@ -1178,6 +1186,14 @@ function createLyricElement(index) {
         "an unsaved custom composition should remain visibly selected as a draft");
     assert(renderer.__elyricPlayerThemeLibrarySelect.textContent.includes("草稿 · 基于专辑列表"),
         "the draft entry should identify its built-in composition basis");
+    renderer.__elyricActiveUserPlayerThemeId = "deleted-or-stale-theme";
+    renderer.__elyricLayoutButtons
+        .find((button) => button.getAttribute("data-elyric-choice") === "custom").click();
+    assert.strictEqual(renderer.__elyricActiveUserPlayerThemeId, null,
+        "a stale active theme id should fall back to the unsaved custom draft");
+    assert.strictEqual(renderer.__elyricPlayerThemeLibrarySelect.value, "draft");
+    assert.notStrictEqual(renderer.__elyricPlayerThemeLibrarySelect.selectedIndex, -1,
+        "the theme library must never render a blank selection for a stale theme id");
 
     themeButtons.find((button) => button.getAttribute("data-elyric-choice") === "focus").click();
     assert.strictEqual(renderer.itemsContainer.getAttribute("data-elyric-theme"), "focus");
@@ -1289,6 +1305,11 @@ function createLyricElement(index) {
     await flushPromises();
     assert(renderer.__elyricPlayerThemeLibraryStatus.textContent.includes("服务器未加载主题同步接口（HTTP 404）"),
         "a missing plugin route should be reported distinctly from offline and revision-conflict states");
+    themeApiMode = "server-error";
+    renderer.__elyricPlayerThemeSaveButton.click();
+    await flushPromises();
+    assert(renderer.__elyricPlayerThemeLibraryStatus.textContent.includes("请确认插件 DLL 已更新，并检查主题存储目录权限"),
+        "HTTP 5xx theme failures should point to the plugin build and writable storage instead of claiming the browser is offline");
     themeApiMode = "offline";
     storedPlayerThemes = JSON.parse(storedValues.get("emby-lyric-enhance.player-themes.v1"));
     assert.strictEqual(storedPlayerThemes.length, 2, "user themes should be duplicable");

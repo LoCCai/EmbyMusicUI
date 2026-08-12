@@ -8,6 +8,15 @@ const { spawnSync } = require("child_process");
 
 const root = path.join(__dirname, "..");
 const manager = path.join(root, "scripts", "container-manager.sh");
+const adapterJs = fs.readFileSync(path.join(root, "adapters", "4.9.5.0", "lyrics.inject.js"), "utf8");
+const adapterCss = fs.readFileSync(path.join(root, "adapters", "4.9.5.0", "lyrics.inject.css"), "utf8");
+const managerSource = fs.readFileSync(manager, "utf8");
+const jsBuild = adapterJs.match(/ELYRIC_BUILD:([^\s*]+)/);
+const cssBuild = adapterCss.match(/ELYRIC_BUILD:([^\s*]+)/);
+const managerBuild = managerSource.match(/^BUILD_ID="([^"]+)"/m);
+assert(jsBuild && cssBuild && managerBuild, "frontend payloads and installer must declare a build id");
+assert.strictEqual(jsBuild[1], cssBuild[1], "lyrics.js and lyrics.css must belong to one frontend build");
+assert.strictEqual(managerBuild[1], jsBuild[1], "the container manifest must use the payload build id");
 
 function findShell() {
     const candidates = [

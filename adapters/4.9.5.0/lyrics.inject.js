@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.11-player-theme-v3 */
+/* ELYRIC_BUILD:2026.08.12-player-theme-v3-ui-fixes */
 ;(function () {
     "use strict";
 
@@ -3063,6 +3063,10 @@
         if (409 === status) {
             return "服务器检测到主题 revision 冲突；" + prefix;
         }
+        if (status >= 500) {
+            return "主题服务端处理失败（HTTP " + status
+                + "）；请确认插件 DLL 已更新，并检查主题存储目录权限；" + prefix;
+        }
         if (status) {
             return "主题同步失败（HTTP " + status + "）；" + prefix;
         }
@@ -4224,6 +4228,9 @@
         );
         if (renderer.__elyricSettingsPanel) {
             if (open) {
+                if (!wasOpen) {
+                    renderer.__elyricSettingsPanel.scrollTop = 0;
+                }
                 removeAttributeIfPresent(renderer.__elyricSettingsPanel, "hidden");
             } else {
                 setAttributeIfChanged(renderer.__elyricSettingsPanel, "hidden", "hidden");
@@ -6511,6 +6518,10 @@
         ensurePlayerThemeLibrary(renderer);
         var select = renderer.__elyricPlayerThemeLibrarySelect;
         if (select) {
+            var active = activeUserPlayerTheme(renderer);
+            if (renderer.__elyricActiveUserPlayerThemeId && !active) {
+                renderer.__elyricActiveUserPlayerThemeId = null;
+            }
             while (select.firstChild) {
                 select.removeChild(select.firstChild);
             }
@@ -6524,8 +6535,7 @@
                 option.appendChild(document.createTextNode("内置 · " + layout.label));
                 select.appendChild(option);
             });
-            if ("custom" === renderer.__elyricPlayerLayout
-                && !renderer.__elyricActiveUserPlayerThemeId) {
+            if ("custom" === renderer.__elyricPlayerLayout && !active) {
                 var draftOption = document.createElement("option");
                 var baseLayout = renderer.__elyricThemeBaseLayout || "album";
                 var baseDefinition = PLAYER_LAYOUTS.filter(function (layout) {
@@ -6545,6 +6555,14 @@
                 select.appendChild(option);
             });
             select.value = playerThemeLibrarySelection(renderer);
+            if (select.selectedIndex < 0 && "custom" === renderer.__elyricPlayerLayout) {
+                renderer.__elyricActiveUserPlayerThemeId = null;
+                var fallbackDraftOption = document.createElement("option");
+                fallbackDraftOption.value = "draft";
+                fallbackDraftOption.appendChild(document.createTextNode("草稿 · 未保存的自定义主题"));
+                select.appendChild(fallbackDraftOption);
+                select.value = "draft";
+            }
             select.setAttribute("value", select.value);
         }
         var active = activeUserPlayerTheme(renderer);
