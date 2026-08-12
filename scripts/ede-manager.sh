@@ -59,7 +59,10 @@ END { print found + 0 }
 }
 
 is_fixed() {
-    [ "$(count_in_scope destroy "ede.destroyIntervalIds.forEach(id => clearInterval(id));")" -eq 1 ] &&
+    [ "$(count_fixed "if (!ede || !Array.isArray(ede.destroyIntervalIds)) {")" -eq 1 ] &&
+        [ "$(count_fixed "ede.destroyIntervalIds.forEach(id => clearInterval(id));")" -eq 1 ] &&
+        [ "$(count_fixed "ede.destroyIntervalIds = [];")" -eq 1 ] &&
+        [ "$(count_fixed "window.ede.destroyIntervalIds.map(id => clearInterval(id));")" -eq 0 ] &&
         [ "$(count_in_scope beforeDestroy "const detail = e && e.detail;")" -eq 1 ] &&
         [ "$(count_in_scope beforeDestroy "if (window.ede && window.ede.danmaku) {")" -eq 1 ] &&
         [ "$(count_in_scope onViewShow "const detail = e && e.detail ? e.detail : {};")" -eq 1 ] &&
@@ -116,8 +119,8 @@ install_fix() {
     detail_show_scope=$(count_in_scope onViewShow "if (e.detail.type === 'video-osd') {")
     item_id_global=$(count_fixed "window.ede.itemId = e.detail.params.id ? e.detail.params.id : '';")
     item_id_scope=$(count_in_scope onViewShow "window.ede.itemId = e.detail.params.id ? e.detail.params.id : '';")
-    if [ "$destroy_map_scope" -ne 1 ] ||
-       [ "$destroy_reset_scope" -ne 1 ] ||
+    if [ "$destroy_map_global" -ne 1 ] ||
+       [ "$destroy_reset_global" -ne 1 ] ||
        [ "$detail_hide_scope" -ne 1 ] ||
        [ "$danmaku_scope" -ne 1 ] ||
        [ "$detail_show_scope" -ne 1 ] ||
@@ -176,7 +179,7 @@ function scope_for(line) {
     current_scope = scope
     handled = 0
     pad = indent($0)
-    if (current_scope == "destroy" && index($0, "window.ede.destroyIntervalIds.map(id => clearInterval(id));")) {
+    if (index($0, "window.ede.destroyIntervalIds.map(id => clearInterval(id));")) {
         print pad "const ede = window.ede;"
         print pad "if (!ede || !Array.isArray(ede.destroyIntervalIds)) {"
         print pad "    return;"
@@ -184,7 +187,7 @@ function scope_for(line) {
         print pad "ede.destroyIntervalIds.forEach(id => clearInterval(id));"
         replace_destroy_reset = 1
         handled = 1
-    } else if (current_scope == "destroy" && replace_destroy_reset && index($0, "window.ede.destroyIntervalIds = [];")) {
+    } else if (replace_destroy_reset && index($0, "window.ede.destroyIntervalIds = [];")) {
         print pad "ede.destroyIntervalIds = [];"
         replace_destroy_reset = 0
         handled = 1

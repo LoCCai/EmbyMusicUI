@@ -191,8 +191,11 @@ esac
     const edeFailureLog = fs.readFileSync(dockerLog, "utf8");
     assert(edeFailureLog.includes("EmbyLyricEnhance.dll"),
         "steps before the EDE failure should have completed");
-    assert.strictEqual(logLines("restart ").length, 0,
-        "a failure after DLL installation must still suppress the deferred restart");
+    assert.strictEqual(logLines("restart emby-test").length, 1,
+        "a failure after DLL installation must not prevent the required DLL restart");
+    assert(failedEde.stderr.includes("前面已成功执行的功能不会回滚")
+        && failedEde.stderr.includes("已完成的前端或 DLL 更新仍然有效"),
+    "a partial bundle failure should explain that completed components remain installed");
 
     resetLog();
     const manualFallback = runInteractive("2\nmanual-emby\n3\n");

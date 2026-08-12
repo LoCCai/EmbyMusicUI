@@ -206,6 +206,7 @@ run_ede_action() {
 run_feature_bundle() {
     validate_bundle_payloads
     confirm_bundle_persistence
+    bundle_status=0
 
     say ""
     say "目标容器：$container"
@@ -224,14 +225,24 @@ run_feature_bundle() {
     if has_feature 3; then
         say ""
         say "[功能 3] 正在检查并修复 EDE 1.47……"
-        run_ede_action install
+        if ! run_ede_action install; then
+            bundle_status=1
+            say "警告：EDE 修复未完成；前面已成功执行的功能不会回滚。" >&2
+        fi
     fi
 
     if has_feature 2; then
         say ""
-        say "所有选中功能均已完成，正在重启容器以加载插件 DLL……"
+        say "服务端插件 DLL 已安装，正在重启容器以加载 DLL……"
         docker restart "$container" >/dev/null
         say "容器已重启。"
+    fi
+
+    if [ "$bundle_status" -ne 0 ]; then
+        say "" >&2
+        say "部分功能执行失败：$selected_features" >&2
+        say "已完成的前端或 DLL 更新仍然有效；请根据上方错误单独处理失败功能。" >&2
+        return "$bundle_status"
     fi
 
     say ""
