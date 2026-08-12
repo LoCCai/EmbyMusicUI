@@ -96,6 +96,7 @@ try {
     expectSuccess(install, "EDE repair installation");
     const fixed = fs.readFileSync(target, "utf8");
     assert(fixed.includes("const detail = e && e.detail ? e.detail : {};"));
+    assert(fixed.includes("if (detail.type === 'video-osd' && window.ede) {"));
     assert(fixed.includes("window.ede.itemId = params.id || '';"));
     assert(!fixed.includes("window.ede.itemId = e.detail.params.id"));
     assert(fixed.includes(amdFixed), "the embedded Danmaku UMD wrapper must have its AMD branch disabled");
@@ -106,6 +107,8 @@ try {
         "only beforeDestroy should receive the lifecycle guard");
     assert(fixed.indexOf("window.ede = createEde();") < fixed.indexOf("window.ede.itemId = params.id || '';"),
         "itemId must be assigned only after the EDE instance is created");
+    assert(!fixed.includes("        const params = detail.params || {};\n        window.ede.itemId = params.id || '';"),
+        "ordinary Emby views must not assign itemId through an undefined EDE instance");
     assert.strictEqual(
         fs.readFileSync(path.join(backupRoot, "original", "ede.user.js"), "utf8"),
         vulnerableEde,
@@ -124,6 +127,25 @@ try {
         fs.readFileSync(path.join(backupRoot, "original", "ede.user.js"), "utf8"),
         vulnerableEde,
         "an incremental repair must not overwrite the first original backup"
+    );
+
+    const safeItemBlock = `        if (detail.type === 'video-osd' && window.ede) {
+            const params = detail.params || {};
+            window.ede.itemId = params.id || '';
+        }`;
+    const legacyItemBlock = `        const params = detail.params || {};
+        window.ede.itemId = params.id || '';`;
+    const legacyFixed = fixed.replace(safeItemBlock, legacyItemBlock);
+    assert.notStrictEqual(legacyFixed, fixed, "the legacy lifecycle fixture must remove the video-osd guard");
+    fs.writeFileSync(target, legacyFixed, "utf8");
+    const legacyUpgrade = run("install");
+    expectSuccess(legacyUpgrade, "upgrade from the previous EDE lifecycle repair");
+    assert.strictEqual(fs.readFileSync(target, "utf8"), fixed,
+        "the previous repair must be atomically upgraded without restoring the vulnerable original");
+    assert.strictEqual(
+        fs.readFileSync(path.join(backupRoot, "original", "ede.user.js"), "utf8"),
+        vulnerableEde,
+        "upgrading the previous repair must preserve the first original backup"
     );
 
     const repeated = run("install");

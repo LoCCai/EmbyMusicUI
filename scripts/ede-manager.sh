@@ -65,6 +65,18 @@ is_lifecycle_fixed() {
         [ "$(count_in_scope beforeDestroy "const detail = e && e.detail;")" -eq 1 ] &&
         [ "$(count_in_scope beforeDestroy "if (window.ede && window.ede.danmaku) {")" -eq 1 ] &&
         [ "$(count_in_scope onViewShow "const detail = e && e.detail ? e.detail : {};")" -eq 1 ] &&
+        [ "$(count_in_scope onViewShow "if (detail.type === 'video-osd' && window.ede) {")" -eq 1 ] &&
+        [ "$(count_in_scope onViewShow "window.ede.itemId = params.id || '';")" -eq 1 ] &&
+        [ "$(count_fixed "window.ede.itemId = e.detail.params.id ? e.detail.params.id : '';")" -eq 0 ]
+}
+
+is_lifecycle_legacy_fixed() {
+    [ "$(count_in_scope destroy "ede.destroyIntervalIds.forEach(id => clearInterval(id));")" -eq 1 ] &&
+        [ "$(count_in_scope beforeDestroy "const detail = e && e.detail;")" -eq 1 ] &&
+        [ "$(count_in_scope beforeDestroy "if (window.ede && window.ede.danmaku) {")" -eq 1 ] &&
+        [ "$(count_in_scope onViewShow "const detail = e && e.detail ? e.detail : {};")" -eq 1 ] &&
+        [ "$(count_in_scope onViewShow "if (detail.type === 'video-osd' && window.ede) {")" -eq 0 ] &&
+        [ "$(count_in_scope onViewShow "const params = detail.params || {};")" -eq 1 ] &&
         [ "$(count_in_scope onViewShow "window.ede.itemId = params.id || '';")" -eq 1 ] &&
         [ "$(count_fixed "window.ede.itemId = e.detail.params.id ? e.detail.params.id : '';")" -eq 0 ]
 }
@@ -89,7 +101,7 @@ is_amd_vulnerable() {
 }
 
 is_recognized() {
-    { is_lifecycle_fixed || is_lifecycle_vulnerable; } &&
+    { is_lifecycle_fixed || is_lifecycle_legacy_fixed || is_lifecycle_vulnerable; } &&
         { is_amd_fixed || is_amd_vulnerable; }
 }
 
@@ -189,7 +201,11 @@ install_fix() {
 
     candidate="$target.elyric-new.$$"
     trap 'rm -f -- "$candidate"' 0 HUP INT TERM
-    awk -v amd_vulnerable="$amd_vulnerable" -v amd_fixed="$amd_fixed" '
+    legacy_fixed=0
+    if is_lifecycle_legacy_fixed; then
+        legacy_fixed=1
+    fi
+    awk -v amd_vulnerable="$amd_vulnerable" -v amd_fixed="$amd_fixed" -v legacy_fixed="$legacy_fixed" '
 function replace_literal(line, needle, replacement, position) {
     position = index(line, needle)
     if (!position) return line
@@ -255,8 +271,20 @@ function scope_for(line) {
         print pad "if (detail.type === '\''video-osd'\'') {"
         handled = 1
     } else if (current_scope == "onViewShow" && index($0, "window.ede.itemId = e.detail.params.id ? e.detail.params.id : '\'''\'';")) {
-        print pad "const params = detail.params || {};"
-        print pad "window.ede.itemId = params.id || '\'''\'';"
+        print pad "if (detail.type === '\''video-osd'\'' && window.ede) {"
+        print pad "    const params = detail.params || {};"
+        print pad "    window.ede.itemId = params.id || '\'''\'';"
+        print pad "}"
+        handled = 1
+    } else if (current_scope == "onViewShow" && legacy_fixed && index($0, "const params = detail.params || {};")) {
+        replace_legacy_item = 1
+        handled = 1
+    } else if (current_scope == "onViewShow" && replace_legacy_item && index($0, "window.ede.itemId = params.id || '\'''\'';")) {
+        print pad "if (detail.type === '\''video-osd'\'' && window.ede) {"
+        print pad "    const params = detail.params || {};"
+        print pad "    window.ede.itemId = params.id || '\'''\'';"
+        print pad "}"
+        replace_legacy_item = 0
         handled = 1
     }
     if (!handled) print
@@ -268,6 +296,7 @@ function scope_for(line) {
 }
 END {
     if (amd_replacements > 1) exit 42
+    if (replace_legacy_item) exit 43
 }
 ' "$target" > "$candidate"
     chmod 0644 "$candidate"
