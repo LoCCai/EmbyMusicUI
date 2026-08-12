@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.12-single-root-osd-v5 */
+/* ELYRIC_BUILD:2026.08.13-balanced-spectrum-overlays-v5.1 */
 ;(function () {
     "use strict";
 
@@ -1287,7 +1287,8 @@
         var popupOpacity = Math.min(100, Math.max(35, Number(state.popupStyle.surfaceOpacity) || 100));
         var popupRadius = Math.min(64, Math.max(0, Number(state.popupStyle.radius) || 0));
         var safeArea = Math.min(180, Math.max(44, Number(state.controls.safeArea) || 64));
-        var hosts = [renderer.__elyricThemeControl, renderer.__elyricMediaPanel, renderer.__elyricSettingsPanel];
+        var hosts = [renderer.__elyricThemeControl, renderer.__elyricMediaPanel,
+            renderer.__elyricSettingsPanel, renderer.__elyricQueuePanel];
         if (document.body && document.body.__elyricPlayerPageOwner === renderer) { hosts.push(document.body); }
         hosts.forEach(function (host) {
             if (!host || !host.style) { return; }
@@ -2851,7 +2852,7 @@
             mediaSurface: "data-elyric-media-surface"
         };
         [renderer.__elyricThemeControl, renderer.itemsContainer, renderer.__elyricSettingsPanel,
-            renderer.__elyricMediaPanel].forEach(function (element) {
+            renderer.__elyricMediaPanel, renderer.__elyricQueuePanel].forEach(function (element) {
             setAttributeIfChanged(element, attributeNames[choiceId], value);
         });
         if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
@@ -2897,7 +2898,7 @@
             "--elyric-v2-panel-on": readablePlayerThemeForeground(colors.backgroundA)
         };
         var targets = [renderer.__elyricThemeControl, renderer.itemsContainer,
-            renderer.__elyricSettingsPanel, renderer.__elyricMediaPanel];
+            renderer.__elyricSettingsPanel, renderer.__elyricMediaPanel, renderer.__elyricQueuePanel];
         if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
             targets.push(document.body);
         }
@@ -4077,7 +4078,13 @@
             VISUALIZER_FREQUENCY_LAYOUTS.map(function (item) { return item.id; }),
             "centerOut"
         );
+        var previousLayoutId = renderer.__elyricVisualizerFrequencyLayout;
         renderer.__elyricVisualizerFrequencyLayout = layoutId;
+        if (previousLayoutId && previousLayoutId !== layoutId) {
+            renderer.__elyricVisualizerEnergy = null;
+            renderer.__elyricVisualizerPeaks = null;
+            renderer.__elyricVisualizerRawBands = null;
+        }
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-frequency-layout", layoutId);
         setAttributeIfChanged(renderer.__elyricVisualizer, "data-elyric-frequency-layout", layoutId);
         var buttons = renderer.__elyricVisualizerFrequencyLayoutButtons || [];
@@ -4502,10 +4509,19 @@
             if (open) {
                 if (!wasOpen) {
                     renderer.__elyricSettingsPanel.scrollTop = 0;
+                    if (renderer.__elyricSettingsBody) {
+                        renderer.__elyricSettingsBody.scrollTop = 0;
+                    }
                 }
-                removeAttributeIfPresent(renderer.__elyricSettingsPanel, "hidden");
+                positionPlayerOverlayNearTrigger(
+                    renderer,
+                    renderer.__elyricSettingsPanel,
+                    renderer.__elyricSettingsButton,
+                    { id: "settings", width: 520, maxWidthRatio: .42, maxHeightRatio: .72 }
+                );
+                setPlayerOverlayVisible(renderer.__elyricSettingsPanel, true);
             } else {
-                setAttributeIfChanged(renderer.__elyricSettingsPanel, "hidden", "hidden");
+                setPlayerOverlayVisible(renderer.__elyricSettingsPanel, false);
             }
         }
         if (renderer.__elyricSettingsButton) {
@@ -4528,85 +4544,200 @@
         }
     }
 
-    function clearMediaPanelAnchor(renderer, mode) {
-        var panel = renderer && renderer.__elyricMediaPanel;
+    function setPlayerOverlayVisible(panel, visible) {
         if (!panel) {
             return;
         }
-        ["top", "right", "bottom", "left", "height", "max-height", "--elyric-media-anchor-tip-x"]
+        if (panel.__elyricOverlayAnimation && panel.__elyricOverlayAnimation.cancel) {
+            try { panel.__elyricOverlayAnimation.cancel(); } catch (error) {}
+        }
+        panel.__elyricOverlayAnimation = null;
+        if (visible) {
+            removeAttributeIfPresent(panel, "hidden");
+            setAttributeIfChanged(panel, "data-elyric-overlay-state", "open");
+            if (panel.animate) {
+                var opening = panel.animate([
+                    { opacity: 0, transform: "translate(var(--elyric-overlay-enter-x, 0), var(--elyric-overlay-enter-y, 10px)) scale(.965)" },
+                    { opacity: 1, transform: "translate(0, 0) scale(1)" }
+                ], { duration: 210, easing: "cubic-bezier(.2,.82,.2,1)", fill: "both" });
+                panel.__elyricOverlayAnimation = opening;
+                Promise.resolve(opening.finished).then(function () {
+                    if (panel.__elyricOverlayAnimation === opening) {
+                        panel.__elyricOverlayAnimation = null;
+                        try { opening.cancel(); } catch (error) {}
+                    }
+                }, function () {});
+            }
+            return;
+        }
+        setAttributeIfChanged(panel, "data-elyric-overlay-state", "closing");
+        if (!panel.animate) {
+            setAttributeIfChanged(panel, "hidden", "hidden");
+            setAttributeIfChanged(panel, "data-elyric-overlay-state", "closed");
+            return;
+        }
+        var closing = panel.animate([
+            { opacity: 1, transform: "translate(0, 0) scale(1)" },
+            { opacity: 0, transform: "translate(var(--elyric-overlay-enter-x, 0), var(--elyric-overlay-enter-y, 10px)) scale(.975)" }
+        ], { duration: 160, easing: "cubic-bezier(.4,0,1,1)", fill: "both" });
+        panel.__elyricOverlayAnimation = closing;
+        Promise.resolve(closing.finished).then(function () {
+            if (panel.__elyricOverlayAnimation !== closing) { return; }
+            panel.__elyricOverlayAnimation = null;
+            setAttributeIfChanged(panel, "hidden", "hidden");
+            setAttributeIfChanged(panel, "data-elyric-overlay-state", "closed");
+            try { closing.cancel(); } catch (error) {}
+        }, function () {});
+    }
+
+    function clearPlayerOverlayAnchor(panel, mode) {
+        if (!panel) { return; }
+        ["top", "right", "bottom", "left", "width", "height", "max-height",
+            "--elyric-overlay-left", "--elyric-overlay-top", "--elyric-overlay-width",
+            "--elyric-overlay-max-height", "--elyric-overlay-anchor-tip-x", "--elyric-overlay-enter-x",
+            "--elyric-overlay-enter-y", "--elyric-media-anchor-tip-x"]
             .forEach(function (propertyName) {
                 if (panel.style && panel.style.removeProperty) {
                     panel.style.removeProperty(propertyName);
                 }
             });
+        setAttributeIfChanged(panel, "data-elyric-overlay-mode", mode || "drawer");
         setAttributeIfChanged(panel, "data-elyric-anchor-mode", mode || "drawer");
+        removeAttributeIfPresent(panel, "data-elyric-overlay-placement");
         removeAttributeIfPresent(panel, "data-elyric-anchor-placement");
     }
 
-    function positionMediaPanelNearTrigger(renderer) {
-        var panel = renderer && renderer.__elyricMediaPanel;
-        var button = renderer && renderer.__elyricMediaButton;
+    function measurePlayerOverlayContentHeight(panel, desiredWidth, fallbackHeight) {
+        if (!panel) { return Number(fallbackHeight) || 0; }
+        var wasHidden = panel.hasAttribute && panel.hasAttribute("hidden");
+        var previousVisibility = panel.style && panel.style.getPropertyValue
+            ? panel.style.getPropertyValue("visibility")
+            : "";
+        var previousPointerEvents = panel.style && panel.style.getPropertyValue
+            ? panel.style.getPropertyValue("pointer-events")
+            : "";
+        if (wasHidden) {
+            panel.style.setProperty("visibility", "hidden");
+            panel.style.setProperty("pointer-events", "none");
+            removeAttributeIfPresent(panel, "hidden");
+        }
+        panel.style.setProperty("width", Math.round(desiredWidth) + "px");
+        panel.style.setProperty("height", "auto");
+        var panelRect = panel.getBoundingClientRect ? panel.getBoundingClientRect() : null;
+        var measuredHeight = Number(panel.scrollHeight)
+            || Number(panelRect && panelRect.height)
+            || Number(panelRect && panelRect.bottom) - Number(panelRect && panelRect.top)
+            || Number(fallbackHeight)
+            || 0;
+        if (wasHidden) {
+            setAttributeIfChanged(panel, "hidden", "hidden");
+            if (previousVisibility) {
+                panel.style.setProperty("visibility", previousVisibility);
+            } else {
+                panel.style.removeProperty("visibility");
+            }
+            if (previousPointerEvents) {
+                panel.style.setProperty("pointer-events", previousPointerEvents);
+            } else {
+                panel.style.removeProperty("pointer-events");
+            }
+        }
+        return measuredHeight;
+    }
+
+    function positionPlayerOverlayNearTrigger(renderer, panel, button, options) {
         if (!panel || !button || !panel.getBoundingClientRect || !button.getBoundingClientRect) {
             return;
         }
-        var viewportWidth = "undefined" !== typeof window && isFinite(Number(window.innerWidth))
-            ? Number(window.innerWidth)
-            : 1280;
-        var viewportHeight = "undefined" !== typeof window && isFinite(Number(window.innerHeight))
-            ? Number(window.innerHeight)
-            : 720;
+        options = options || {};
+        var viewport = playerThemeV2ViewportRect();
+        var viewportWidth = viewport.width;
+        var viewportHeight = viewport.height;
         var anchored = "landscape" === currentPlayerThemeV2Profile();
         if (!anchored) {
-            clearMediaPanelAnchor(renderer, "drawer");
+            clearPlayerOverlayAnchor(panel, "drawer");
+            setAttributeIfChanged(panel, "data-elyric-overlay", options.id || "panel");
+            panel.style.setProperty("--elyric-overlay-enter-y", "18px");
             return;
         }
-        var margin = 16;
+        var margin = Math.max(12, Math.min(24, viewportWidth * .012));
         var gap = 12;
         var buttonRect = button.getBoundingClientRect();
-        var panelRect = panel.getBoundingClientRect();
+        var requestedWidth = Number(options.width) || 460;
+        if ("media" === options.id) {
+            requestedWidth = viewportWidth * Math.min(48, Math.max(20,
+                Number(renderer.__elyricPlayerTuning && renderer.__elyricPlayerTuning.mediaWidth) || 34)) / 100;
+        }
         var desiredWidth = Math.min(
             viewportWidth - margin * 2,
-            viewportWidth * Math.min(54, Math.max(18,
-                Number(renderer.__elyricPlayerTuning && renderer.__elyricPlayerTuning.mediaWidth) || 34)) / 100
+            viewportWidth * (Number(options.maxWidthRatio) || .42),
+            Math.max(Number(options.minWidth) || 300, requestedWidth)
+        );
+        desiredWidth = Math.max(Math.min(300, viewportWidth - margin * 2), desiredWidth);
+        setAttributeIfChanged(panel, "data-elyric-overlay", options.id || "panel");
+        setAttributeIfChanged(panel, "data-elyric-overlay-mode", "popover");
+        var maximumHeightRatio = Number(options.maxHeightRatio) || .7;
+        if ("media" === options.id) {
+            maximumHeightRatio = Math.min(.78, Math.max(.34,
+                (Number(renderer.__elyricPlayerTuning && renderer.__elyricPlayerTuning.mediaMaxHeight) || 72) / 100));
+        }
+        var contentHeight = measurePlayerOverlayContentHeight(
+            panel,
+            desiredWidth,
+            viewportHeight * maximumHeightRatio
         );
         var desiredHeight = Math.min(
             viewportHeight - margin * 2,
-            viewportHeight * Math.min(88, Math.max(28,
-                Number(renderer.__elyricPlayerTuning && renderer.__elyricPlayerTuning.mediaMaxHeight) || 72)) / 100,
-            Number(panel.scrollHeight)
-                || Number(panelRect.height)
-                || Number(panelRect.bottom) - Number(panelRect.top)
-                || viewportHeight * .72
+            viewportHeight * maximumHeightRatio,
+            contentHeight
         );
         var buttonLeft = Number(buttonRect.left) || 0;
         var buttonRight = Number(buttonRect.right) || buttonLeft + 44;
         var buttonTop = Number(buttonRect.top) || 0;
         var buttonBottom = Number(buttonRect.bottom) || buttonTop + 44;
+        var buttonCenter = (buttonLeft + buttonRight) / 2;
         var left = Math.min(
-            viewportWidth - desiredWidth - margin,
-            Math.max(margin, buttonLeft)
+            viewport.left + viewportWidth - desiredWidth - margin,
+            Math.max(viewport.left + margin, buttonCenter - desiredWidth / 2)
         );
-        var availableAbove = Math.max(0, buttonTop - gap - margin);
-        var availableBelow = Math.max(0, viewportHeight - buttonBottom - gap - margin);
+        var availableAbove = Math.max(0, buttonTop - gap - viewport.top - margin);
+        var availableBelow = Math.max(0, viewport.top + viewportHeight - buttonBottom - gap - margin);
         var placeAbove = availableAbove >= Math.min(desiredHeight, 260) || availableAbove >= availableBelow;
         var available = placeAbove ? availableAbove : availableBelow;
         var finalHeight = Math.max(0, Math.min(desiredHeight, available));
         var top = placeAbove
-            ? Math.max(margin, buttonTop - gap - finalHeight)
-            : Math.min(viewportHeight - margin - finalHeight, buttonBottom + gap);
+            ? Math.max(viewport.top + margin, buttonTop - gap - finalHeight)
+            : Math.min(viewport.top + viewportHeight - margin - finalHeight, buttonBottom + gap);
         var anchorX = Math.min(
             desiredWidth - 18,
-            Math.max(18, (buttonLeft + buttonRight) / 2 - left)
+            Math.max(18, buttonCenter - left)
         );
         panel.style.setProperty("left", Math.round(left) + "px");
         panel.style.setProperty("top", Math.round(top) + "px");
         panel.style.setProperty("right", "auto");
         panel.style.setProperty("bottom", "auto");
+        panel.style.setProperty("width", Math.round(desiredWidth) + "px");
         panel.style.setProperty("height", "auto");
         panel.style.setProperty("max-height", Math.round(finalHeight) + "px");
+        panel.style.setProperty("--elyric-overlay-left", Math.round(left) + "px");
+        panel.style.setProperty("--elyric-overlay-top", Math.round(top) + "px");
+        panel.style.setProperty("--elyric-overlay-width", Math.round(desiredWidth) + "px");
+        panel.style.setProperty("--elyric-overlay-max-height", Math.round(finalHeight) + "px");
+        panel.style.setProperty("--elyric-overlay-anchor-tip-x", Math.round(anchorX) + "px");
         panel.style.setProperty("--elyric-media-anchor-tip-x", Math.round(anchorX) + "px");
+        panel.style.setProperty("--elyric-overlay-enter-y", placeAbove ? "10px" : "-10px");
+        setAttributeIfChanged(panel, "data-elyric-overlay-placement", placeAbove ? "above" : "below");
         setAttributeIfChanged(panel, "data-elyric-anchor-mode", "button");
         setAttributeIfChanged(panel, "data-elyric-anchor-placement", placeAbove ? "above" : "below");
+    }
+
+    function positionMediaPanelNearTrigger(renderer) {
+        positionPlayerOverlayNearTrigger(
+            renderer,
+            renderer && renderer.__elyricMediaPanel,
+            renderer && renderer.__elyricMediaButton,
+            { id: "media", width: 490, maxWidthRatio: .46, maxHeightRatio: .72 }
+        );
     }
 
     function setMediaPanelOpen(renderer, open) {
@@ -4621,9 +4752,10 @@
         renderer.__elyricMediaOpen = open;
         if (renderer.__elyricMediaPanel) {
             if (open) {
-                removeAttributeIfPresent(renderer.__elyricMediaPanel, "hidden");
+                positionMediaPanelNearTrigger(renderer);
+                setPlayerOverlayVisible(renderer.__elyricMediaPanel, true);
             } else {
-                setAttributeIfChanged(renderer.__elyricMediaPanel, "hidden", "hidden");
+                setPlayerOverlayVisible(renderer.__elyricMediaPanel, false);
             }
         }
         if (renderer.__elyricMediaButton) {
@@ -4633,10 +4765,7 @@
         if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
             setAttributeIfChanged(document.body, "data-elyric-media-open", open ? "true" : "false");
         }
-        if (open) {
-            positionMediaPanelNearTrigger(renderer);
-            refreshMediaInformation(renderer);
-        }
+        if (open) { refreshMediaInformation(renderer); }
         syncPlayerOverlayScrim(renderer);
         if (open && !wasOpen) {
             focusPlayerOverlay(renderer.__elyricMediaPanel);
@@ -4668,6 +4797,10 @@
         if (pageVisible && renderer.__elyricSettingsOpen) {
             removeAttributeIfPresent(panel, "hidden");
         } else {
+            if (panel.__elyricOverlayAnimation && panel.__elyricOverlayAnimation.cancel) {
+                try { panel.__elyricOverlayAnimation.cancel(); } catch (error) {}
+                panel.__elyricOverlayAnimation = null;
+            }
             setAttributeIfChanged(panel, "hidden", "hidden");
         }
     }
@@ -4680,6 +4813,10 @@
         if (pageVisible && renderer.__elyricMediaOpen) {
             removeAttributeIfPresent(panel, "hidden");
         } else {
+            if (panel.__elyricOverlayAnimation && panel.__elyricOverlayAnimation.cancel) {
+                try { panel.__elyricOverlayAnimation.cancel(); } catch (error) {}
+                panel.__elyricOverlayAnimation = null;
+            }
             setAttributeIfChanged(panel, "hidden", "hidden");
         }
     }
@@ -5233,7 +5370,11 @@
             }
             var source = audioContext.createMediaStreamSource(stream);
             var analyser = audioContext.createAnalyser();
-            analyser.fftSize = 2048;
+            // 4096 keeps the first audible octaves from collapsing into the same
+            // 23 Hz FFT bins at a 48 kHz sample rate.  The visualizer still paints
+            // a small, theme-controlled number of bands, so the larger analysis
+            // window does not increase canvas work.
+            analyser.fftSize = 4096;
             analyser.minDecibels = -92;
             analyser.maxDecibels = -12;
             analyser.smoothingTimeConstant = (null != renderer.__elyricVisualizerSmoothing
@@ -5317,20 +5458,26 @@
                 * Math.pow(maximumFrequency / minimumFrequency, endRatio);
             var startBin = Math.max(1, Math.min(
                 analyser.frequencyBinCount - 1,
-                Math.floor(startFrequency * analyser.fftSize / sampleRate)
+                startFrequency * analyser.fftSize / sampleRate
             ));
-            var endBin = Math.max(startBin + 1, Math.min(
+            var endBin = Math.max(startBin + .001, Math.min(
                 analyser.frequencyBinCount,
-                Math.ceil(endFrequency * analyser.fftSize / sampleRate)
+                endFrequency * analyser.fftSize / sampleRate
             ));
             var total = 0;
+            var totalWeight = 0;
             var peak = 0;
-            for (var binIndex = startBin; binIndex < endBin; binIndex++) {
+            var firstBin = Math.floor(startBin);
+            var lastBin = Math.min(analyser.frequencyBinCount - 1, Math.ceil(endBin));
+            for (var binIndex = firstBin; binIndex <= lastBin; binIndex++) {
                 var binValue = renderer.__elyricVisualizerFrequencyData[binIndex] || 0;
-                total += binValue;
+                var overlap = Math.max(0, Math.min(endBin, binIndex + 1) - Math.max(startBin, binIndex));
+                if (overlap <= 0) { continue; }
+                total += binValue * overlap;
+                totalWeight += overlap;
                 peak = Math.max(peak, binValue);
             }
-            var average = total / Math.max(1, endBin - startBin);
+            var average = total / Math.max(.001, totalWeight);
             var raw = (average * .72 + peak * .28) / 255;
             raw = Math.max(0, (raw - .018) / .982);
             var normalizedFrequency = bandCount > 1 ? i / (bandCount - 1) : 0;
@@ -5376,22 +5523,41 @@
         return rawBands;
     }
 
+    function resampleVisualizerBand(values, position) {
+        if (!values || !values.length) { return 0; }
+        if (1 === values.length) { return values[0] || 0; }
+        position = Math.max(0, Math.min(1, Number(position) || 0));
+        var exactIndex = position * (values.length - 1);
+        var lowerIndex = Math.floor(exactIndex);
+        var upperIndex = Math.min(values.length - 1, lowerIndex + 1);
+        var mix = exactIndex - lowerIndex;
+        return (values[lowerIndex] || 0) * (1 - mix) + (values[upperIndex] || 0) * mix;
+    }
+
     function mapVisualizerFrequencyLayout(values, count, layoutId) {
         var samples = new Array(count);
         var i;
         if ("centerOut" === layoutId) {
             for (i = 0; i < count; i++) {
-                var distanceFromCenter = Math.abs(i / (count - 1) * 2 - 1);
-                var sourceIndex = Math.min(
-                    values.length - 1,
-                    Math.round(distanceFromCenter * (values.length - 1))
-                );
-                samples[i] = values[sourceIndex] || 0;
+                var distanceFromCenter = count > 1
+                    ? Math.abs(i - (count - 1) / 2) / ((count - 1) / 2)
+                    : 0;
+                samples[i] = resampleVisualizerBand(values, distanceFromCenter);
+            }
+            return samples;
+        }
+        if ("radial" === layoutId) {
+            for (i = 0; i < count; i++) {
+                // Repeat the logarithmic spectrum across both semicircles.  Bass
+                // therefore drives opposite sides of the ring instead of a lone
+                // arc, while higher frequencies expand toward top and bottom.
+                var angle = -Math.PI / 2 + i / count * Math.PI * 2;
+                samples[i] = resampleVisualizerBand(values, Math.abs(Math.sin(angle)));
             }
             return samples;
         }
         for (i = 0; i < count; i++) {
-            samples[i] = values[Math.min(values.length - 1, i)] || 0;
+            samples[i] = resampleVisualizerBand(values, count > 1 ? i / (count - 1) : 0);
         }
         return samples;
     }
@@ -5845,6 +6011,14 @@
                 body.appendChild(row);
             });
             panel.setAttribute("data-elyric-loading", "false");
+            if (renderer.__elyricQueueOpen) {
+                positionPlayerOverlayNearTrigger(
+                    renderer,
+                    renderer.__elyricQueuePanel,
+                    renderer.__elyricPlayerButtons && renderer.__elyricPlayerButtons.queue,
+                    { id: "queue", width: 430, maxWidthRatio: .38, maxHeightRatio: .66 }
+                );
+            }
         }, function () {
             if (renderer.__elyricQueuePanel) {
                 renderer.__elyricQueuePanel.setAttribute("data-elyric-loading", "error");
@@ -5870,8 +6044,17 @@
         setAttributeIfChanged(queueButton, "data-elyric-active", open ? "true" : "false");
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-queue-open", open ? "true" : "false");
         if (renderer.__elyricQueuePanel) {
-            if (open) { removeAttributeIfPresent(renderer.__elyricQueuePanel, "hidden"); }
-            else { setAttributeIfChanged(renderer.__elyricQueuePanel, "hidden", "hidden"); }
+            if (open) {
+                positionPlayerOverlayNearTrigger(
+                    renderer,
+                    renderer.__elyricQueuePanel,
+                    queueButton,
+                    { id: "queue", width: 430, maxWidthRatio: .38, maxHeightRatio: .66 }
+                );
+                setPlayerOverlayVisible(renderer.__elyricQueuePanel, true);
+            } else {
+                setPlayerOverlayVisible(renderer.__elyricQueuePanel, false);
+            }
         }
         syncPlayerPageState(renderer, isThemeContextVisible(renderer));
         syncPlayerOverlayScrim(renderer);
@@ -8883,6 +9066,9 @@
         });
         settingsHeader.appendChild(settingsClose);
         settingsPanel.appendChild(settingsHeader);
+        var settingsBody = document.createElement("div");
+        settingsBody.className = "elyric-player-settings-body";
+        settingsPanel.appendChild(settingsBody);
 
         var tuningInputs = {};
         var tuningValues = {};
@@ -8890,7 +9076,7 @@
         var themeColorSettings = {};
 
         var librarySection = createSettingsSection(
-            settingsPanel,
+            settingsBody,
             "0. 主题库与设计版本",
             "elyric-player-theme-library-settings"
         );
@@ -8965,9 +9151,9 @@
         themeLibraryStatus.appendChild(document.createTextNode("内置主题不可覆盖；调整后可另存为用户主题。"));
         librarySection.appendChild(themeLibraryStatus);
 
-        createPlayerThemeV2DesignerSection(renderer, settingsPanel);
+        createPlayerThemeV2DesignerSection(renderer, settingsBody);
 
-        var backgroundSection = createSettingsSection(settingsPanel, "1. 背景", "elyric-background-settings");
+        var backgroundSection = createSettingsSection(settingsBody, "1. 背景", "elyric-background-settings");
         var backgroundChoices = createSegmentedControl(
             renderer,
             BACKGROUND_MODES,
@@ -8992,7 +9178,7 @@
         backgroundHelp.appendChild(document.createTextNode("背景来源、模糊半径和压暗强度独立保存；黑白纯色背景不会应用模糊。"));
         backgroundSection.appendChild(backgroundHelp);
 
-        var layoutSection = createSettingsSection(settingsPanel, "2. 界面布局", "elyric-layout-settings");
+        var layoutSection = createSettingsSection(settingsBody, "2. 界面布局", "elyric-layout-settings");
         var layoutChoices = createSegmentedControl(
             renderer,
             PLAYER_LAYOUTS,
@@ -9008,7 +9194,7 @@
         layoutSection.appendChild(layoutHelp);
 
         var compositionSection = createSettingsSection(
-            settingsPanel,
+            settingsBody,
             "3. 唱片、歌曲信息与歌词位置",
             "elyric-composition-settings"
         );
@@ -9126,7 +9312,7 @@
         compositionHelp.appendChild(document.createTextNode("所有封面与歌曲信息参数都会即时生效；外层与内层圆角独立，因此可实现方套圆、圆套方或任意圆角组合。"));
         compositionSection.appendChild(compositionHelp);
 
-        var visualizerSection = createSettingsSection(settingsPanel, "4. 频谱形态与尺寸", "elyric-visualizer-settings");
+        var visualizerSection = createSettingsSection(settingsBody, "4. 频谱形态与尺寸", "elyric-visualizer-settings");
         var visualizerSourceStatus = document.createElement("div");
         visualizerSourceStatus.className = "elyric-visualizer-source-status";
         visualizerSourceStatus.setAttribute("role", "status");
@@ -9209,7 +9395,7 @@
         visualizerHelp.appendChild(document.createTextNode("优先直接分析当前媒体的音频输出，不接入扬声器链路；浏览器不开放媒体流时自动使用节奏估算。"));
         visualizerSection.appendChild(visualizerHelp);
 
-        var colorSection = createSettingsSection(settingsPanel, "5. 频谱色彩", "elyric-visualizer-color-settings");
+        var colorSection = createSettingsSection(settingsBody, "5. 频谱色彩", "elyric-visualizer-color-settings");
         var visualizerColorModeChoices = createSegmentedControl(
             renderer,
             VISUALIZER_COLOR_MODES,
@@ -9229,7 +9415,7 @@
         colorHelp.appendChild(document.createTextNode("使用安全的 #RRGGBB 文本输入；彩虹模式使用内置多色渐变。"));
         colorSection.appendChild(colorHelp);
 
-        var lyricSection = createSettingsSection(settingsPanel, "6. 歌词", "elyric-lyric-settings");
+        var lyricSection = createSettingsSection(settingsBody, "6. 歌词", "elyric-lyric-settings");
         var themeChoices = createSegmentedControl(
             renderer,
             THEMES,
@@ -9281,7 +9467,7 @@
         themeHelp.appendChild(document.createTextNode("已播放、当前行和未播放歌词可分别设置颜色与字号；背景支持无背景、毛玻璃、内嵌、浮雕和悬浮。"));
         lyricSection.appendChild(themeHelp);
 
-        var behaviorSection = createSettingsSection(settingsPanel, "7. 播放细节", "elyric-behavior-settings");
+        var behaviorSection = createSettingsSection(settingsBody, "7. 播放细节", "elyric-behavior-settings");
         var secondLineChoices = createSegmentedControl(
             renderer,
             [{ id: "on", label: "显示注音 / 翻译" }, { id: "off", label: "隐藏注音 / 翻译" }],
@@ -9302,7 +9488,7 @@
         behaviorSection.appendChild(rotationChoices.element);
 
         var consoleSection = createSettingsSection(
-            settingsPanel,
+            settingsBody,
             "8. 底部控制台、进度与音量",
             "elyric-console-settings"
         );
@@ -9326,7 +9512,7 @@
         consoleSection.appendChild(consoleHelp);
 
         var mediaDesignSection = createSettingsSection(
-            settingsPanel,
+            settingsBody,
             "9. 歌曲信息弹卡",
             "elyric-media-design-settings"
         );
@@ -9361,11 +9547,11 @@
         var toggleHelp = document.createElement("div");
         toggleHelp.className = "elyric-player-settings-note";
         toggleHelp.appendChild(document.createTextNode("底栏字幕图标控制第二行，旋转图标控制专辑封面；悬停或长按可查看按钮含义。系统减少动态效果设置始终优先。"));
-        settingsPanel.appendChild(toggleHelp);
+        settingsBody.appendChild(toggleHelp);
         var coreHelp = document.createElement("div");
         coreHelp.className = "elyric-player-settings-note elyric-player-settings-note-muted";
         coreHelp.appendChild(document.createTextNode("播放、队列、进度和音量仍由 Emby 原生会话管理；自有控件会即时反馈当前状态。"));
-        settingsPanel.appendChild(coreHelp);
+        settingsBody.appendChild(coreHelp);
         settingsPanel.addEventListener("click", stopControlEvent);
         settingsPanel.addEventListener("pointerdown", stopControlEvent);
 
@@ -9441,6 +9627,7 @@
         renderer.__elyricSettingsButton = settingsButton;
         renderer.__elyricOverlayScrim = overlayScrim;
         renderer.__elyricSettingsPanel = settingsPanel;
+        renderer.__elyricSettingsBody = settingsBody;
         renderer.__elyricPreferenceStatus = preferenceStatus;
         renderer.__elyricSettingsOpen = false;
         renderer.__elyricMediaButton = mediaButton;
@@ -9508,6 +9695,22 @@
             }
             if (renderer.__elyricMediaOpen) {
                 positionMediaPanelNearTrigger(renderer);
+            }
+            if (renderer.__elyricQueueOpen) {
+                positionPlayerOverlayNearTrigger(
+                    renderer,
+                    renderer.__elyricQueuePanel,
+                    renderer.__elyricPlayerButtons && renderer.__elyricPlayerButtons.queue,
+                    { id: "queue", width: 430, maxWidthRatio: .38, maxHeightRatio: .66 }
+                );
+            }
+            if (renderer.__elyricSettingsOpen) {
+                positionPlayerOverlayNearTrigger(
+                    renderer,
+                    renderer.__elyricSettingsPanel,
+                    renderer.__elyricSettingsButton,
+                    { id: "settings", width: 520, maxWidthRatio: .42, maxHeightRatio: .72 }
+                );
             }
         };
         if ("undefined" !== typeof window && window.addEventListener) {
@@ -9582,11 +9785,10 @@
         }
         installQueueDismissHandler(renderer);
         installLyricFollowTracking(renderer);
-        var settingsHost = getThemeControlHost(renderer);
-        if (settingsHost && settingsHost.appendChild) {
-            settingsHost.appendChild(overlayScrim);
-            settingsHost.appendChild(settingsPanel);
-            settingsHost.appendChild(mediaPanel);
+        if (control && control.appendChild) {
+            control.appendChild(overlayScrim);
+            control.appendChild(settingsPanel);
+            control.appendChild(mediaPanel);
         }
         renderer.__elyricLocalShowSecond = loadStoredBoolean(
             "emby-lyric-enhance.show-second-line",
@@ -10036,6 +10238,7 @@
         renderer.__elyricArtworkRotation = null;
         renderer.__elyricSettingsButton = null;
         renderer.__elyricSettingsPanel = null;
+        renderer.__elyricSettingsBody = null;
         renderer.__elyricOverlayScrim = null;
         renderer.__elyricOverlayKeyHandler = null;
         renderer.__elyricPreferenceStatus = null;

@@ -239,6 +239,13 @@ function deferLyrics(id) {
     assert(calls.some((call) => call[0] === "seek" && call[1] === 0 && call[2] === player));
 
     root.querySelector(".elyric-player-button-queue").click(); await settle();
+    const queuePanel = root.querySelector(".elyric-player-queue-panel");
+    assert.strictEqual(queuePanel.getAttribute("data-elyric-overlay-mode"), "popover");
+    assert.strictEqual(queuePanel.getAttribute("data-elyric-overlay"), "queue");
+    assert(Number.parseInt(queuePanel.style.getPropertyValue("max-height"), 10) <= window.innerHeight * .66,
+        "desktop queue should be bounded near its launcher instead of filling the page");
+    assert(Number.parseInt(queuePanel.style.getPropertyValue("max-height"), 10) <= queuePanel.scrollHeight,
+        "desktop queue should size to its content when the launcher side has enough room");
     const queueRows = root.querySelectorAll(".elyric-player-queue-row"); assert.strictEqual(queueRows.length, 2);
     queueRows[1].querySelector(".elyric-player-queue-main").click(); await settle();
     queueRows[1].querySelector(".elyric-player-queue-remove").click(); await settle();
@@ -248,6 +255,14 @@ function deferLyrics(id) {
     assert(calls.some((call) => call[0] === "playQueue" && call[1] === "queue-b" && call[2] === player));
     assert(calls.some((call) => call[0] === "removeQueue" && call[1][0] === "queue-b" && call[2] === player));
     assert(calls.some((call) => call[0] === "moveQueue" && call[1] === "queue-a" && call[2] === 1 && call[3] === player));
+    root.querySelector(".elyric-player-button-queue").click();
+    root.querySelector(".elyric-player-button-settings").click();
+    const settingsPanel = root.querySelector(".elyric-player-settings-panel");
+    assert.strictEqual(settingsPanel.getAttribute("data-elyric-overlay-mode"), "popover");
+    assert(settingsPanel.querySelector(".elyric-player-settings-body"),
+        "settings should keep its heading fixed while only the body scrolls");
+    assert(Number.parseInt(settingsPanel.style.getPropertyValue("max-height"), 10) <= window.innerHeight * .72,
+        "desktop settings should be a compact launcher-anchored popover");
 
     const oldLyrics = deferLyrics("song-b"); const newLyrics = deferLyrics("song-c");
     currentItem = item("song-b", "歌曲 B"); state = Object.assign({}, state, { NowPlayingItem: currentItem }); trigger(player, "timeupdate");

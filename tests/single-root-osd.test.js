@@ -15,6 +15,10 @@ assert(js.includes("VideoOsd.prototype.onPause"));
 assert(js.includes("VideoOsd.prototype.destroy"));
 assert(!js.includes("LyricsRenderer.prototype"), "the visible player must not hook the native lyric renderer");
 assert(js.includes('control.className = "elyric-player-root elyric-player-shell elyric-theme-picker"'));
+assert(js.includes("control.appendChild(overlayScrim)")
+    && js.includes("control.appendChild(settingsPanel)")
+    && js.includes("control.appendChild(mediaPanel)"),
+"every visible overlay must stay inside the single themed root");
 assert(js.includes('renderer.itemsContainer = lyricViewport'));
 assert(js.includes("createPlaybackBridge"));
 [
@@ -28,6 +32,10 @@ assert(js.includes("createPlaybackBridge"));
 assert(js.includes("elyric=off"), "the native OSD escape hatch must remain available");
 assert(js.includes("hideNativeOsd") && js.includes("restoreNativeOsd"));
 assert(css.includes(".elyric-player-root") && css.includes(".elyric-player-lyric-viewport"));
+assert(css.includes('[data-elyric-overlay-mode="popover"]')
+    && css.includes('--elyric-overlay-anchor-tip-x')
+    && css.includes('.elyric-player-settings-body'),
+"owned overlays should share anchored, bounded and internally scrolling presentation");
 assert(css.includes(".elyric-player-queue-panel { z-index: 2147483000 !important; }"),
     "the owned queue must render above the shared overlay scrim");
 assert(manager.includes('ANCHOR="_exports.default=VideoOsd"'));

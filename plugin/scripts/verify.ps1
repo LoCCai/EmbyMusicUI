@@ -49,6 +49,11 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+& $node (Join-Path $repositoryRoot "tests\visualizer-frequency-layout.test.js")
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
 & $node (Join-Path $repositoryRoot "tests\plugin-config-page.test.js")
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

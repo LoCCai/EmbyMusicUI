@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.12-single-root-osd-v5 */
+/* ELYRIC_BUILD:2026.08.13-balanced-spectrum-overlays-v5.1 */
 .elyric-subline {
     display: block;
     max-width: 100%;
@@ -4847,21 +4847,21 @@ body[data-elyric-theme-v2="true"] .elyric-player-v2-layer-lyrics {
 /* Profile attributes come from the stable JS orientation model, so a soft keyboard
    cannot turn the portrait editor into a landscape sidebar. */
 body[data-elyric-theme-v2-profile="portrait"] .elyric-player-settings-panel {
-    inset: auto 0 0 !important;
-    width: 100% !important;
-    height: calc(100dvh - env(safe-area-inset-top, 0px)) !important;
+    inset: auto .45rem max(.45rem, env(safe-area-inset-bottom, 0px)) !important;
+    width: auto !important;
+    height: auto !important;
     max-width: none !important;
-    max-height: none !important;
-    border-radius: 1.2rem 1.2rem 0 0 !important;
+    max-height: min(82dvh, 52rem) !important;
+    border-radius: var(--elyric-v2-popup-radius, 1.35rem) !important;
 }
 
 body[data-elyric-theme-v2-profile="landscape"] .elyric-player-settings-panel {
-    inset: 0 0 0 auto !important;
-    width: min(34rem, 46vw) !important;
-    height: 100dvh !important;
-    max-width: none !important;
-    max-height: none !important;
-    border-radius: 1.2rem 0 0 1.2rem !important;
+    inset: var(--elyric-overlay-top, auto) auto auto var(--elyric-overlay-left, auto) !important;
+    width: var(--elyric-overlay-width, min(32rem, 42vw)) !important;
+    height: auto !important;
+    max-width: calc(100vw - 2rem) !important;
+    max-height: var(--elyric-overlay-max-height, min(72dvh, 46rem)) !important;
+    border-radius: var(--elyric-v2-popup-radius, 1.35rem) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4881,9 +4881,30 @@ body[data-elyric-theme-v2-profile="landscape"] .elyric-player-settings-panel {
 }
 
 .elyric-player-settings-panel {
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+    padding: 0 !important;
+    overflow: hidden !important;
     overscroll-behavior: contain;
+}
+
+.elyric-player-settings-panel > .elyric-player-settings-header,
+.elyric-player-media-panel > .elyric-player-settings-header,
+.elyric-player-queue-panel > .elyric-player-queue-header {
+    margin: 0 !important;
+    padding: .9rem 1rem .78rem 1.1rem !important;
+    border-bottom: 1px solid var(--elyric-border, rgb(255 255 255 / .12));
+    background: color-mix(in srgb, var(--elyric-v2-panel-bg, #121722) 88%, transparent) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(135%);
+    backdrop-filter: blur(18px) saturate(135%);
+}
+
+.elyric-player-settings-body {
+    min-height: 0;
+    padding: 0 1rem 1rem;
+    overflow: hidden auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
 }
 
 .elyric-player-theme-library-actions {
@@ -4904,6 +4925,117 @@ body[data-elyric-theme-v2-profile="landscape"] .elyric-player-settings-panel {
 
     .elyric-player-theme-library-actions {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* V5.1 shared themed overlays: desktop popovers stay beside their launchers,
+   while portrait devices use compact safe-area drawers. */
+.elyric-player-settings-panel,
+.elyric-player-media-panel,
+.elyric-player-queue-panel {
+    box-sizing: border-box;
+    border: 1px solid var(--elyric-border, rgb(255 255 255 / .15)) !important;
+    border-radius: var(--elyric-v2-popup-radius, 1.35rem) !important;
+    color: var(--elyric-v2-panel-on, #fff) !important;
+    background: color-mix(
+        in srgb,
+        var(--elyric-v2-panel-bg, #121722) var(--elyric-v2-popup-opacity, 94%),
+        transparent
+    ) !important;
+    box-shadow: 0 1.4rem 4.5rem rgb(0 0 0 / .34), inset 0 1px rgb(255 255 255 / .1) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(142%) !important;
+    backdrop-filter: blur(24px) saturate(142%) !important;
+    transform-origin: var(--elyric-overlay-anchor-tip-x, 50%) bottom;
+    will-change: transform, opacity;
+    pointer-events: auto;
+}
+
+.elyric-player-media-panel {
+    color: var(--elyric-v2-media-on, var(--elyric-v2-panel-on, #fff)) !important;
+    background: color-mix(
+        in srgb,
+        var(--elyric-design-media-surface, var(--elyric-v2-panel-bg, #121722))
+            var(--elyric-design-media-opacity, var(--elyric-v2-popup-opacity, 94%)),
+        transparent
+    ) !important;
+}
+
+.elyric-player-queue-body,
+.elyric-player-media-body {
+    scrollbar-gutter: stable;
+}
+
+[data-elyric-overlay-mode="popover"] {
+    position: fixed !important;
+    inset: var(--elyric-overlay-top, auto) auto auto var(--elyric-overlay-left, auto) !important;
+    width: var(--elyric-overlay-width, min(28rem, calc(100vw - 2rem))) !important;
+    height: auto !important;
+    max-height: var(--elyric-overlay-max-height, min(70dvh, 42rem)) !important;
+}
+
+[data-elyric-overlay-mode="popover"]::after {
+    position: absolute;
+    left: var(--elyric-overlay-anchor-tip-x, 50%);
+    width: .8rem;
+    height: .8rem;
+    border-right: 1px solid var(--elyric-border, rgb(255 255 255 / .15));
+    border-bottom: 1px solid var(--elyric-border, rgb(255 255 255 / .15));
+    background: color-mix(in srgb, var(--elyric-v2-panel-bg, #121722) 94%, transparent);
+    content: "";
+    pointer-events: none;
+}
+
+.elyric-player-media-panel[data-elyric-overlay-mode="popover"]::after {
+    background: color-mix(in srgb, var(--elyric-design-media-surface, #111827) 94%, transparent);
+}
+
+[data-elyric-overlay-placement="above"]::after {
+    bottom: -.45rem;
+    transform: translateX(-50%) rotate(45deg);
+}
+
+[data-elyric-overlay-placement="below"] {
+    transform-origin: var(--elyric-overlay-anchor-tip-x, 50%) top;
+}
+
+[data-elyric-overlay-placement="below"]::after {
+    top: -.45rem;
+    transform: translateX(-50%) rotate(225deg);
+}
+
+.elyric-player-overlay-scrim {
+    background: rgb(4 7 12 / .16) !important;
+    -webkit-backdrop-filter: blur(2px) !important;
+    backdrop-filter: blur(2px) !important;
+}
+
+@media (orientation: portrait) {
+    [data-elyric-overlay-mode="drawer"] {
+        position: fixed !important;
+        inset: auto .45rem max(.45rem, env(safe-area-inset-bottom, 0px)) !important;
+        width: auto !important;
+        height: auto !important;
+        max-width: none !important;
+        max-height: min(76dvh, 46rem) !important;
+        border-radius: var(--elyric-v2-popup-radius, 1.35rem) !important;
+        transform-origin: center bottom;
+    }
+
+    .elyric-player-settings-panel[data-elyric-overlay-mode="drawer"] {
+        max-height: min(82dvh, 52rem) !important;
+    }
+}
+
+@media (max-width: 760px) and (orientation: portrait) {
+    .elyric-player-settings-panel[data-elyric-overlay-mode="drawer"] {
+        inset: auto .45rem max(.45rem, env(safe-area-inset-bottom, 0px)) !important;
+        width: auto !important;
+        height: auto !important;
+        max-width: none !important;
+        max-height: min(82dvh, 52rem) !important;
+        padding: 0 !important;
+        border: 1px solid var(--elyric-border, rgb(255 255 255 / .15)) !important;
+        border-radius: var(--elyric-v2-popup-radius, 1.35rem) !important;
     }
 }
 
