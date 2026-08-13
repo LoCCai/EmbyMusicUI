@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.12-single-root-osd-v5 */
+/* ELYRIC_BUILD:2026.08.13-theme-v5-control-dock */
 ;(function () {
     "use strict";
 
@@ -36,17 +36,21 @@
     var PLAYER_PREFERENCES_KEY = "emby-lyric-enhance.player-preferences.v2";
     var PLAYER_THEME_LIBRARY_STORAGE_KEY = "emby-lyric-enhance.player-themes.v1";
     var PLAYER_THEME_DESIGN_STORAGE_KEY = "emby-lyric-enhance.player-theme-design.v1";
-    var PLAYER_PREFERENCES_VERSION = 4;
-    var PLAYER_THEME_SCHEMA_VERSION = 4;
+    var PLAYER_BUILD_ID = "2026.08.13-theme-v5-control-dock";
+    var PLAYER_PREFERENCES_VERSION = 5;
+    var PLAYER_THEME_SCHEMA_VERSION = 5;
     var PLAYER_THEME_DOCUMENT_FORMAT = "emby-lyric-theme";
-    var PLAYER_THEME_LAYOUT_MODEL = "anchored-canvas-v1";
+    var PLAYER_THEME_LAYOUT_MODEL = "anchored-canvas-v2";
+    var PLAYER_THEME_PREVIOUS_LAYOUT_MODEL = "anchored-canvas-v1";
     var PLAYER_THEME_V3_MIGRATION_BACKUP_KEY = "emby-lyric-enhance.player-theme-v3-backup.v1";
     var MAX_LEGACY_USER_PLAYER_THEMES = 24;
     var PLAYER_PREFERENCES_SAVE_DELAY = 500;
     var PLAYER_WORKSPACE_PATH = "EmbyLyricEnhance/UserWorkspace";
     var PLAYER_THEMES_PATH = "EmbyLyricEnhance/Themes";
     var PLAYER_ASSETS_PATH = "EmbyLyricEnhance/Assets";
-    var PLAYER_THEME_V2_OFFLINE_QUEUE_KEY = "emby-lyric-enhance.theme-v2.offline-queue";
+    var PLAYER_THEME_V2_OFFLINE_QUEUE_KEY = "emby-lyric-enhance.theme-v5.offline-queue";
+    var PLAYER_THEME_V2_WORKSPACE_CACHE_KEY = "emby-lyric-enhance.theme-v5.workspace-cache";
+    var PLAYER_THEME_V2_LEGACY_ARCHIVE_KEY = "emby-lyric-enhance.theme-v5.legacy-archive";
     var PUBLIC_CONFIGURATION_PATH = "EmbyLyricEnhance/PublicConfiguration";
     var PLAYER_LAYOUTS = [
         { id: "album", label: "编辑唱片" },
@@ -536,14 +540,25 @@
     var PLAYER_THEME_V2_PROFILE_IDS = ["landscape", "portrait"];
     var playerThemeV2ActiveProfile = "";
     var PLAYER_THEME_V2_LAYER_IDS = [
+        "artwork", "metadata", "lyrics", "visualizer", "controlDock"
+    ];
+    var PLAYER_THEME_V4_LAYER_IDS = [
         "artwork", "metadata", "lyrics", "visualizer",
         "progress", "transport", "volume", "auxiliary"
     ];
     var PLAYER_THEME_V2_LAYER_LABELS = {
         artwork: "专辑图", metadata: "歌曲信息", lyrics: "歌词",
-        visualizer: "频谱", progress: "进度", transport: "播放控制",
-        volume: "音量", auxiliary: "辅助按钮"
+        visualizer: "频谱", controlDock: "播放控制坞"
     };
+    var PLAYER_CONTROL_DOCK_GROUP_IDS = ["progress", "transport", "volume", "auxiliary"];
+    var PLAYER_CONTROL_DOCK_BUTTON_IDS = {
+        progress: [],
+        transport: ["previous", "playPause", "next"],
+        volume: ["mute", "slider", "value"],
+        auxiliary: ["shuffle", "repeat", "stop", "queue", "media", "secondaryLyrics", "artworkRotation"]
+    };
+    var PLAYER_CONTROL_DOCK_JUSTIFY_IDS = ["start", "center", "end", "space-between"];
+    var PLAYER_CONTROL_DOCK_ALIGN_IDS = ["start", "center", "end"];
     var PLAYER_THEME_V2_ANCHORS = ["start", "center", "end"];
     var PLAYER_LEGACY_GEOMETRY_TUNING_IDS = [
         "artworkSize", "artworkX", "artworkY", "metadataWidth", "metadataX", "metadataY",
@@ -825,6 +840,14 @@
                 });
             });
         });
+        registerPlayerThemeV2Parameter({
+            id: "controls.profiles." + profileId,
+            defaultValue: defaultPlayerControlDock().profiles[profileId],
+            validate: function (value) {
+                return normalizePlayerControlDockProfile(value, "portrait" === profileId);
+            },
+            editor: "control-dock", binding: "control-dock-layout", serverRule: "control-dock"
+        });
     });
 
     function playerThemeV2PathValue(source, path) {
@@ -894,20 +917,125 @@
                 metadata: defaultPlayerThemeV2Layer(-72, 86, 500, 144, 14, false, "end", "start"),
                 lyrics: defaultPlayerThemeV2Layer(-72, 38, 520, 420, 11, false, "end", "center"),
                 visualizer: defaultPlayerThemeV2Layer(0, -148, 960, 72, 9, false, "center", "end"),
-                progress: defaultPlayerThemeV2Layer(0, -92, 980, 52, 16, false, "center", "end"),
-                transport: defaultPlayerThemeV2Layer(0, -30, 280, 72, 17, false, "center", "end"),
-                volume: defaultPlayerThemeV2Layer(-72, -30, 220, 64, 17, false, "end", "end"),
-                auxiliary: defaultPlayerThemeV2Layer(72, -30, 300, 64, 17, false, "start", "end")
+                controlDock: defaultPlayerThemeV2Layer(0, -104, 1056, 142, 17, false, "center", "end")
             },
             portrait: {
                 artwork: defaultPlayerThemeV2Layer(0, 86, 500, 340, 12, false, "center", "start"),
                 metadata: defaultPlayerThemeV2Layer(0, 446, 756, 132, 14, false, "center", "start"),
                 lyrics: defaultPlayerThemeV2Layer(0, 646, 792, 348, 11, false, "center", "start"),
                 visualizer: defaultPlayerThemeV2Layer(0, -184, 720, 72, 9, false, "center", "end"),
-                progress: defaultPlayerThemeV2Layer(0, -112, 792, 58, 16, false, "center", "end"),
-                transport: defaultPlayerThemeV2Layer(0, -36, 360, 76, 17, false, "center", "end"),
-                volume: defaultPlayerThemeV2Layer(-48, -38, 164, 64, 17, true, "end", "end"),
-                auxiliary: defaultPlayerThemeV2Layer(48, -38, 220, 64, 17, false, "start", "end")
+                controlDock: defaultPlayerThemeV2Layer(0, -198, 792, 186, 17, false, "center", "end")
+            }
+        };
+    }
+
+    function normalizePlayerControlDockProfile(source, portrait) {
+        var fallback = defaultPlayerControlDockProfile(portrait);
+        source = source && "object" === typeof source ? source : {};
+        var seenGroups = {};
+        var rows = [];
+        (Array.isArray(source.rows) ? source.rows : fallback.rows).slice(0, 4).forEach(function (row) {
+            row = row && "object" === typeof row ? row : {};
+            var groups = [];
+            (Array.isArray(row.groups) ? row.groups : []).forEach(function (groupId) {
+                groupId = normalizePlayerThemeV2Enum(groupId, PLAYER_CONTROL_DOCK_GROUP_IDS, "");
+                if (groupId && !seenGroups[groupId]) { seenGroups[groupId] = true; groups.push(groupId); }
+            });
+            if (groups.length) {
+                rows.push({
+                    groups: groups,
+                    justify: normalizePlayerThemeV2Enum(row.justify, PLAYER_CONTROL_DOCK_JUSTIFY_IDS, "center"),
+                    align: normalizePlayerThemeV2Enum(row.align, PLAYER_CONTROL_DOCK_ALIGN_IDS, "center"),
+                    gap: normalizePlayerThemeV2Number(row.gap, 0, 80, 12)
+                });
+            }
+        });
+        PLAYER_CONTROL_DOCK_GROUP_IDS.forEach(function (groupId) {
+            if (!seenGroups[groupId]) {
+                if (rows.length >= 4) { rows[rows.length - 1].groups.push(groupId); }
+                else { rows.push({ groups: [groupId], justify: "center", align: "center", gap: 0 }); }
+                seenGroups[groupId] = true;
+            }
+        });
+        var groups = {};
+        PLAYER_CONTROL_DOCK_GROUP_IDS.forEach(function (groupId) {
+            var fallbackGroup = fallback.groups[groupId];
+            var candidate = source.groups && source.groups[groupId] && "object" === typeof source.groups[groupId]
+                ? source.groups[groupId] : fallbackGroup;
+            var allowedButtons = PLAYER_CONTROL_DOCK_BUTTON_IDS[groupId];
+            var seenButtons = {};
+            var order = [];
+            (Array.isArray(candidate.order) ? candidate.order : fallbackGroup.order).forEach(function (buttonId) {
+                buttonId = normalizePlayerThemeV2Enum(buttonId, allowedButtons, "");
+                if (buttonId && !seenButtons[buttonId]) { seenButtons[buttonId] = true; order.push(buttonId); }
+            });
+            allowedButtons.forEach(function (buttonId) {
+                if (!seenButtons[buttonId]) { order.push(buttonId); }
+            });
+            var hiddenButtons = [];
+            (Array.isArray(candidate.hiddenButtons) ? candidate.hiddenButtons : []).forEach(function (buttonId) {
+                if (allowedButtons.indexOf(buttonId) >= 0 && "playPause" !== buttonId
+                    && hiddenButtons.indexOf(buttonId) < 0) { hiddenButtons.push(buttonId); }
+            });
+            groups[groupId] = {
+                visible: "progress" === groupId || "transport" === groupId
+                    ? true : normalizePlayerThemeV2Boolean(candidate.visible),
+                order: order,
+                hiddenButtons: hiddenButtons,
+                align: normalizePlayerThemeV2Enum(candidate.align, PLAYER_CONTROL_DOCK_ALIGN_IDS, fallbackGroup.align),
+                gap: normalizePlayerThemeV2Number(candidate.gap, 0, 48, fallbackGroup.gap)
+            };
+        });
+        groups.transport.hiddenButtons = groups.transport.hiddenButtons.filter(function (id) { return "playPause" !== id; });
+        return { rows: rows.slice(0, 4), groups: groups };
+    }
+
+    function normalizePlayerControlDock(source) {
+        source = source && "object" === typeof source ? source : {};
+        return {
+            safeArea: normalizePlayerThemeV2Number(source.safeArea, 44, 180, 64),
+            profiles: {
+                landscape: normalizePlayerControlDockProfile(source.profiles && source.profiles.landscape, false),
+                portrait: normalizePlayerControlDockProfile(source.profiles && source.profiles.portrait, true)
+            }
+        };
+    }
+
+    function defaultPlayerControlDockProfile(portrait) {
+        return {
+            rows: portrait ? [
+                { groups: ["progress"], justify: "center", align: "center", gap: 0 },
+                { groups: ["transport"], justify: "center", align: "center", gap: 12 },
+                { groups: ["auxiliary", "volume"], justify: "center", align: "center", gap: 12 }
+            ] : [
+                { groups: ["progress"], justify: "center", align: "center", gap: 0 },
+                { groups: ["auxiliary", "transport", "volume"], justify: "space-between", align: "center", gap: 20 }
+            ],
+            groups: {
+                progress: { visible: true, order: [], hiddenButtons: [], align: "center", gap: 0 },
+                transport: {
+                    visible: true, order: ["previous", "playPause", "next"],
+                    hiddenButtons: [], align: "center", gap: 12
+                },
+                volume: {
+                    visible: !portrait, order: ["mute", "slider", "value"],
+                    hiddenButtons: [], align: "end", gap: 8
+                },
+                auxiliary: {
+                    visible: true,
+                    order: ["shuffle", "repeat", "stop", "queue", "media", "secondaryLyrics", "artworkRotation"],
+                    hiddenButtons: [], align: portrait ? "center" : "start", gap: 8
+                }
+            }
+        };
+    }
+
+    function defaultPlayerControlDock() {
+        return {
+            safeArea: 64,
+            profiles: {
+                landscape: defaultPlayerControlDockProfile(false),
+                portrait: defaultPlayerControlDockProfile(true)
             }
         };
     }
@@ -935,7 +1063,7 @@
             analysis[definition.id] = definition.fallback;
         });
         return {
-            schemaVersion: 4,
+            schemaVersion: PLAYER_THEME_SCHEMA_VERSION,
             layoutModel: PLAYER_THEME_LAYOUT_MODEL,
             viewportTransforms: {
                 landscape: { scale: 1, offsetX: 0, offsetY: 0 },
@@ -950,7 +1078,7 @@
             lyrics: { showSecondLine: true, showThirdAndLaterLines: true, followDelayMs: LYRIC_FOLLOW_IDLE_MS },
             visualizer: { frequencyLayout: "centerOut", analysis: analysis },
             popupStyle: { surfaceOpacity: 100, radius: 24 },
-            controls: { safeArea: 64 }
+            controls: defaultPlayerControlDock()
         };
     }
 
@@ -986,15 +1114,32 @@
         }
     }
 
-    function playerThemeV4LayoutsForBase(baseLayout) {
+    function playerThemeV5LayoutFromV4(layout, portrait, fallbackLayout) {
+        var converted = {};
+        var fallback = fallbackLayout || defaultPlayerThemeV2Layouts()[portrait ? "portrait" : "landscape"];
+        ["artwork", "metadata", "lyrics", "visualizer"].forEach(function (layerId) {
+            converted[layerId] = layout && layout[layerId]
+                ? clonePlayerThemeV2Value(layout[layerId])
+                : clonePlayerThemeV2Value(fallback[layerId]);
+        });
+        converted.controlDock = clonePlayerThemeV2Value(fallback.controlDock);
+        return converted;
+    }
+
+    function playerThemeV5LayoutsForBase(baseLayout) {
         var sourceLayouts = PLAYER_THEME_V4_BUILTIN_LAYOUTS
             && PLAYER_THEME_V4_BUILTIN_LAYOUTS[baseLayout];
         if (!sourceLayouts) {
             return defaultPlayerThemeV2Layouts();
         }
+        var fallback = defaultPlayerThemeV2Layouts();
         return {
-            landscape: playerThemeV4LayoutFromPercent(sourceLayouts.landscape, false),
-            portrait: playerThemeV4LayoutFromPercent(sourceLayouts.portrait, true)
+            landscape: playerThemeV5LayoutFromV4(
+                playerThemeV4LayoutFromPercent(sourceLayouts.landscape, false), false, fallback.landscape
+            ),
+            portrait: playerThemeV5LayoutFromV4(
+                playerThemeV4LayoutFromPercent(sourceLayouts.portrait, true), true, fallback.portrait
+            )
         };
     }
 
@@ -1002,14 +1147,29 @@
         var incoming = source && "object" === typeof source
             ? clonePlayerThemeV2Value(source)
             : {};
-        if (4 !== Number(incoming.schemaVersion) || PLAYER_THEME_LAYOUT_MODEL !== incoming.layoutModel) {
+        var version = Number(incoming.schemaVersion) || 0;
+        var fallbackLayouts = playerThemeV5LayoutsForBase(baseLayout);
+        if (PLAYER_THEME_SCHEMA_VERSION === version && PLAYER_THEME_LAYOUT_MODEL === incoming.layoutModel) {
+            // Current documents already own both direction layouts.
+        } else if (4 === version && PLAYER_THEME_PREVIOUS_LAYOUT_MODEL === incoming.layoutModel) {
+            incoming.layouts = {
+                landscape: playerThemeV5LayoutFromV4(
+                    incoming.layouts && incoming.layouts.landscape, false, fallbackLayouts.landscape
+                ),
+                portrait: playerThemeV5LayoutFromV4(
+                    incoming.layouts && incoming.layouts.portrait, true, fallbackLayouts.portrait
+                )
+            };
+            incoming.controls = defaultPlayerControlDock();
+        } else {
             rememberPlayerThemeV3MigrationBackup(incoming);
-            incoming.layouts = clonePlayerThemeV2Value(playerThemeV4LayoutsForBase(baseLayout));
+            incoming.layouts = clonePlayerThemeV2Value(fallbackLayouts);
             incoming.viewportTransforms = clonePlayerThemeV2Value(defaultPlayerThemeV2State().viewportTransforms);
+            incoming.controls = defaultPlayerControlDock();
         }
         delete incoming.layoutOverrides;
         incoming.layoutModel = PLAYER_THEME_LAYOUT_MODEL;
-        incoming.schemaVersion = 4;
+        incoming.schemaVersion = PLAYER_THEME_SCHEMA_VERSION;
         return incoming;
     }
 
@@ -1027,8 +1187,9 @@
                 definition.validate(undefined === value ? definition.defaultValue : value)
             );
         });
-        sanitizedRoot.v2.schemaVersion = 4;
+        sanitizedRoot.v2.schemaVersion = PLAYER_THEME_SCHEMA_VERSION;
         sanitizedRoot.v2.layoutModel = PLAYER_THEME_LAYOUT_MODEL;
+        sanitizedRoot.v2.controls = normalizePlayerControlDock(state.controls);
         return sanitizedRoot.v2;
     }
 
@@ -1091,10 +1252,7 @@
         var properties = {
             metadata: "__elyricPlayerMetadata",
             visualizer: "__elyricVisualizer",
-            progress: "__elyricPlayerProgress",
-            transport: "__elyricPlayerTransport",
-            volume: "__elyricPlayerVolume",
-            auxiliary: "__elyricPlayerTools"
+            controlDock: "__elyricPlayerControlDock"
         };
         return renderer[properties[layerId]] || null;
     }
@@ -1267,9 +1425,12 @@
         element.style.setProperty("transform-origin", "center", "important");
         element.style.setProperty("z-index", String(displayedLayer.z), "important");
         element.style.setProperty("opacity", String(displayedLayer.opacity), "important");
-        if (displayedLayer.hidden) { element.style.setProperty("display", "none", "important"); }
+        if (displayedLayer.hidden && "controlDock" !== layerId) { element.style.setProperty("display", "none", "important"); }
         else { element.style.removeProperty("display"); }
         element.setAttribute("data-elyric-v2-layer", layerId);
+        if ("controlDock" === layerId) {
+            element.style.setProperty("--elyric-control-stage-scale", String(Math.max(.001, metrics.scale)));
+        }
     }
 
     if ("undefined" !== typeof window) {
@@ -1279,6 +1440,7 @@
             designRect: playerThemeV2LayerDesignRect,
             renderedRect: playerThemeV2RenderedRect
         };
+        window.__elyricPlayerThemeV5Geometry = window.__elyricPlayerThemeV4Geometry;
     }
 
     function applyPlayerThemeV2SemanticControls(renderer) {
@@ -1295,6 +1457,62 @@
             setDisplayStyle(host, "--elyric-v2-popup-radius", popupRadius + "px");
             setDisplayStyle(host, "--elyric-v2-safe-area", safeArea + "px");
         });
+    }
+
+    function playerControlDockCssAlignment(value) {
+        if ("start" === value) { return "flex-start"; }
+        if ("end" === value) { return "flex-end"; }
+        return value;
+    }
+
+    function applyPlayerControlDock(renderer, profileOverride) {
+        var dock = renderer.__elyricPlayerControlDock;
+        var groups = renderer.__elyricControlDockGroups;
+        var items = renderer.__elyricControlDockItems;
+        if (!dock || !groups || !items || !renderer.__elyricThemeV2) { return; }
+        var profileId = PLAYER_THEME_V2_PROFILE_IDS.indexOf(profileOverride) >= 0
+            ? profileOverride : renderer.__elyricThemeV2Profile || currentPlayerThemeV2Profile();
+        var profile = normalizePlayerControlDockProfile(
+            renderer.__elyricThemeV2.controls
+                && renderer.__elyricThemeV2.controls.profiles
+                && renderer.__elyricThemeV2.controls.profiles[profileId],
+            "portrait" === profileId
+        );
+        renderer.__elyricThemeV2.controls.profiles[profileId] = profile;
+        while (dock.firstChild) { dock.removeChild(dock.firstChild); }
+        profile.rows.forEach(function (rowDefinition, rowIndex) {
+            var row = document.createElement("div");
+            row.className = "elyric-player-control-row";
+            row.setAttribute("data-elyric-control-row", String(rowIndex));
+            row.setAttribute("data-elyric-justify", rowDefinition.justify);
+            row.setAttribute("data-elyric-align", rowDefinition.align);
+            row.style.justifyContent = playerControlDockCssAlignment(rowDefinition.justify);
+            row.style.alignItems = playerControlDockCssAlignment(rowDefinition.align);
+            row.style.gap = Number(rowDefinition.gap || 0) + "px";
+            rowDefinition.groups.forEach(function (groupId) {
+                var group = groups[groupId];
+                var groupDefinition = profile.groups[groupId];
+                if (!group || !groupDefinition) { return; }
+                group.setAttribute("data-elyric-control-group", groupId);
+                group.setAttribute("data-elyric-group-align", groupDefinition.align);
+                group.style.alignItems = playerControlDockCssAlignment(groupDefinition.align);
+                group.style.justifyContent = playerControlDockCssAlignment(groupDefinition.align);
+                group.style.gap = Number(groupDefinition.gap || 0) + "px";
+                group.style.display = groupDefinition.visible ? "flex" : "none";
+                (groupDefinition.order || []).forEach(function (buttonId) {
+                    var element = items[groupId] && items[groupId][buttonId];
+                    if (!element) { return; }
+                    var hidden = groupDefinition.hiddenButtons.indexOf(buttonId) >= 0
+                        && "playPause" !== buttonId;
+                    element.style.display = hidden ? "none" : "";
+                    element.setAttribute("data-elyric-control-item", buttonId);
+                    group.appendChild(element);
+                });
+                row.appendChild(group);
+            });
+            dock.appendChild(row);
+        });
+        setAttributeIfChanged(dock, "data-elyric-control-profile", profileId);
     }
 
     function clearPlayerThemeV2Layout(renderer) {
@@ -1443,6 +1661,7 @@
         });
         applyPlayerThemeV2Artwork(renderer);
         applyPlayerThemeV2SemanticControls(renderer);
+        applyPlayerControlDock(renderer, renderer.__elyricThemeV2Profile);
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-theme-v2", "true");
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-theme-v2-profile", renderer.__elyricThemeV2Profile);
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-theme-v2", "true");
@@ -1647,7 +1866,7 @@
 
     function playerThemeV4LayoutFromPercent(layout, portrait) {
         var converted = {};
-        PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+        PLAYER_THEME_V4_LAYER_IDS.forEach(function (layerId) {
             converted[layerId] = playerThemeV4LayerFromPercent(layout[layerId], portrait);
         });
         return converted;
@@ -1750,8 +1969,14 @@
         var state = defaultPlayerThemeV2State();
         var sourceLayouts = PLAYER_THEME_V4_BUILTIN_LAYOUTS[layoutId] || PLAYER_THEME_V4_BUILTIN_LAYOUTS.album;
         state.layouts = {
-            landscape: playerThemeV4LayoutFromPercent(sourceLayouts.landscape, false),
-            portrait: playerThemeV4LayoutFromPercent(sourceLayouts.portrait, true)
+            landscape: playerThemeV5LayoutFromV4(
+                playerThemeV4LayoutFromPercent(sourceLayouts.landscape, false), false,
+                defaultPlayerThemeV2Layouts().landscape
+            ),
+            portrait: playerThemeV5LayoutFromV4(
+                playerThemeV4LayoutFromPercent(sourceLayouts.portrait, true), true,
+                defaultPlayerThemeV2Layouts().portrait
+            )
         };
         var colors = preset && preset.colors ? preset.colors : {};
         ["primary", "secondary", "tertiary"].forEach(function (lineId) {
@@ -2419,7 +2644,7 @@
             return null;
         }
         if (PLAYER_THEME_DOCUMENT_FORMAT === source.format
-            && (3 === Number(source.schemaVersion) || 4 === Number(source.schemaVersion))
+            && [3, 4, 5].indexOf(Number(source.schemaVersion)) >= 0
             && !source.v2) {
             source = playerThemeInternalFromV3Document(source, index);
         }
@@ -2549,8 +2774,18 @@
             if (null == player[key]) { delete player[key]; }
         });
         var migratedState = builtInPlayerThemeV4State(source.baseTheme || "album", null);
-        if (4 === Number(source.schemaVersion) && PLAYER_THEME_LAYOUT_MODEL === source.layoutModel) {
-            migratedState.layouts = clonePlayerThemeV2Value(source.layouts || migratedState.layouts);
+        if (Number(source.schemaVersion) >= 4) {
+            migratedState.layouts = 5 === Number(source.schemaVersion)
+                && PLAYER_THEME_LAYOUT_MODEL === source.layoutModel
+                ? clonePlayerThemeV2Value(source.layouts || migratedState.layouts)
+                : {
+                    landscape: playerThemeV5LayoutFromV4(
+                        source.layouts && source.layouts.landscape, false, migratedState.layouts.landscape
+                    ),
+                    portrait: playerThemeV5LayoutFromV4(
+                        source.layouts && source.layouts.portrait, true, migratedState.layouts.portrait
+                    )
+                };
             migratedState.viewportTransforms = clonePlayerThemeV2Value(
                 source.viewportTransforms || migratedState.viewportTransforms
             );
@@ -2576,10 +2811,12 @@
             surfaceOpacity: null == mediaCard.popupOpacity ? 100 : mediaCard.popupOpacity,
             radius: null == mediaCard.popupRadius ? 24 : mediaCard.popupRadius
         };
-        migratedState.controls = { safeArea: consoleStyle.safeArea || 64 };
+        migratedState.controls = normalizePlayerControlDock(source.controls || {
+            safeArea: consoleStyle.safeArea || 64
+        });
         return {
             format: PLAYER_THEME_DOCUMENT_FORMAT,
-            schemaVersion: 4,
+            schemaVersion: PLAYER_THEME_SCHEMA_VERSION,
             id: source.id || "imported-theme-" + String(index || 0),
             name: source.name || "导入主题",
             baseLayout: source.baseTheme || "album",
@@ -2592,7 +2829,7 @@
         };
     }
 
-    function portablePlayerThemeV4(theme, includePrivateAssets) {
+    function portablePlayerThemeV5(theme, includePrivateAssets) {
         var state = normalizePlayerThemeV2State(theme.v2 || defaultPlayerThemeV2State());
         var tuning = theme.tuning || {};
         var choices = theme.choices || {};
@@ -2615,12 +2852,13 @@
         }
         return {
             format: PLAYER_THEME_DOCUMENT_FORMAT,
-            schemaVersion: 4,
+            schemaVersion: PLAYER_THEME_SCHEMA_VERSION,
             layoutModel: PLAYER_THEME_LAYOUT_MODEL,
             name: normalizePlayerThemeName(theme.name, "导出主题"),
             baseTheme: theme.baseLayout || "album",
             layouts: clonePlayerThemeV2Value(state.layouts),
             viewportTransforms: clonePlayerThemeV2Value(state.viewportTransforms),
+            controls: clonePlayerThemeV2Value(state.controls),
             background: {
                 mode: player.backgroundMode || "blur", blur: tuning.backgroundBlur,
                 dim: tuning.backgroundDim, saturation: tuning.backgroundSaturation,
@@ -2693,21 +2931,26 @@
     }
 
     if ("undefined" !== typeof window) {
-        window.__elyricPlayerThemeV4Fixtures = PLAYER_LAYOUTS.filter(function (layout) {
+        window.__elyricPlayerThemeV5Fixtures = PLAYER_LAYOUTS.filter(function (layout) {
             return "custom" !== layout.id;
         }).map(function (layout) {
-            return portablePlayerThemeV4(resolvedBuiltInPlayerTheme(layout.id), false);
+            return portablePlayerThemeV5(resolvedBuiltInPlayerTheme(layout.id), false);
         });
-        window.__elyricPortablePlayerThemeV4 = function (theme) {
-            return portablePlayerThemeV4(theme, false);
+        window.__elyricPortablePlayerThemeV5 = function (theme) {
+            return portablePlayerThemeV5(theme, false);
         };
         window.__elyricValidatePortablePlayerThemeV3 = validatePortablePlayerThemeV3Document;
+        // Compatibility aliases for older test harnesses and exported tooling.
+        window.__elyricPlayerThemeV4Fixtures = window.__elyricPlayerThemeV5Fixtures;
+        window.__elyricPortablePlayerThemeV4 = window.__elyricPortablePlayerThemeV5;
     }
 
-    function loadStoredPlayerThemes() {
+    function loadStoredPlayerThemes(renderer, legacy) {
         try {
             if ("undefined" !== typeof localStorage) {
-                var serialized = localStorage.getItem(PLAYER_THEME_LIBRARY_STORAGE_KEY);
+                var key = legacy ? PLAYER_THEME_LIBRARY_STORAGE_KEY
+                    : playerThemeV2ScopedKey(PLAYER_THEME_LIBRARY_STORAGE_KEY, renderer);
+                var serialized = localStorage.getItem(key);
                 var parsed = serialized ? JSON.parse(serialized) : [];
                 if (Array.isArray(parsed)) {
                     return parsed.map(normalizeSavedPlayerTheme).filter(Boolean);
@@ -2723,7 +2966,7 @@
         try {
             if ("undefined" !== typeof localStorage) {
                 localStorage.setItem(
-                    PLAYER_THEME_LIBRARY_STORAGE_KEY,
+                    playerThemeV2ScopedKey(PLAYER_THEME_LIBRARY_STORAGE_KEY, renderer),
                     JSON.stringify(renderer.__elyricUserPlayerThemes || [])
                 );
             }
@@ -2734,7 +2977,10 @@
 
     function ensurePlayerThemeLibrary(renderer) {
         if (!renderer.__elyricUserPlayerThemes) {
-            renderer.__elyricUserPlayerThemes = loadStoredPlayerThemes();
+            // Theme summaries are populated by UserWorkspace/Themes (or its
+            // confirmed account-scoped cache), never by an unconfirmed local
+            // browser library during startup.
+            renderer.__elyricUserPlayerThemes = [];
         }
         if (!renderer.__elyricPlayerThemeColors) {
             renderer.__elyricPlayerThemeColors = defaultPlayerThemeColors();
@@ -2801,7 +3047,7 @@
         try {
             if ("undefined" !== typeof localStorage) {
                 localStorage.setItem(
-                    PLAYER_THEME_DESIGN_STORAGE_KEY,
+                    playerThemeV2ScopedKey(PLAYER_THEME_DESIGN_STORAGE_KEY, renderer),
                     JSON.stringify(collectCurrentPlayerTheme(renderer, "当前设计", "draft"))
                 );
             }
@@ -2810,10 +3056,12 @@
         }
     }
 
-    function loadCurrentPlayerThemeDesign() {
+    function loadCurrentPlayerThemeDesign(renderer, legacy) {
         try {
             if ("undefined" !== typeof localStorage) {
-                var serialized = localStorage.getItem(PLAYER_THEME_DESIGN_STORAGE_KEY);
+                var key = legacy ? PLAYER_THEME_DESIGN_STORAGE_KEY
+                    : playerThemeV2ScopedKey(PLAYER_THEME_DESIGN_STORAGE_KEY, renderer);
+                var serialized = localStorage.getItem(key);
                 return serialized ? normalizeSavedPlayerTheme(JSON.parse(serialized), 0) : null;
             }
         } catch (error) {
@@ -3071,6 +3319,7 @@
             renderer.__elyricThemeV2Profile = null;
             clearPlayerThemeV2Layout(renderer);
         }
+        renderer.__elyricStoredTheme = renderer.__elyricTheme;
         renderer.__elyricThemeBaseLayout = theme.baseLayout;
         syncPlayerThemeLibraryControls(renderer);
     }
@@ -3103,8 +3352,8 @@
 
     function applyStoredOrBuiltInPlayerTheme(renderer) {
         ensurePlayerThemeLibrary(renderer);
-        if ("custom" === renderer.__elyricPlayerLayout) {
-            var activeTheme = activeUserPlayerTheme(renderer) || loadCurrentPlayerThemeDesign();
+        if (renderer.__elyricWorkspaceReady && "custom" === renderer.__elyricPlayerLayout) {
+            var activeTheme = activeUserPlayerTheme(renderer) || loadCurrentPlayerThemeDesign(renderer, false);
             if (activeTheme) {
                 applyPlayerThemeDefinition(renderer, activeTheme);
                 return;
@@ -3254,6 +3503,68 @@
         return fallback;
     }
 
+    function playerThemeV2AccountScope(renderer) {
+        var apiClient = activeApiClient(renderer);
+        var userId = apiClient && apiClient.getCurrentUserId ? apiClient.getCurrentUserId() : "anonymous";
+        var serverId = "";
+        try {
+            serverId = apiClient && apiClient.serverId
+                ? ("function" === typeof apiClient.serverId ? apiClient.serverId() : apiClient.serverId) : "";
+        } catch (error) {}
+        try {
+            if (!serverId && apiClient && apiClient.serverInfo) {
+                var info = "function" === typeof apiClient.serverInfo ? apiClient.serverInfo() : apiClient.serverInfo;
+                serverId = info && (info.Id || info.id || info.ServerId || info.serverId) || "";
+            }
+        } catch (error) {}
+        try {
+            if (!serverId && apiClient && apiClient.serverAddress) {
+                serverId = "function" === typeof apiClient.serverAddress
+                    ? apiClient.serverAddress() : apiClient.serverAddress;
+            }
+        } catch (error) {}
+        if (!serverId && "undefined" !== typeof location) { serverId = location.origin || location.host || "unknown"; }
+        function safe(value) {
+            return encodeURIComponent(String(value || "unknown").toLowerCase()).replace(/%/g, "_").slice(0, 160);
+        }
+        return { serverId: String(serverId || "unknown"), userId: String(userId || "anonymous"), key: safe(serverId) + "." + safe(userId) };
+    }
+
+    function playerThemeV2ScopedKey(base, renderer) {
+        return base + "." + playerThemeV2AccountScope(renderer).key;
+    }
+
+    function archiveLegacyPlayerThemeV2Queue(renderer) {
+        if ("undefined" === typeof localStorage) { return; }
+        try {
+            var legacyKeys = ["emby-lyric-enhance.theme-v2.offline-queue", PLAYER_THEME_V2_OFFLINE_QUEUE_KEY];
+            legacyKeys.forEach(function (key) {
+                if (key === playerThemeV2ScopedKey(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY, renderer)) { return; }
+                var raw = localStorage.getItem(key);
+                if (!raw) { return; }
+                localStorage.setItem(PLAYER_THEME_V2_LEGACY_ARCHIVE_KEY + "." + Date.now(), raw);
+                localStorage.removeItem(key);
+            });
+        } catch (error) {}
+    }
+
+    function storeConfirmedPlayerThemeV2Workspace(renderer, workspace, summaries) {
+        if ("undefined" === typeof localStorage) { return; }
+        try {
+            localStorage.setItem(playerThemeV2ScopedKey(PLAYER_THEME_V2_WORKSPACE_CACHE_KEY, renderer), JSON.stringify({
+                confirmedAt: Date.now(), workspace: workspace || {}, summaries: summaries || []
+            }));
+        } catch (error) {}
+    }
+
+    function loadConfirmedPlayerThemeV2Workspace(renderer) {
+        try {
+            var raw = localStorage.getItem(playerThemeV2ScopedKey(PLAYER_THEME_V2_WORKSPACE_CACHE_KEY, renderer));
+            var cached = raw ? JSON.parse(raw) : null;
+            return cached && cached.workspace ? cached : null;
+        } catch (error) { return null; }
+    }
+
     function playerThemeV2ApiRequest(renderer, method, path, body, formData) {
         var apiClient = activeApiClient(renderer);
         if (!apiClient || !apiClient.getUrl) {
@@ -3360,22 +3671,23 @@
 
     function mergeRemotePlayerThemeSummaries(renderer, summaries) {
         ensurePlayerThemeLibrary(renderer);
+        var remoteThemes = [];
         (summaries || []).forEach(function (summary) {
             var id = String(playerThemeV2ResponseValue(summary, "id", "Id", ""));
             if (!id) { return; }
-            var existing = renderer.__elyricUserPlayerThemes.find(function (theme) { return theme.id === id; });
-            if (!existing) {
-                existing = normalizeSavedPlayerTheme({
-                    id: id,
-                    name: playerThemeV2ResponseValue(summary, "name", "Name", "远程主题"),
-                    baseLayout: "album"
-                }, renderer.__elyricUserPlayerThemes.length);
-                existing.remoteOnly = true;
-                renderer.__elyricUserPlayerThemes.push(existing);
-            }
-            existing.name = playerThemeV2ResponseValue(summary, "name", "Name", existing.name);
-            existing.revision = Number(playerThemeV2ResponseValue(summary, "revision", "Revision", existing.revision || 0));
+            var remote = normalizeSavedPlayerTheme({
+                id: id,
+                name: playerThemeV2ResponseValue(summary, "name", "Name", "远程主题"),
+                baseLayout: "album"
+            }, remoteThemes.length);
+            remote.revision = Number(playerThemeV2ResponseValue(summary, "revision", "Revision", 0));
+            remote.remoteOnly = true;
+            remoteThemes.push(remote);
         });
+        // A successful server read replaces the local summary list. Theme
+        // documents are fetched lazily when selected; stale browser copies can
+        // therefore never masquerade as the authenticated account version.
+        renderer.__elyricUserPlayerThemes = remoteThemes;
         storePlayerThemeLibrary(renderer);
         syncPlayerThemeLibraryControls(renderer);
     }
@@ -3397,6 +3709,7 @@
                 workspace, "activeThemeId", "ActiveThemeId", renderer.__elyricActiveUserPlayerThemeId || null
             );
             mergeRemotePlayerThemeSummaries(renderer, summaries);
+            storeConfirmedPlayerThemeV2Workspace(renderer, workspace, summaries);
             return workspace;
         });
     }
@@ -3426,25 +3739,28 @@
     }
 
     function removeQueuedPlayerThemeV2Operations(themeId) {
+        var renderer = arguments.length > 1 ? arguments[1] : null;
         try {
-            var queue = JSON.parse(localStorage.getItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY) || "[]");
+            var key = playerThemeV2ScopedKey(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY, renderer);
+            var queue = JSON.parse(localStorage.getItem(key) || "[]");
             if (!Array.isArray(queue)) { queue = []; }
             queue = queue.filter(function (operation) {
                 return !playerThemeV2OperationTargetsTheme(operation, themeId);
             });
             if (queue.length) {
-                localStorage.setItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+                localStorage.setItem(key, JSON.stringify(queue));
             } else if (localStorage.removeItem) {
-                localStorage.removeItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY);
+                localStorage.removeItem(key);
             } else {
-                localStorage.setItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY, "[]");
+                localStorage.setItem(key, "[]");
             }
         } catch (error) {}
     }
 
-    function queuePlayerThemeV2Operation(operation) {
+    function queuePlayerThemeV2Operation(renderer, operation) {
         try {
-            var queue = JSON.parse(localStorage.getItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY) || "[]");
+            var key = playerThemeV2ScopedKey(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY, renderer);
+            var queue = JSON.parse(localStorage.getItem(key) || "[]");
             if (!Array.isArray(queue)) { queue = []; }
             if ("workspace" === operation.kind) {
                 queue = queue.filter(function (item) { return "workspace" !== item.kind; });
@@ -3454,35 +3770,58 @@
                     return !playerThemeV2OperationTargetsTheme(item, operation.themeId);
                 });
             }
+            var scope = playerThemeV2AccountScope(renderer);
+            operation.scope = scope.key;
+            operation.baseRevision = Number(operation.baseRevision || renderer && renderer.__elyricWorkspaceRevision || 0);
+            operation.updatedAt = Number(operation.updatedAt || Date.now());
             queue.push(operation);
-            localStorage.setItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY, JSON.stringify(queue.slice(-100)));
+            localStorage.setItem(key, JSON.stringify(queue.slice(-100)));
         } catch (error) {}
     }
 
     function flushPlayerThemeV2OfflineQueue(renderer) {
         var queue = [];
-        try { queue = JSON.parse(localStorage.getItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY) || "[]"); } catch (error) {}
+        var key = playerThemeV2ScopedKey(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY, renderer);
+        try { queue = JSON.parse(localStorage.getItem(key) || "[]"); } catch (error) {}
         if (!Array.isArray(queue) || !queue.length) { return Promise.resolve(); }
-        var chain = Promise.resolve();
+        var scope = playerThemeV2AccountScope(renderer);
+        queue = queue.filter(function (operation) { return operation.scope === scope.key; });
+        var hadConflict = false;
+        var chain = requestPlayerThemeV2Workspace(renderer).then(function () {});
         queue.forEach(function (operation) {
             chain = chain.then(function () {
-                return playerThemeV2ApiRequest(renderer, operation.method, operation.path, operation.body);
+                return playerThemeV2ApiRequest(renderer, operation.method, operation.path, operation.body).then(function (result) {
+                    if (playerThemeV2ResponseValue(result, "conflict", "Conflict", false)) {
+                        hadConflict = true;
+                        renderer.__elyricWorkspaceSource = "conflict";
+                        updatePreferenceStatus(renderer, "conflict", "revision 冲突：服务端版本继续生效，本地版本已保存为冲突副本");
+                    }
+                    return result;
+                });
             });
         });
         return chain.then(function () {
-            localStorage.removeItem(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY);
-            return requestPlayerThemeV2Workspace(renderer);
+            localStorage.removeItem(key);
+            return requestPlayerThemeV2Workspace(renderer).then(function (workspace) {
+                var preferences = applyPlayerThemeV2WorkspaceToPreferences(renderer, workspace, {});
+                return finalizeUserPlayerPreferencesRestore(
+                    renderer,
+                    preferences,
+                    hadConflict ? "conflict" : "server"
+                );
+            });
         }).catch(function () {});
     }
 
     function persistPlayerThemeV2Workspace(renderer) {
+        renderer.__elyricLastWorkspaceConflict = false;
         var preferences = collectUserPlayerPreferences(renderer);
         delete preferences.playerThemes;
         delete preferences.playerThemeDesign;
         var body = {
             ExpectedRevision: Number(renderer.__elyricWorkspaceRevision || 0),
             ActiveThemeId: renderer.__elyricActiveUserPlayerThemeId || null,
-            DraftJson: JSON.stringify(portablePlayerThemeV4(
+            DraftJson: JSON.stringify(portablePlayerThemeV5(
                 collectCurrentPlayerTheme(renderer, "当前设计", "draft"),
                 true
             )),
@@ -3491,16 +3830,35 @@
         };
         return playerThemeV2ApiRequest(renderer, "PUT", PLAYER_WORKSPACE_PATH, body).then(function (result) {
             var value = playerThemeV2ResponseValue(result, "value", "Value", result);
+            var conflict = !!playerThemeV2ResponseValue(result, "conflict", "Conflict", false);
             renderer.__elyricWorkspaceRevision = Number(playerThemeV2ResponseValue(value, "revision", "Revision", renderer.__elyricWorkspaceRevision || 0));
+            renderer.__elyricWorkspaceLegacyImported = !!playerThemeV2ResponseValue(
+                value, "legacyImported", "LegacyImported", true
+            );
+            renderer.__elyricActiveUserPlayerThemeId = playerThemeV2ResponseValue(
+                value, "activeThemeId", "ActiveThemeId", renderer.__elyricActiveUserPlayerThemeId || null
+            );
+            var summaries = playerThemeV2ResponseValue(value, "themes", "Themes", []);
+            mergeRemotePlayerThemeSummaries(renderer, Array.isArray(summaries) ? summaries : []);
+            storeConfirmedPlayerThemeV2Workspace(renderer, value, summaries);
             var conflictCopy = playerThemeV2ResponseValue(result, "conflictCopy", "ConflictCopy", null);
             if (conflictCopy) {
                 var theme = normalizeRemotePlayerTheme(conflictCopy);
                 if (theme) { renderer.__elyricUserPlayerThemes.push(theme); storePlayerThemeLibrary(renderer); }
                 updatePlayerThemeLibraryStatus(renderer, "检测到跨设备修改，已保留为冲突副本", "error");
             }
+            if (conflict) {
+                renderer.__elyricLastWorkspaceConflict = true;
+                renderer.__elyricWorkspaceSource = "conflict";
+                finalizeUserPlayerPreferencesRestore(
+                    renderer,
+                    applyPlayerThemeV2WorkspaceToPreferences(renderer, value, {}),
+                    "conflict"
+                );
+            }
             return true;
         }).catch(function () {
-            queuePlayerThemeV2Operation({ kind: "workspace", method: "PUT", path: PLAYER_WORKSPACE_PATH, body: body });
+            queuePlayerThemeV2Operation(renderer, { kind: "workspace", method: "PUT", path: PLAYER_WORKSPACE_PATH, body: body });
             updatePreferenceStatus(renderer, "local", "离线修改已进入待同步队列");
             return false;
         });
@@ -3514,7 +3872,7 @@
             Id: theme.id,
             ExpectedRevision: Number(theme.revision || 0),
             Name: theme.name,
-            ThemeJson: JSON.stringify(portablePlayerThemeV4(theme, true))
+            ThemeJson: JSON.stringify(portablePlayerThemeV5(theme, true))
         };
         return playerThemeV2ApiRequest(renderer, method, path, body).then(function (record) {
             var resultRecord = playerThemeV2ResponseValue(record, "value", "Value", record);
@@ -3529,7 +3887,7 @@
                 if (index >= 0) { renderer.__elyricUserPlayerThemes[index] = synced; }
                 else { renderer.__elyricUserPlayerThemes.push(synced); }
             }
-            removeQueuedPlayerThemeV2Operations(theme.id);
+            removeQueuedPlayerThemeV2Operations(theme.id, renderer);
             var conflictCopy = playerThemeV2ResponseValue(record, "conflictCopy", "ConflictCopy", null);
             if (conflictCopy) {
                 var copy = normalizeRemotePlayerTheme(conflictCopy);
@@ -3544,7 +3902,7 @@
             }
             return synced;
         }).catch(function (error) {
-            queuePlayerThemeV2Operation({
+            queuePlayerThemeV2Operation(renderer, {
                 kind: create ? "theme-create" : "theme-update",
                 themeId: theme.id,
                 method: method,
@@ -3603,7 +3961,7 @@
         applyPlayerThemeV2Typography(renderer);
     }
 
-    function requestUserPlayerPreferences(renderer) {
+    function legacyRequestUserPlayerPreferences(renderer) {
         if (renderer.__elyricUserPreferencesPromise) {
             return renderer.__elyricUserPreferencesPromise;
         }
@@ -3679,7 +4037,7 @@
         return renderer.__elyricUserPreferencesPromise;
     }
 
-    function persistUserPlayerPreferences(renderer) {
+    function legacyPersistUserPlayerPreferences(renderer) {
         var apiClient = renderer.__elyricPreferenceApiClient || activeApiClient(renderer);
         var userId = renderer.__elyricPreferenceUserId
             || (apiClient && apiClient.getCurrentUserId ? apiClient.getCurrentUserId() : null);
@@ -3725,7 +4083,7 @@
         });
     }
 
-    function scheduleUserPlayerPreferencesSave(renderer) {
+    function legacyScheduleUserPlayerPreferencesSave(renderer) {
         if (!renderer || !renderer.__elyricThemeControl || renderer.__elyricApplyingUserPreferences) {
             return;
         }
@@ -3738,6 +4096,169 @@
         if (renderer.__elyricPreferenceSaveTimer) {
             clearTimeout(renderer.__elyricPreferenceSaveTimer);
         }
+        renderer.__elyricPreferenceSaveTimer = setTimeout(function () {
+            renderer.__elyricPreferenceSaveTimer = 0;
+            persistUserPlayerPreferences(renderer);
+        }, PLAYER_PREFERENCES_SAVE_DELAY);
+    }
+
+    function readLegacyUserPlayerPreferences(renderer, apiClient, userId) {
+        var request = apiClient && apiClient.getDisplayPreferences
+            ? Promise.resolve(apiClient.getDisplayPreferences(userId)) : Promise.resolve({});
+        return request.then(function (displayPreferences) {
+            var map = displayPreferences && (displayPreferences.CustomPrefs || displayPreferences.customPrefs);
+            map = map || displayPreferences || {};
+            renderer.__elyricDisplayPreferences = map;
+            var preferences = null;
+            try {
+                preferences = map[PLAYER_PREFERENCES_KEY]
+                    ? normalizeUserPlayerPreferences(JSON.parse(map[PLAYER_PREFERENCES_KEY])) : null;
+            } catch (error) {}
+            preferences = preferences || { version: PLAYER_PREFERENCES_VERSION, tuning: {} };
+            var legacyDesign = loadCurrentPlayerThemeDesign(renderer, true);
+            var legacyThemes = loadStoredPlayerThemes(renderer, true).slice(0, MAX_LEGACY_USER_PLAYER_THEMES);
+            if (!preferences.playerThemeDesign && legacyDesign) { preferences.playerThemeDesign = legacyDesign; }
+            if (!preferences.playerThemes && legacyThemes.length) { preferences.playerThemes = legacyThemes; }
+            return preferences;
+        }, function () { return { version: PLAYER_PREFERENCES_VERSION, tuning: {} }; });
+    }
+
+    function finalizeUserPlayerPreferencesRestore(renderer, preferences, source) {
+        if (preferences) { applyUserPlayerPreferences(renderer, preferences); }
+        renderer.__elyricWorkspaceReady = true;
+        renderer.__elyricWorkspaceSource = source;
+        setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-workspace-ready", "true");
+        setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-workspace-source", source);
+        setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-workspace-revision", String(renderer.__elyricWorkspaceRevision || 0));
+        var scope = playerThemeV2AccountScope(renderer);
+        setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-account-scope", scope.key);
+        var apiAvailable = ["server", "legacy-import", "conflict"].indexOf(source) >= 0;
+        setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-api-available", apiAvailable ? "true" : "false");
+        if ("undefined" !== typeof window) {
+            window.__elyricPlayerDiagnostics = {
+                buildId: PLAYER_BUILD_ID,
+                apiAvailable: apiAvailable,
+                accountScope: scope.key,
+                workspaceRevision: Number(renderer.__elyricWorkspaceRevision || 0),
+                schemaVersion: PLAYER_THEME_SCHEMA_VERSION,
+                profile: renderer.__elyricThemeV2Profile || currentPlayerThemeV2Profile(),
+                rootCount: document.querySelectorAll ? document.querySelectorAll(".elyric-player-root").length : 1,
+                syncSource: source
+            };
+        }
+        if (renderer.__elyricPlayerStage) { renderer.__elyricPlayerStage.removeAttribute("aria-busy"); }
+        var statusText = "已使用安全默认主题";
+        if ("server" === source) { statusText = "账号已同步"; }
+        else if ("offline-cache" === source) { statusText = "已使用本账号离线缓存"; }
+        else if ("legacy-import" === source) { statusText = "正在迁移旧设置"; }
+        else if ("conflict" === source) { statusText = "revision 冲突：服务端版本继续生效，本地版本已保存为冲突副本"; }
+        updatePreferenceStatus(renderer, "server" === source ? "synced" : source, statusText);
+        if (renderer.__elyricThemeControl) {
+            setTimeout(function () {
+                if (renderer.__elyricThemeControl) {
+                    syncPlayerPageState(renderer, isThemeContextVisible(renderer));
+                }
+            }, 0);
+        }
+        return preferences;
+    }
+
+    function requestUserPlayerPreferences(renderer, force) {
+        if (renderer.__elyricUserPreferencesPromise && !force) { return renderer.__elyricUserPreferencesPromise; }
+        var apiClient = activeApiClient(renderer);
+        var scope = playerThemeV2AccountScope(renderer);
+        var userId = scope.userId;
+        var previousReady = !!renderer.__elyricWorkspaceReady;
+        renderer.__elyricPreferenceApiClient = apiClient;
+        renderer.__elyricPreferenceUserId = userId;
+        renderer.__elyricWorkspaceReady = false;
+        renderer.__elyricWorkspaceSource = "loading";
+        setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-workspace-ready", "false");
+        setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-workspace-source", "loading");
+        if (renderer.__elyricPlayerStage) { renderer.__elyricPlayerStage.setAttribute("aria-busy", "true"); }
+        updatePreferenceStatus(renderer, "loading", "正在读取当前 Emby 账号主题…");
+        archiveLegacyPlayerThemeV2Queue(renderer);
+        if (!apiClient || !apiClient.getUrl || !userId || "anonymous" === userId) {
+            renderer.__elyricUserPreferencesPromise = Promise.resolve(
+                finalizeUserPlayerPreferencesRestore(renderer, null, "api-unavailable")
+            );
+            return renderer.__elyricUserPreferencesPromise;
+        }
+        renderer.__elyricUserPreferencesPromise = requestPlayerThemeV2Workspace(renderer).then(function (workspace) {
+            var revision = Number(playerThemeV2ResponseValue(workspace, "revision", "Revision", 0));
+            var draftJson = playerThemeV2ResponseValue(workspace, "draftJson", "DraftJson", "{}");
+            var legacyImported = !!playerThemeV2ResponseValue(workspace, "legacyImported", "LegacyImported", false);
+            var hasDraft = !!draftJson && "{}" !== String(draftJson).trim();
+            if (revision > 0 || hasDraft || legacyImported) {
+                var authoritative = applyPlayerThemeV2WorkspaceToPreferences(renderer, workspace, {});
+                finalizeUserPlayerPreferencesRestore(renderer, authoritative, "server");
+                flushPlayerThemeV2OfflineQueue(renderer);
+                return authoritative;
+            }
+            return readLegacyUserPlayerPreferences(renderer, apiClient, userId).then(function (legacy) {
+                applyUserPlayerPreferences(renderer, legacy);
+                renderer.__elyricWorkspaceSource = "legacy-import";
+                setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-workspace-source", "legacy-import");
+                updatePreferenceStatus(renderer, "loading", "正在一次性迁移旧设置…");
+                var legacyThemes = (legacy.playerThemes || []).slice(0, MAX_LEGACY_USER_PLAYER_THEMES);
+                return Promise.all(legacyThemes.map(function (theme) {
+                    return syncNamedPlayerThemeV2(renderer, theme, true);
+                })).then(function () {
+                    return persistPlayerThemeV2Workspace(renderer).then(function (saved) {
+                        var restoreSource = renderer.__elyricLastWorkspaceConflict
+                            ? "conflict" : (saved ? "server" : "legacy-import");
+                        finalizeUserPlayerPreferencesRestore(
+                            renderer,
+                            null,
+                            restoreSource
+                        );
+                        if (saved && "conflict" !== restoreSource) {
+                            updatePreferenceStatus(renderer, "synced", "旧设置已一次性迁移到当前账号");
+                        }
+                        return legacy;
+                    });
+                });
+            });
+        }).catch(function (error) {
+            var cached = loadConfirmedPlayerThemeV2Workspace(renderer);
+            if (cached) {
+                mergeRemotePlayerThemeSummaries(renderer, cached.summaries || []);
+                var preferences = applyPlayerThemeV2WorkspaceToPreferences(renderer, cached.workspace, {});
+                return finalizeUserPlayerPreferencesRestore(renderer, preferences, "offline-cache");
+            }
+            var unavailable = 404 === Number(error && (error.status || error.statusCode));
+            if (previousReady) {
+                renderer.__elyricWorkspaceReady = true;
+                renderer.__elyricWorkspaceSource = "pending";
+                setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-workspace-ready", "true");
+                setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-workspace-source", "pending");
+                if (renderer.__elyricPlayerStage) { renderer.__elyricPlayerStage.removeAttribute("aria-busy"); }
+                updatePreferenceStatus(renderer, "pending", "账号刷新失败；保留当前界面并等待重试");
+                return null;
+            }
+            return finalizeUserPlayerPreferencesRestore(renderer, null, unavailable ? "api-unavailable" : "safe-default");
+        });
+        return renderer.__elyricUserPreferencesPromise;
+    }
+
+    function persistUserPlayerPreferences(renderer) {
+        if (!renderer || !renderer.__elyricWorkspaceReady) { return Promise.resolve(false); }
+        updatePreferenceStatus(renderer, "saving", "正在同步到当前 Emby 账号…");
+        return persistPlayerThemeV2Workspace(renderer).then(function (saved) {
+            if (renderer.__elyricLastWorkspaceConflict) {
+                updatePreferenceStatus(renderer, "conflict", "revision 冲突：服务端版本继续生效，本地版本已保存为冲突副本");
+            } else {
+                updatePreferenceStatus(renderer, saved ? "synced" : "pending", saved ? "账号已同步" : "本地待同步");
+            }
+            return saved;
+        });
+    }
+
+    function scheduleUserPlayerPreferencesSave(renderer) {
+        if (!renderer || !renderer.__elyricThemeControl || !renderer.__elyricWorkspaceReady
+            || renderer.__elyricApplyingUserPreferences) { return; }
+        if (renderer.__elyricPreferenceSaveTimer) { clearTimeout(renderer.__elyricPreferenceSaveTimer); }
+        updatePreferenceStatus(renderer, "pending", "修改待同步");
         renderer.__elyricPreferenceSaveTimer = setTimeout(function () {
             renderer.__elyricPreferenceSaveTimer = 0;
             persistUserPlayerPreferences(renderer);
@@ -3823,7 +4344,7 @@
             if ("custom" === renderer.__elyricPlayerLayout) {
                 applyPlayerThemeDefinition(
                     renderer,
-                    activeUserPlayerTheme(renderer) || preferences.playerThemeDesign
+                    preferences.playerThemeDesign
                 );
             }
         } else if ("custom" === renderer.__elyricPlayerLayout && activeUserPlayerTheme(renderer)) {
@@ -3853,8 +4374,10 @@
         if (renderer.__elyricThemeInitialized) {
             return;
         }
-        renderer.__elyricStoredTheme = loadStoredTheme();
-        renderer.__elyricTheme = renderer.__elyricStoredTheme || "classic";
+        // Unscoped browser storage is legacy migration input only. The live
+        // player starts safely and waits for the authenticated UserWorkspace.
+        renderer.__elyricStoredTheme = null;
+        renderer.__elyricTheme = "classic";
         renderer.__elyricThemeInitialized = true;
     }
 
@@ -4032,7 +4555,6 @@
             renderer.__elyricVisualizerAnalyser.smoothingTimeConstant = value / 100;
         }
         if (persist) {
-            storeVisualizerValue(definition.storageKey, value);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
@@ -4064,7 +4586,6 @@
         setAttributeIfChanged(renderer.__elyricVisualizer, "data-elyric-visualizer-style", styleId);
         syncSegmentedButtons(renderer.__elyricVisualizerStyleButtons, styleId);
         if (persist) {
-            storeVisualizerValue(VISUALIZER_STYLE_STORAGE_KEY, styleId);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
@@ -4099,9 +4620,6 @@
     function setVisualizerRange(renderer, rangeId, persist) {
         rangeId = knownChoice(VISUALIZER_RANGES, rangeId, "wide");
         setVisualizerWidth(renderer, visualizerWidthForRange(rangeId), persist);
-        if (persist) {
-            storeVisualizerValue(VISUALIZER_RANGE_STORAGE_KEY, rangeId);
-        }
     }
 
     function setVisualizerWidth(renderer, width, persist) {
@@ -4126,8 +4644,6 @@
         }
         replaceElementText(renderer.__elyricVisualizerWidthValue, width + "%");
         if (persist) {
-            storeVisualizerValue(VISUALIZER_WIDTH_STORAGE_KEY, width);
-            storeVisualizerValue(VISUALIZER_RANGE_STORAGE_KEY, renderer.__elyricVisualizerRange);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
@@ -4144,7 +4660,6 @@
         }
         replaceElementText(renderer.__elyricVisualizerHeightValue, height + "%");
         if (persist) {
-            storeVisualizerValue(VISUALIZER_HEIGHT_STORAGE_KEY, height);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
@@ -4161,7 +4676,6 @@
         }
         replaceElementText(renderer.__elyricVisualizerAmplitudeValue, amplitude + "%");
         if (persist) {
-            storeVisualizerValue(VISUALIZER_AMPLITUDE_STORAGE_KEY, amplitude);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
@@ -4201,7 +4715,6 @@
         }
         syncSegmentedButtons(renderer.__elyricBackgroundButtons, modeId);
         if (persist) {
-            storeVisualizerValue(BACKGROUND_MODE_STORAGE_KEY, modeId);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
@@ -4214,7 +4727,6 @@
         setAttributeIfChanged(renderer.__elyricSettingsPanel, "data-elyric-visualizer-color-mode", modeId);
         syncSegmentedButtons(renderer.__elyricVisualizerColorModeButtons, modeId);
         if (persist) {
-            storeVisualizerValue(VISUALIZER_COLOR_MODE_STORAGE_KEY, modeId);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
@@ -4240,7 +4752,6 @@
             setDisplayStyle(swatch, "--elyric-swatch-color", color);
         }
         if (persist) {
-            storeVisualizerValue(VISUALIZER_COLOR_STORAGE_KEYS[colorIndex], color);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
@@ -4273,7 +4784,6 @@
         }
         syncSegmentedButtons(renderer.__elyricAlignmentButtons, alignmentId);
         if (persist) {
-            storeVisualizerValue(LYRIC_ALIGNMENT_STORAGE_KEY, alignmentId);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
@@ -4289,7 +4799,6 @@
         }
         replaceElementText(renderer.__elyricLyricScaleValue, scale + "%");
         if (persist) {
-            storeVisualizerValue(LYRIC_SCALE_STORAGE_KEY, scale);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
@@ -4330,7 +4839,6 @@
             syncSegmentedButtons(renderer.__elyricArtworkInnerShapeButtons, String(value));
         }
         if (persist) {
-            storePlayerTuning(settingId, value);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
@@ -4397,7 +4905,6 @@
         );
         syncArtworkRotationAvailability(renderer);
         if (persist) {
-            storeArtworkRotation(enabled);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
@@ -4812,7 +5319,7 @@
         syncSegmentedButtons(renderer.__elyricLayoutButtons, layoutId);
         if (persist) {
             if ("custom" === layoutId) {
-                var savedTheme = activeUserPlayerTheme(renderer) || loadCurrentPlayerThemeDesign();
+                var savedTheme = activeUserPlayerTheme(renderer) || loadCurrentPlayerThemeDesign(renderer, false);
                 if (savedTheme) {
                     applyPlayerThemeDefinition(renderer, savedTheme);
                 }
@@ -4820,7 +5327,6 @@
                 renderer.__elyricActiveUserPlayerThemeId = null;
                 applyPlayerLayoutPresetDefaults(renderer, layoutId);
             }
-            storePlayerLayout(layoutId);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
@@ -4866,7 +5372,6 @@
         if (persist) {
             renderer.__elyricStoredTheme = themeId;
             renderer.__elyricUserSelectedTheme = true;
-            storeTheme(themeId);
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
@@ -4924,10 +5429,12 @@
         }
 
         var effectiveTheme = configuration.defaultTheme;
-        if (configuration.allowUserThemeOverride && renderer.__elyricStoredTheme) {
+        if (renderer.__elyricWorkspaceReady) {
+            effectiveTheme = renderer.__elyricTheme || effectiveTheme;
+        } else if (configuration.allowUserThemeOverride && renderer.__elyricStoredTheme) {
             effectiveTheme = renderer.__elyricStoredTheme;
         }
-        applyTheme(renderer, effectiveTheme, false);
+        if (!renderer.__elyricWorkspaceReady) { applyTheme(renderer, effectiveTheme, false); }
 
         if (renderer.__elyricThemeSelect) {
             renderer.__elyricThemeSelect.disabled = !configuration.allowUserThemeOverride;
@@ -4948,8 +5455,8 @@
             );
         }
         applyPlayerShellConfiguration(renderer, configuration);
-        if (renderer.__elyricThemeControl) {
-            setLyricScale(renderer, loadLyricScale(renderer), false);
+        if (renderer.__elyricThemeControl && !renderer.__elyricWorkspaceReady) {
+            setLyricScale(renderer, configuration.fontSizePercent, false);
         }
     }
 
@@ -4979,7 +5486,7 @@
             container.removeAttribute("data-elyric-show-second");
             container.removeAttribute("data-elyric-show-third-plus");
             if (container.style && container.style.removeProperty) {
-                [
+    [
                     "--elyric-font-size",
                     "--elyric-line-height",
                     "--elyric-font-weight",
@@ -6636,7 +7143,7 @@
         }
         syncSegmentedButtons(renderer.__elyricSecondLineSettingsButtons, show ? "on" : "off");
         if (persist) {
-            storeVisualizerValue("emby-lyric-enhance.show-second-line", show ? "true" : "false");
+            storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
     }
@@ -6770,7 +7277,6 @@
         applyPlayerThemeDefinition(renderer, resolvedBuiltInPlayerTheme("album"));
         renderer.__elyricActiveUserPlayerThemeId = null;
         applyPlayerLayout(renderer, "custom", false);
-        storePlayerLayout("custom");
         storeCurrentPlayerThemeDesign(renderer);
         scheduleUserPlayerPreferencesSave(renderer);
         syncPlayerThemeLibraryControls(renderer);
@@ -6911,7 +7417,6 @@
         renderer.__elyricPlayerLayout = "custom";
         applyPlayerLayout(renderer, "custom", false);
         applyPlayerThemeDefinition(renderer, theme);
-        storePlayerLayout("custom");
         storeCurrentPlayerThemeDesign(renderer);
         scheduleUserPlayerPreferencesSave(renderer);
         updatePlayerThemeLibraryStatus(renderer, "已应用“" + theme.name + "”", "synced");
@@ -6951,7 +7456,6 @@
         renderer.__elyricPlayerLayout = "custom";
         renderer.__elyricThemeBaseLayout = theme.baseLayout;
         applyPlayerLayout(renderer, "custom", false);
-        storePlayerLayout("custom");
         storePlayerThemeLibrary(renderer);
         storeCurrentPlayerThemeDesign(renderer);
         scheduleUserPlayerPreferencesSave(renderer);
@@ -7027,7 +7531,7 @@
             syncPlayerThemeLibraryControls(renderer);
         };
         if (!(active.revision > 0)) {
-            removeQueuedPlayerThemeV2Operations(active.id);
+            removeQueuedPlayerThemeV2Operations(active.id, renderer);
             finishLocalDelete("已删除本地待同步主题“" + active.name + "”，不会再上传服务器", "ready");
             return;
         }
@@ -7042,10 +7546,10 @@
                 requestPlayerThemeV2Workspace(renderer).catch(function () {});
                 return;
             }
-            removeQueuedPlayerThemeV2Operations(active.id);
+            removeQueuedPlayerThemeV2Operations(active.id, renderer);
             finishLocalDelete();
         }).catch(function (error) {
-            queuePlayerThemeV2Operation({
+            queuePlayerThemeV2Operation(renderer, {
                 kind: "theme-delete",
                 themeId: active.id,
                 method: "DELETE",
@@ -7081,7 +7585,7 @@
 
     function serializedPortablePlayerTheme(renderer) {
         var theme = currentPlayerThemeForExport(renderer);
-        return JSON.stringify(portablePlayerThemeV4(theme, false), null, 2);
+        return JSON.stringify(portablePlayerThemeV5(theme, false), null, 2);
     }
 
     function copyPortablePlayerTheme(renderer) {
@@ -7293,10 +7797,10 @@
         validateImportedThemeForbiddenFields(documentValue, "theme");
         validateImportedThemeObject(documentValue, "theme", [
             "format", "schemaVersion", "layoutModel", "name", "baseTheme", "layouts", "viewportTransforms", "background", "artwork",
-            "metadata", "lyrics", "visualizer", "console", "mediaCard", "mediaFields"
+            "metadata", "lyrics", "visualizer", "console", "controls", "mediaCard", "mediaFields"
         ]);
         if (PLAYER_THEME_DOCUMENT_FORMAT !== documentValue.format
-            || [3, 4].indexOf(Number(documentValue.schemaVersion)) < 0) {
+            || [3, 4, 5].indexOf(Number(documentValue.schemaVersion)) < 0) {
             throw new Error("主题格式或版本不是 Theme V3");
         }
         if ("string" !== typeof documentValue.name || !documentValue.name.trim()
@@ -7309,14 +7813,16 @@
             ["album", "center", "mobile", "mint", "deck", "stack", "coverflow", "lyrics", "rose"],
             "theme"
         );
-        if (4 === portableVersion) {
-            if (PLAYER_THEME_LAYOUT_MODEL !== documentValue.layoutModel) {
+        if (portableVersion >= 4) {
+            var expectedLayoutModel = 5 === portableVersion
+                ? PLAYER_THEME_LAYOUT_MODEL : PLAYER_THEME_PREVIOUS_LAYOUT_MODEL;
+            if (expectedLayoutModel !== documentValue.layoutModel) {
                 throw new Error("Theme V4 必须声明 anchored-canvas-v1 布局模型");
             }
             if (!documentValue.viewportTransforms) {
                 throw new Error("Theme V4 缺少 viewportTransforms");
             }
-            validateImportedThemeEnum(documentValue, "layoutModel", [PLAYER_THEME_LAYOUT_MODEL], "theme");
+            validateImportedThemeEnum(documentValue, "layoutModel", [expectedLayoutModel], "theme");
             validateImportedThemeObject(documentValue.viewportTransforms, "viewportTransforms", ["landscape", "portrait"]);
             ["landscape", "portrait"].forEach(function (profileId) {
                 var transform = documentValue.viewportTransforms[profileId];
@@ -7343,16 +7849,33 @@
             if (!layout) {
                 throw new Error("layouts 缺少 " + profileId);
             }
-            validateImportedThemeObject(layout, "layouts." + profileId, PLAYER_THEME_V2_LAYER_IDS);
-            PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+            var layerIds = 5 === portableVersion ? PLAYER_THEME_V2_LAYER_IDS
+                : (4 === portableVersion ? PLAYER_THEME_V4_LAYER_IDS : PLAYER_THEME_V2_LAYER_IDS);
+            validateImportedThemeObject(layout, "layouts." + profileId, layerIds);
+            layerIds.forEach(function (layerId) {
                 if (!layout[layerId]) {
                     throw new Error("layouts." + profileId + " 缺少 " + layerId + " 图层");
                 }
-                if (4 === portableVersion) {
+                if (portableVersion >= 4) {
                     validateImportedThemeLayer(layout[layerId], "layouts." + profileId + "." + layerId);
                 }
             });
         });
+        if (5 === portableVersion) {
+            var controls = normalizePlayerControlDock(documentValue.controls);
+            if (!documentValue.controls || !documentValue.controls.profiles) {
+                throw new Error("Theme V5 缺少 controls.profiles");
+            }
+            ["landscape", "portrait"].forEach(function (profileId) {
+                var original = documentValue.controls.profiles[profileId];
+                if (!original || !Array.isArray(original.rows) || !original.groups) {
+                    throw new Error("controls.profiles." + profileId + " 无效");
+                }
+                if (JSON.stringify(original) !== JSON.stringify(controls.profiles[profileId])) {
+                    throw new Error("controls.profiles." + profileId + " 含非法或重复的控制项");
+                }
+            });
+        }
 
         var background = documentValue.background || {};
         validateImportedThemeObject(background, "background", ["mode", "blur", "dim", "saturation", "angle", "colorA", "colorB"]);
@@ -7568,7 +8091,6 @@
         renderer.__elyricPlayerLayout = "custom";
         applyPlayerLayout(renderer, "custom", false);
         applyPlayerThemeDefinition(renderer, imported);
-        storePlayerLayout("custom");
         storeCurrentPlayerThemeDesign(renderer);
         scheduleUserPlayerPreferencesSave(renderer);
         syncPlayerThemeLibraryControls(renderer);
@@ -7734,6 +8256,10 @@
     function updatePlayerThemeV2Layer(renderer, patch, recordHistory) {
         var inheritedLayer = activePlayerThemeV2Layer(renderer);
         if (inheritedLayer.locked && !Object.prototype.hasOwnProperty.call(patch, "locked")) { return; }
+        if ("controlDock" === renderer.__elyricThemeV2SelectedLayer
+            && Object.prototype.hasOwnProperty.call(patch, "hidden")) {
+            delete patch.hidden;
+        }
         if (false !== recordHistory) { pushPlayerThemeV2History(renderer); }
         ensurePlayerThemeV2ProfileOverride(renderer);
         var layer = activePlayerThemeV2Layer(renderer);
@@ -7743,6 +8269,54 @@
         syncPlayerThemeV2Designer(renderer);
         storeCurrentPlayerThemeDesign(renderer);
         scheduleUserPlayerPreferencesSave(renderer);
+    }
+
+    function commitPlayerControlDockEdit(renderer, mutator) {
+        ensurePlayerThemeV2State(renderer);
+        var profileId = renderer.__elyricThemeV2Profile || currentPlayerThemeV2Profile();
+        var current = normalizePlayerControlDockProfile(
+            renderer.__elyricThemeV2.controls.profiles[profileId], "portrait" === profileId
+        );
+        pushPlayerThemeV2History(renderer);
+        mutator(current);
+        renderer.__elyricThemeV2.controls.profiles[profileId]
+            = normalizePlayerControlDockProfile(current, "portrait" === profileId);
+        applyPlayerControlDock(renderer, profileId);
+        syncPlayerThemeV2Designer(renderer);
+        storeCurrentPlayerThemeDesign(renderer);
+        scheduleUserPlayerPreferencesSave(renderer);
+    }
+
+    function movePlayerControlDockEntry(renderer, groupId, direction, targetRowDelta) {
+        commitPlayerControlDockEdit(renderer, function (profile) {
+            var rowIndex = profile.rows.findIndex(function (row) { return row.groups.indexOf(groupId) >= 0; });
+            if (rowIndex < 0) { return; }
+            var row = profile.rows[rowIndex];
+            var index = row.groups.indexOf(groupId);
+            if (targetRowDelta) {
+                var targetRowIndex = Math.max(0, Math.min(profile.rows.length - 1, rowIndex + targetRowDelta));
+                if (targetRowIndex === rowIndex) { return; }
+                row.groups.splice(index, 1);
+                profile.rows[targetRowIndex].groups.push(groupId);
+                profile.rows = profile.rows.filter(function (candidate) { return candidate.groups.length; });
+            } else {
+                var next = Math.max(0, Math.min(row.groups.length - 1, index + direction));
+                if (next === index) { return; }
+                row.groups.splice(index, 1);
+                row.groups.splice(next, 0, groupId);
+            }
+        });
+    }
+
+    function movePlayerControlDockButton(renderer, groupId, buttonId, direction) {
+        commitPlayerControlDockEdit(renderer, function (profile) {
+            var order = profile.groups[groupId].order;
+            var index = order.indexOf(buttonId);
+            var next = Math.max(0, Math.min(order.length - 1, index + direction));
+            if (index < 0 || next === index) { return; }
+            order.splice(index, 1);
+            order.splice(next, 0, buttonId);
+        });
     }
 
     function selectPlayerThemeV2Layer(renderer, layerId) {
@@ -7945,6 +8519,7 @@
         if (renderer.__elyricThemeV2HideButton) {
             setAttributeIfChanged(renderer.__elyricThemeV2HideButton, "aria-pressed", layer.hidden ? "true" : "false");
             replaceElementText(renderer.__elyricThemeV2HideButton, layer.hidden ? "显示" : "隐藏");
+            renderer.__elyricThemeV2HideButton.disabled = "controlDock" === renderer.__elyricThemeV2SelectedLayer;
         }
         var artwork = renderer.__elyricThemeV2.artwork;
         if (renderer.__elyricThemeV2ArtworkSource) { renderer.__elyricThemeV2ArtworkSource.value = artwork.source; }
@@ -7968,6 +8543,7 @@
         if (renderer.__elyricThemeV2ThirdLineInput) {
             renderer.__elyricThemeV2ThirdLineInput.checked = renderer.__elyricThemeV2.lyrics.showThirdAndLaterLines;
         }
+        renderPlayerControlDockDesigner(renderer);
         var typographyInputs = renderer.__elyricThemeV2TypographyInputs || {};
         ["primary", "secondary", "tertiary"].forEach(function (lineId) {
             var inputs = typographyInputs[lineId];
@@ -8017,6 +8593,189 @@
         }
     }
 
+    function playerControlDockLabel(id) {
+        return {
+            progress: "进度", transport: "主播放", volume: "音量", auxiliary: "辅助按钮",
+            previous: "上一首", playPause: "播放 / 暂停", next: "下一首",
+            mute: "静音", slider: "滑杆", value: "数值",
+            shuffle: "随机", repeat: "循环", stop: "停止", queue: "队列",
+            media: "媒体信息", secondaryLyrics: "第二行歌词", artworkRotation: "封面旋转"
+        }[id] || id;
+    }
+
+    function relocatePlayerControlDockGroup(renderer, sourceGroupId, targetGroupId) {
+        if (!sourceGroupId || sourceGroupId === targetGroupId) { return; }
+        commitPlayerControlDockEdit(renderer, function (profile) {
+            var sourceRow;
+            profile.rows.forEach(function (row) {
+                var sourceIndex = row.groups.indexOf(sourceGroupId);
+                if (sourceIndex >= 0) { sourceRow = row; row.groups.splice(sourceIndex, 1); }
+            });
+            var targetRow = profile.rows.find(function (row) { return row.groups.indexOf(targetGroupId) >= 0; });
+            if (!targetRow) {
+                if (sourceRow) { sourceRow.groups.push(sourceGroupId); }
+                return;
+            }
+            targetRow.groups.splice(targetRow.groups.indexOf(targetGroupId), 0, sourceGroupId);
+            profile.rows = profile.rows.filter(function (row) { return row.groups.length; });
+        });
+    }
+
+    function relocatePlayerControlDockButton(renderer, groupId, sourceButtonId, targetButtonId) {
+        if (!sourceButtonId || sourceButtonId === targetButtonId) { return; }
+        commitPlayerControlDockEdit(renderer, function (profile) {
+            var order = profile.groups[groupId].order;
+            var sourceIndex = order.indexOf(sourceButtonId);
+            var targetIndex = order.indexOf(targetButtonId);
+            if (sourceIndex < 0 || targetIndex < 0) { return; }
+            order.splice(sourceIndex, 1);
+            targetIndex = order.indexOf(targetButtonId);
+            order.splice(targetIndex, 0, sourceButtonId);
+        });
+    }
+
+    function createPlayerControlDockSelect(values, selected, onChange) {
+        var select = document.createElement("select");
+        values.forEach(function (value) {
+            var option = document.createElement("option");
+            option.value = value;
+            option.appendChild(document.createTextNode(value));
+            select.appendChild(option);
+        });
+        select.value = selected;
+        select.addEventListener("change", function () { onChange(select.value); });
+        return select;
+    }
+
+    function renderPlayerControlDockDesigner(renderer) {
+        var host = renderer.__elyricControlDockDesigner;
+        if (!host || !renderer.__elyricThemeV2) { return; }
+        while (host.firstChild) { host.removeChild(host.firstChild); }
+        var profileId = renderer.__elyricThemeV2Profile || currentPlayerThemeV2Profile();
+        var profile = normalizePlayerControlDockProfile(
+            renderer.__elyricThemeV2.controls.profiles[profileId], "portrait" === profileId
+        );
+        profile.rows.forEach(function (rowDefinition, rowIndex) {
+            var rowCard = document.createElement("section");
+            rowCard.className = "elyric-control-dock-row-card";
+            var heading = document.createElement("div");
+            heading.className = "elyric-control-dock-row-heading";
+            var title = document.createElement("strong");
+            title.appendChild(document.createTextNode("第 " + (rowIndex + 1) + " 行"));
+            heading.appendChild(title);
+            heading.appendChild(createPlayerControlDockSelect(
+                PLAYER_CONTROL_DOCK_JUSTIFY_IDS, rowDefinition.justify,
+                function (value) { commitPlayerControlDockEdit(renderer, function (draft) { draft.rows[rowIndex].justify = value; }); }
+            ));
+            heading.appendChild(createPlayerControlDockSelect(
+                PLAYER_CONTROL_DOCK_ALIGN_IDS, rowDefinition.align,
+                function (value) { commitPlayerControlDockEdit(renderer, function (draft) { draft.rows[rowIndex].align = value; }); }
+            ));
+            var rowGap = document.createElement("input");
+            rowGap.type = "number"; rowGap.min = "0"; rowGap.max = "80"; rowGap.value = rowDefinition.gap;
+            rowGap.setAttribute("aria-label", "行内分组间距");
+            rowGap.addEventListener("change", function () {
+                commitPlayerControlDockEdit(renderer, function (draft) { draft.rows[rowIndex].gap = Number(rowGap.value); });
+            });
+            heading.appendChild(rowGap);
+            rowCard.appendChild(heading);
+            var groupList = document.createElement("div");
+            groupList.className = "elyric-control-dock-group-list";
+            rowDefinition.groups.forEach(function (groupId) {
+                var groupDefinition = profile.groups[groupId];
+                var card = document.createElement("article");
+                card.className = "elyric-control-dock-group-card";
+                card.setAttribute("draggable", "true");
+                card.setAttribute("data-control-group-card", groupId);
+                card.addEventListener("dragstart", function (event) {
+                    renderer.__elyricControlDockDrag = { type: "group", groupId: groupId };
+                    if (event.dataTransfer) { event.dataTransfer.setData("text/plain", groupId); }
+                });
+                card.addEventListener("dragover", function (event) { event.preventDefault(); });
+                card.addEventListener("drop", function (event) {
+                    event.preventDefault();
+                    var drag = renderer.__elyricControlDockDrag;
+                    if (drag && "group" === drag.type) { relocatePlayerControlDockGroup(renderer, drag.groupId, groupId); }
+                });
+                var groupHeader = document.createElement("header");
+                var visible = document.createElement("input");
+                visible.type = "checkbox"; visible.checked = groupDefinition.visible;
+                visible.disabled = "progress" === groupId || "transport" === groupId;
+                visible.addEventListener("change", function () {
+                    commitPlayerControlDockEdit(renderer, function (draft) { draft.groups[groupId].visible = visible.checked; });
+                });
+                groupHeader.appendChild(visible);
+                var groupTitle = document.createElement("strong");
+                groupTitle.appendChild(document.createTextNode(playerControlDockLabel(groupId)));
+                groupHeader.appendChild(groupTitle);
+                [["↑", -1], ["↓", 1]].forEach(function (entry) {
+                    var button = document.createElement("button");
+                    button.type = "button"; button.appendChild(document.createTextNode(entry[0]));
+                    button.setAttribute("aria-label", entry[1] < 0 ? "换到上一行" : "换到下一行");
+                    button.addEventListener("click", function () { movePlayerControlDockEntry(renderer, groupId, 0, entry[1]); });
+                    groupHeader.appendChild(button);
+                });
+                card.appendChild(groupHeader);
+                var groupOptions = document.createElement("div");
+                groupOptions.className = "elyric-control-dock-group-options";
+                groupOptions.appendChild(createPlayerControlDockSelect(
+                    PLAYER_CONTROL_DOCK_ALIGN_IDS, groupDefinition.align,
+                    function (value) { commitPlayerControlDockEdit(renderer, function (draft) { draft.groups[groupId].align = value; }); }
+                ));
+                var groupGap = document.createElement("input");
+                groupGap.type = "number"; groupGap.min = "0"; groupGap.max = "48"; groupGap.value = groupDefinition.gap;
+                groupGap.setAttribute("aria-label", "按钮间距");
+                groupGap.addEventListener("change", function () {
+                    commitPlayerControlDockEdit(renderer, function (draft) { draft.groups[groupId].gap = Number(groupGap.value); });
+                });
+                groupOptions.appendChild(groupGap);
+                card.appendChild(groupOptions);
+                groupDefinition.order.forEach(function (buttonId) {
+                    var item = document.createElement("div");
+                    item.className = "elyric-control-dock-button-item";
+                    item.setAttribute("draggable", "true");
+                    item.addEventListener("dragstart", function (event) {
+                        renderer.__elyricControlDockDrag = { type: "button", groupId: groupId, buttonId: buttonId };
+                        if (event.stopPropagation) { event.stopPropagation(); }
+                    });
+                    item.addEventListener("dragover", function (event) { event.preventDefault(); });
+                    item.addEventListener("drop", function (event) {
+                        event.preventDefault(); if (event.stopPropagation) { event.stopPropagation(); }
+                        var drag = renderer.__elyricControlDockDrag;
+                        if (drag && "button" === drag.type && drag.groupId === groupId) {
+                            relocatePlayerControlDockButton(renderer, groupId, drag.buttonId, buttonId);
+                        }
+                    });
+                    var hidden = document.createElement("input");
+                    hidden.type = "checkbox";
+                    hidden.checked = groupDefinition.hiddenButtons.indexOf(buttonId) < 0;
+                    hidden.disabled = "playPause" === buttonId;
+                    hidden.addEventListener("change", function () {
+                        commitPlayerControlDockEdit(renderer, function (draft) {
+                            var list = draft.groups[groupId].hiddenButtons;
+                            var index = list.indexOf(buttonId);
+                            if (hidden.checked && index >= 0) { list.splice(index, 1); }
+                            if (!hidden.checked && index < 0 && "playPause" !== buttonId) { list.push(buttonId); }
+                        });
+                    });
+                    item.appendChild(hidden);
+                    var label = document.createElement("span"); label.appendChild(document.createTextNode(playerControlDockLabel(buttonId)));
+                    item.appendChild(label);
+                    [["←", -1], ["→", 1]].forEach(function (entry) {
+                        var button = document.createElement("button"); button.type = "button";
+                        button.appendChild(document.createTextNode(entry[0]));
+                        button.addEventListener("click", function () { movePlayerControlDockButton(renderer, groupId, buttonId, entry[1]); });
+                        item.appendChild(button);
+                    });
+                    card.appendChild(item);
+                });
+                groupList.appendChild(card);
+            });
+            rowCard.appendChild(groupList);
+            host.appendChild(rowCard);
+        });
+    }
+
     function createPlayerThemeV2TextInput(section, label, value, onChange, type) {
         var row = document.createElement("label");
         row.className = "elyric-v2-text-setting";
@@ -8050,12 +8809,12 @@
         [
             ["landscape", "横屏 · 电脑 / 平板"],
             ["portrait", "竖屏 · 手机 / 平板"]
-        ].forEach(function (item) {
+    ].forEach(function (item) {
             var option = document.createElement("option");
             option.value = item[0];
             option.appendChild(document.createTextNode(item[1]));
             profileSelect.appendChild(option);
-        });
+    });
         profileSelect.addEventListener("change", function () {
             renderer.__elyricThemeV2Profile = profileSelect.value;
             applyPlayerThemeV2State(renderer, renderer.__elyricThemeV2, profileSelect.value);
@@ -8070,9 +8829,10 @@
             var profileId = renderer.__elyricThemeV2Profile;
             pushPlayerThemeV2History(renderer);
             renderer.__elyricThemeV2.layouts[profileId] = clonePlayerThemeV2Value(
-                playerThemeV4LayoutsForBase(renderer.__elyricThemeBaseLayout)[profileId]
+                playerThemeV5LayoutsForBase(renderer.__elyricThemeBaseLayout)[profileId]
             );
             renderer.__elyricThemeV2.viewportTransforms[profileId] = { scale: 1, offsetX: 0, offsetY: 0 };
+            renderer.__elyricThemeV2.controls.profiles[profileId] = defaultPlayerControlDock().profiles[profileId];
             applyPlayerThemeV2State(renderer, renderer.__elyricThemeV2, profileId);
             buildPlayerThemeV2DesignerBoxes(renderer);
             storeCurrentPlayerThemeDesign(renderer);
@@ -8202,6 +8962,16 @@
             history.appendChild(button);
         });
         section.appendChild(history);
+
+        var controlDockDetails = document.createElement("details");
+        controlDockDetails.className = "elyric-control-dock-designer";
+        var controlDockSummary = document.createElement("summary");
+        controlDockSummary.appendChild(document.createTextNode("控制坞分组、顺序与换行"));
+        controlDockDetails.appendChild(controlDockSummary);
+        var controlDockDesigner = document.createElement("div");
+        controlDockDesigner.className = "elyric-control-dock-designer-body";
+        controlDockDetails.appendChild(controlDockDesigner);
+        section.appendChild(controlDockDetails);
 
         var artworkDetails = document.createElement("details");
         var artworkSummary = document.createElement("summary");
@@ -8370,6 +9140,8 @@
         renderer.__elyricThemeV2SafeArea = safeArea.input;
         renderer.__elyricThemeV2FollowInput = follow.input;
         renderer.__elyricThemeV2ThirdLineInput = thirdLineInput;
+        renderer.__elyricControlDockDesigner = controlDockDesigner;
+        renderPlayerControlDockDesigner(renderer);
         return section;
     }
 
@@ -8547,6 +9319,11 @@
         var control = document.createElement("div");
         control.className = "elyric-player-root elyric-player-shell elyric-theme-picker";
         control.setAttribute("data-elyric-control", "player");
+        control.setAttribute("data-elyric-build", PLAYER_BUILD_ID);
+        control.setAttribute("data-elyric-schema", String(PLAYER_THEME_SCHEMA_VERSION));
+        control.setAttribute("data-elyric-layout-model", PLAYER_THEME_LAYOUT_MODEL);
+        control.setAttribute("data-elyric-workspace-ready", "false");
+        control.setAttribute("data-elyric-workspace-source", "loading");
         control.setAttribute("role", "region");
         control.setAttribute("aria-label", "歌词增强音乐播放器");
         control.setAttribute("data-elyric-settings-open", "false");
@@ -8651,15 +9428,18 @@
         renderer.__elyricLyricsEmptyTitle = lyricsEmptyTitle;
         renderer.__elyricLyricsEmptyHint = lyricsEmptyHint;
 
+        var controlDock = document.createElement("div");
+        controlDock.className = "elyric-player-control-dock";
+        controlDock.setAttribute("aria-label", "播放控制坞");
+
         var transport = document.createElement("div");
-        transport.className = "elyric-player-transport";
+        transport.className = "elyric-player-transport elyric-player-control-group";
         transport.appendChild(createPlayerButton(renderer, "previous", "上一首", "previous"));
         transport.appendChild(createPlayerButton(renderer, "playPause", "播放或暂停", "play"));
         transport.appendChild(createPlayerButton(renderer, "next", "下一首", "next"));
-        stage.appendChild(transport);
 
         var progress = document.createElement("div");
-        progress.className = "elyric-player-progress";
+        progress.className = "elyric-player-progress elyric-player-control-group";
         var positionText = document.createElement("span");
         positionText.className = "elyric-player-position";
         positionText.appendChild(document.createTextNode("0:00"));
@@ -8691,10 +9471,9 @@
         progress.appendChild(positionText);
         progress.appendChild(progressSlider);
         progress.appendChild(durationText);
-        stage.appendChild(progress);
 
         var volume = document.createElement("div");
-        volume.className = "elyric-player-volume";
+        volume.className = "elyric-player-volume elyric-player-control-group";
         volume.appendChild(createPlayerButton(renderer, "mute", "静音", "volume"));
         var volumeSlider = document.createElement("input");
         volumeSlider.className = "elyric-player-volume-slider";
@@ -8722,10 +9501,9 @@
         volumeValue.setAttribute("aria-live", "polite");
         volumeValue.appendChild(document.createTextNode("100%"));
         volume.appendChild(volumeValue);
-        stage.appendChild(volume);
 
         var tools = document.createElement("div");
-        tools.className = "elyric-player-tools";
+        tools.className = "elyric-player-tools elyric-player-control-group";
         tools.appendChild(createPlayerButton(renderer, "shuffle", "随机播放", "shuffle"));
         tools.appendChild(createPlayerButton(renderer, "repeat", "循环模式", "repeat"));
         tools.appendChild(createPlayerButton(renderer, "stop", "停止播放", "stop"));
@@ -8786,7 +9564,7 @@
             setSettingsPanelOpen(renderer, !renderer.__elyricSettingsOpen);
         });
         settingsButton.addEventListener("pointerdown", stopControlEvent);
-        stage.appendChild(tools);
+        stage.appendChild(controlDock);
 
         var safetyToolbar = document.createElement("div");
         safetyToolbar.className = "elyric-player-safety-toolbar";
@@ -9419,6 +10197,32 @@
         renderer.__elyricPlayerProgress = progress;
         renderer.__elyricPlayerVolume = volume;
         renderer.__elyricPlayerTools = tools;
+        renderer.__elyricPlayerControlDock = controlDock;
+        renderer.__elyricControlDockGroups = {
+            progress: progress, transport: transport, volume: volume, auxiliary: tools
+        };
+        renderer.__elyricControlDockItems = {
+            progress: {},
+            transport: {
+                previous: renderer.__elyricPlayerButtons.previous,
+                playPause: renderer.__elyricPlayerButtons.playPause,
+                next: renderer.__elyricPlayerButtons.next
+            },
+            volume: {
+                mute: renderer.__elyricPlayerButtons.mute,
+                slider: volumeSlider,
+                value: volumeValue
+            },
+            auxiliary: {
+                shuffle: renderer.__elyricPlayerButtons.shuffle,
+                repeat: renderer.__elyricPlayerButtons.repeat,
+                stop: renderer.__elyricPlayerButtons.stop,
+                queue: renderer.__elyricPlayerButtons.queue,
+                media: mediaButton,
+                secondaryLyrics: secondLineButton,
+                artworkRotation: artworkRotationButton
+            }
+        };
         renderer.__elyricPlayerSafetyToolbar = safetyToolbar;
         renderer.__elyricPlayerCoverflow = coverflow;
         renderer.__elyricCoverflowArtworks = coverflowArtworks;
@@ -9518,8 +10322,18 @@
                 window.visualViewport.addEventListener("scroll", parametricViewportHandler);
             }
             renderer.__elyricParametricViewportHandler = parametricViewportHandler;
-            renderer.__elyricThemeV2OnlineHandler = function () { flushPlayerThemeV2OfflineQueue(renderer); };
+            renderer.__elyricThemeV2OnlineHandler = function () {
+                renderer.__elyricUserPreferencesPromise = null;
+                requestUserPlayerPreferences(renderer, true);
+            };
             window.addEventListener("online", renderer.__elyricThemeV2OnlineHandler);
+            renderer.__elyricThemeV2VisibilityHandler = function () {
+                if ("visible" === document.visibilityState && renderer.__elyricWorkspaceReady) {
+                    renderer.__elyricUserPreferencesPromise = null;
+                    requestUserPlayerPreferences(renderer, true);
+                }
+            };
+            document.addEventListener("visibilitychange", renderer.__elyricThemeV2VisibilityHandler);
         }
         var overlayKeyHandler = function (event) {
             if (event && renderer.__elyricThemeV2DesignerOpen
@@ -9588,12 +10402,9 @@
             settingsHost.appendChild(settingsPanel);
             settingsHost.appendChild(mediaPanel);
         }
-        renderer.__elyricLocalShowSecond = loadStoredBoolean(
-            "emby-lyric-enhance.show-second-line",
-            renderer.__elyricDisplayConfiguration
-                ? renderer.__elyricDisplayConfiguration.showSecondLine
-                : DEFAULT_DISPLAY_CONFIGURATION.showSecondLine
-        );
+        renderer.__elyricLocalShowSecond = renderer.__elyricDisplayConfiguration
+            ? renderer.__elyricDisplayConfiguration.showSecondLine
+            : DEFAULT_DISPLAY_CONFIGURATION.showSecondLine;
         setSecondLineOverride(renderer, renderer.__elyricLocalShowSecond);
         renderer.__elyricLocalShowThird = renderer.__elyricDisplayConfiguration
             ? renderer.__elyricDisplayConfiguration.showThirdAndLaterLines
@@ -9609,7 +10420,7 @@
         PLAYER_MEDIA_FIELDS.forEach(function (field) {
             setPlayerMediaField(renderer, field.id, renderer.__elyricMediaFields[field.id], false);
         });
-        applyPlayerLayout(renderer, loadStoredPlayerLayout(), false);
+        applyPlayerLayout(renderer, "album", false);
         updatePlayerMetadata(renderer);
         return control;
     }
@@ -9763,96 +10574,16 @@
                 return;
             }
             renderer.__elyricThemeControl = createThemeControl(renderer);
-            applyPlayerLayout(renderer, renderer.__elyricPlayerLayout, false);
-            setArtworkRotation(renderer, loadStoredArtworkRotation(), false);
-            setBackgroundMode(
-                renderer,
-                loadVisualizerChoice(BACKGROUND_MODE_STORAGE_KEY, BACKGROUND_MODES, "blur"),
-                false
-            );
-            setVisualizerStyle(
-                renderer,
-                loadVisualizerChoice(VISUALIZER_STYLE_STORAGE_KEY, VISUALIZER_STYLES, "spectrum"),
-                false
-            );
-            var storedVisualizerRange = loadVisualizerChoice(
-                VISUALIZER_RANGE_STORAGE_KEY,
-                VISUALIZER_RANGES,
-                "wide"
-            );
-            setVisualizerRange(
-                renderer,
-                storedVisualizerRange,
-                false
-            );
-            setVisualizerWidth(
-                renderer,
-                loadStoredNumber(
-                    VISUALIZER_WIDTH_STORAGE_KEY,
-                    10,
-                    100,
-                    visualizerWidthForRange(storedVisualizerRange)
-                ),
-                false
-            );
-            setVisualizerHeight(
-                renderer,
-                loadStoredNumber(VISUALIZER_HEIGHT_STORAGE_KEY, 2, 30, 8),
-                false
-            );
-            setVisualizerAmplitude(renderer, loadVisualizerAmplitude(), false);
-            VISUALIZER_ANALYSIS_DEFINITIONS.forEach(function (definition) {
-                setVisualizerAnalysisSetting(
-                    renderer,
-                    definition.id,
-                    loadStoredNumber(
-                        definition.storageKey,
-                        definition.minimum,
-                        definition.maximum,
-                        definition.fallback
-                    ),
-                    false
-                );
-            });
-            setVisualizerColorMode(
-                renderer,
-                loadVisualizerChoice(
-                    VISUALIZER_COLOR_MODE_STORAGE_KEY,
-                    VISUALIZER_COLOR_MODES,
-                    "dual"
-                ),
-                false
-            );
-            ["#a8e063", "#56d6c9", "#8b9dff"].forEach(function (fallback, colorIndex) {
-                setVisualizerColor(
-                    renderer,
-                    colorIndex,
-                    loadStoredHexColor(VISUALIZER_COLOR_STORAGE_KEYS[colorIndex], fallback),
-                    false
-                );
-            });
-            setLyricAlignment(
-                renderer,
-                loadVisualizerChoice(LYRIC_ALIGNMENT_STORAGE_KEY, LYRIC_ALIGNMENTS, "left"),
-                false
-            );
-            setLyricScale(renderer, loadLyricScale(renderer), false);
-            PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
-                setPlayerTuning(
-                    renderer,
-                    definition.id,
-                    loadStoredPlayerTuning(definition.id),
-                    false
-                );
-            });
-            applyStoredOrBuiltInPlayerTheme(renderer);
+            renderer.__elyricWorkspaceReady = false;
+            renderer.__elyricWorkspaceSource = "loading";
+            // Do not hydrate the live player from old unscoped localStorage.
+            // Legacy values are read exactly once by readLegacyUserPlayerPreferences
+            // only when the authenticated Workspace is genuinely empty.
+            applyPlayerLayout(renderer, "album", false);
+            applyPlayerThemeDefinition(renderer, resolvedBuiltInPlayerTheme("album"));
             applyPlayerShellConfiguration(renderer, renderer.__elyricDisplayConfiguration);
             syncVisualizerAnimation(renderer);
-            requestUserPlayerPreferences(renderer).then(function (preferences) {
-                if (renderer.__elyricThemeControl && preferences) {
-                    applyUserPlayerPreferences(renderer, preferences);
-                }
-            });
+            requestUserPlayerPreferences(renderer);
         }
         syncLyricAvailability(renderer);
         if (!visible) {
@@ -9900,6 +10631,10 @@
             && "undefined" !== typeof window && window.removeEventListener) {
             window.removeEventListener("online", renderer.__elyricThemeV2OnlineHandler);
             renderer.__elyricThemeV2OnlineHandler = null;
+        }
+        if (renderer.__elyricThemeV2VisibilityHandler && document.removeEventListener) {
+            document.removeEventListener("visibilitychange", renderer.__elyricThemeV2VisibilityHandler);
+            renderer.__elyricThemeV2VisibilityHandler = null;
         }
         removePlayerThemeV2DesignerBoxes(renderer);
         if (renderer.__elyricThemeV2FontStyle && renderer.__elyricThemeV2FontStyle.parentNode) {
@@ -10009,6 +10744,10 @@
         renderer.__elyricPlayerProgress = null;
         renderer.__elyricPlayerVolume = null;
         renderer.__elyricPlayerTools = null;
+        renderer.__elyricPlayerControlDock = null;
+        renderer.__elyricControlDockGroups = null;
+        renderer.__elyricControlDockItems = null;
+        renderer.__elyricControlDockDesigner = null;
         renderer.__elyricPlayerSafetyToolbar = null;
         renderer.__elyricPlayerCoverflow = null;
         renderer.__elyricCoverflowArtworks = null;
@@ -10039,6 +10778,9 @@
         renderer.__elyricOverlayScrim = null;
         renderer.__elyricOverlayKeyHandler = null;
         renderer.__elyricPreferenceStatus = null;
+        renderer.__elyricWorkspaceReady = false;
+        renderer.__elyricWorkspaceSource = null;
+        renderer.__elyricUserPreferencesPromise = null;
         renderer.__elyricSettingsOpen = false;
         renderer.__elyricQueuePanel = null;
         renderer.__elyricQueueBody = null;

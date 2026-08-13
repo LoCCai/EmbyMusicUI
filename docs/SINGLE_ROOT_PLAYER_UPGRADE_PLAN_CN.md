@@ -4,9 +4,21 @@
 
 相关历史：`bd0e067`（Theme V3 与音频律动）、`90f56a4`（Theme V4 参数化画布）
 
-计划状态：待实施
+实施状态：Theme V5 账号权威同步与约束控制坞已于 2026-08-13 落地；真实服务器部署验收待执行。
 
 适配目标：Emby Web `4.9.5.0`
+
+## 0. 2026-08-13 Theme V5 实施记录
+
+- 主题文档升级为 `schemaVersion: 5`、`anchored-canvas-v2`，V3/V4 继续兼容读取。
+- 正式画布只保留 `landscape` 与 `portrait`，且只包含 `artwork/metadata/lyrics/visualizer/controlDock` 五个图层。
+- Workspace 成为账号唯一权威源；浏览器确认缓存、主题草稿和离线队列均按 `serverId + userId` 隔离。
+- 非空 Workspace 永远优先于旧浏览器数据；只有全新且未迁移的账号会读取一次旧 `DisplayPreferences/localStorage`。
+- 日常 500ms 防抖保存只写 Workspace，不再持续双写旧 DisplayPreferences。
+- 控制坞随主题分别保存横竖屏的行、分组、按钮顺序、显隐、对齐、间距和换行；进度与播放按钮不可删除。
+- 自动化已覆盖服务器 Workspace 胜出、初始化前零保存、账号/服务器缓存隔离、横竖 profile 共存、500ms PUT 与 revision 冲突副本。
+- 本地 C# 严格编译、真实 Emby 4.9.1.90 API 合同、Theme V5/单根运行时测试已通过；POSIX 安装器测试需在 Linux/Docker 主机执行。
+- 插件版本为 `0.5.0`，前端构建 ID 为 `2026.08.13-theme-v5-control-dock`，需重装 DLL 并重启 Emby。
 
 ## 1. 结论与升级原则
 

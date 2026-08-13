@@ -2,7 +2,7 @@
 set -eu
 
 VERSION="4.9.5.0"
-BUILD_ID="2026.08.12-single-root-osd-v5"
+BUILD_ID="2026.08.13-theme-v5-control-dock"
 TARGET_ROOT="${ELYRIC_TARGET_ROOT:-/system/dashboard-ui/videoosd}"
 CONFIG_ROOT="${ELYRIC_CONFIG_ROOT:-/config}"
 BACKUP_ROOT="$CONFIG_ROOT/emby-lyric-enhance/$VERSION"

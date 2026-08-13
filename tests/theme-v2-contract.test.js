@@ -21,8 +21,8 @@ assert(adapter.includes("PLAYER_THEME_V2_REGISTRY"), "the web editor should expo
     assert(adapter.includes(`\"${profile}\"`) || adapter.includes(`${profile}:`), `${profile} should have a saved layout profile`);
     assert(models.includes(`\"${profile}\"`), `${profile} should be server-validated`);
 });
-assert(adapter.includes('layoutModel: PLAYER_THEME_LAYOUT_MODEL') && models.includes('LayoutModel = "anchored-canvas-v1"'),
-    "V4 themes should declare the anchored canvas model");
+assert(adapter.includes('layoutModel: PLAYER_THEME_LAYOUT_MODEL') && models.includes('LayoutModel = "anchored-canvas-v2"'),
+    "V5 themes should declare the anchored canvas model");
 assert(adapter.includes("viewportTransforms") && models.includes("viewportTransforms"),
     "both orientations should persist an independent viewport transform");
 assert(validator.includes("Theme V4 must declare its anchored canvas layout model")
@@ -31,7 +31,7 @@ assert(validator.includes("Theme V4 must declare its anchored canvas layout mode
     && validator.includes("Theme V4 tuning cannot contain duplicate geometry fields"),
     "internal V4 server storage should enforce the same single-geometry contract as portable themes");
 
-["artwork", "metadata", "lyrics", "visualizer", "progress", "transport", "volume", "auxiliary"].forEach((layer) => {
+["artwork", "metadata", "lyrics", "visualizer", "controlDock"].forEach((layer) => {
     assert(adapter.includes(`${layer}: defaultPlayerThemeV2Layer`) || adapter.includes(`\"${layer}\"`), `${layer} should be editable`);
     assert(models.includes(`\"${layer}\"`), `${layer} should be server-validated`);
 });
@@ -54,6 +54,21 @@ assert(!adapter.includes("MAX_USER_PLAYER_THEMES"), "named theme storage must no
 assert(adapter.includes("MAX_LEGACY_USER_PLAYER_THEMES = 24"), "only legacy migration should retain the old 24-theme bound");
 assert(adapter.includes("PLAYER_PREFERENCES_SAVE_DELAY = 500"), "workspace drafts should use the specified 500 ms debounce");
 assert(adapter.includes("PLAYER_THEME_V2_OFFLINE_QUEUE_KEY"), "offline edits should enter a persistent sync queue");
+assert(adapter.includes("playerThemeV2ScopedKey") && adapter.includes("playerThemeV2AccountScope"),
+    "workspace caches and offline edits must be isolated by server and user");
+assert(adapter.includes("!renderer.__elyricWorkspaceReady"),
+    "automatic saves must remain disabled until workspace initialization finishes");
+assert(adapter.includes("legacyPersistUserPlayerPreferences") && !/function persistUserPlayerPreferences[\s\S]{0,1000}updateDisplayPreferences/.test(adapter),
+    "daily persistence must write Workspace only, leaving DisplayPreferences for one-time migration");
+const mountInitialization = adapter.match(/function ensureThemeControl[\s\S]*?function removeThemeControl/);
+assert(mountInitialization && !/loadStored(?:Theme|PlayerLayout|ArtworkRotation|Number|HexColor|PlayerTuning)|loadVisualizerChoice|loadLyricScale/.test(mountInitialization[0]),
+    "the live mount path must not apply unscoped legacy browser settings before UserWorkspace");
+assert(!/if \(persist\) \{\s*(?:storeTheme|storePlayerLayout|storeArtworkRotation|storeVisualizerValue|storePlayerTuning)\(/.test(adapter),
+    "daily edits must not keep writing unscoped legacy browser keys");
+assert(adapter.includes("storeConfirmedPlayerThemeV2Workspace(renderer, value, summaries)"),
+    "every confirmed Workspace PUT should refresh the account-scoped offline cache");
+assert(models.includes('"control-dock"') && validator.includes("ValidateControlDockProfile"),
+    "the server must strictly validate V5 control dock profiles");
 
 ["UserWorkspace", "Themes/{Id}", "Assets/{Id}"].forEach((route) => {
     assert(service.includes(route), `${route} should be implemented by the plugin`);
@@ -114,6 +129,9 @@ assert(!adapter.includes("PLAYER_THEME_V3_BUILTIN_LAYOUTS") && !adapter.includes
     "V4 built-ins and migrations should not keep misleading V3 runtime names");
 assert(!adapter.includes("portablePlayerThemeV3") && !adapter.includes("__elyricPlayerThemeV3Fixtures"),
     "V4 export and test hooks should not keep misleading V3 runtime names");
+assert(adapter.includes("function portablePlayerThemeV5") && adapter.includes("__elyricPlayerThemeV5Fixtures")
+    && adapter.includes("__elyricPortablePlayerThemeV5"),
+"V5 export and built-in fixtures should expose first-class V5 names");
 assert(css.includes('[data-elyric-theme-v2="true"] .elyric-player-v2-layer')
     && css.includes("inset: auto !important") && css.includes("max-width: none !important"),
 "V4 geometry ownership must override every legacy theme-specific rectangle while V3 stays compatible");

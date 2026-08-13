@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.12-single-root-osd-v5 */
+/* ELYRIC_BUILD:2026.08.13-theme-v5-control-dock */
 .elyric-subline {
     display: block;
     max-width: 100%;
@@ -4905,6 +4905,117 @@ body[data-elyric-theme-v2-profile="landscape"] .elyric-player-settings-panel {
     .elyric-player-theme-library-actions {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+}
+
+/* Theme V5: the dock owns all playback-control geometry. */
+.elyric-player-control-dock {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: clamp(.35rem, 1.2vh, .8rem);
+    padding: clamp(.25rem, 1vw, .75rem);
+    pointer-events: auto;
+    overflow: visible;
+}
+
+.elyric-player-shell[data-elyric-workspace-ready="false"] .elyric-player-stage {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+.elyric-player-shell[data-elyric-workspace-ready="true"] .elyric-player-stage {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity .18s ease;
+}
+
+.elyric-player-control-row {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.elyric-player-control-dock .elyric-player-control-group {
+    position: static !important;
+    inset: auto !important;
+    width: auto !important;
+    height: auto !important;
+    min-width: 0;
+    margin: 0 !important;
+    transform: none !important;
+    z-index: auto !important;
+    opacity: 1 !important;
+    flex: 0 1 auto;
+}
+
+.elyric-player-control-dock .elyric-player-progress {
+    width: 100% !important;
+    flex: 1 1 100%;
+}
+
+.elyric-player-control-dock .elyric-player-button,
+.elyric-player-control-dock input,
+.elyric-player-control-dock output {
+    pointer-events: auto;
+}
+
+.elyric-player-control-dock .elyric-player-button {
+    min-width: max(44px, calc(44px / var(--elyric-control-stage-scale, 1))) !important;
+    min-height: max(44px, calc(44px / var(--elyric-control-stage-scale, 1))) !important;
+}
+
+.elyric-control-dock-designer-body,
+.elyric-control-dock-group-list {
+    display: grid;
+    gap: .65rem;
+}
+
+.elyric-control-dock-row-card,
+.elyric-control-dock-group-card {
+    border: 1px solid var(--elyric-v2-border, rgba(255,255,255,.15));
+    border-radius: .85rem;
+    background: var(--elyric-v2-panel-raised, rgba(255,255,255,.06));
+    padding: .65rem;
+}
+
+.elyric-control-dock-row-heading,
+.elyric-control-dock-group-card > header,
+.elyric-control-dock-group-options,
+.elyric-control-dock-button-item {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+}
+
+.elyric-control-dock-row-heading strong,
+.elyric-control-dock-group-card > header strong,
+.elyric-control-dock-button-item span { flex: 1 1 auto; }
+
+.elyric-control-dock-row-heading select,
+.elyric-control-dock-row-heading input,
+.elyric-control-dock-group-options select,
+.elyric-control-dock-group-options input { min-width: 0; max-width: 8.5rem; }
+
+.elyric-control-dock-button-item {
+    min-height: 2.5rem;
+    margin-top: .35rem;
+    padding: .3rem .4rem;
+    border-radius: .6rem;
+    background: var(--elyric-v2-control-bg, rgba(0,0,0,.16));
+}
+
+.elyric-control-dock-button-item button,
+.elyric-control-dock-group-card > header button {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+}
+
+@media (max-width: 760px) {
+    .elyric-player-control-row { flex-wrap: wrap; }
+    .elyric-control-dock-row-heading { flex-wrap: wrap; }
 }
 
 /* ELYRIC_ENHANCE_END:4.9.5.0 */

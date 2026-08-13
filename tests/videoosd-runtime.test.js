@@ -114,6 +114,11 @@ const localStorage = {
     getItem(key) { return stored.has(key) ? stored.get(key) : null; },
     setItem(key, value) { stored.set(key, String(value)); }, removeItem(key) { stored.delete(key); }
 };
+// Deliberately stale, unscoped V4-era values. A non-empty UserWorkspace must
+// win without flashing or re-saving these browser values.
+stored.set("emby-lyric-enhance.theme", "focus");
+stored.set("emby-lyric-enhance.player-layout", "mobile");
+stored.set("emby-lyric-enhance.background-mode", "white");
 const performance = { now: () => Date.now() };
 let frameId = 1;
 const frames = new Map();
@@ -167,8 +172,47 @@ const manager = {
 
 const pendingLyrics = new Map();
 const requestedUrls = [];
+let currentUserId = "runtime-user";
+let currentServerId = "server-a";
+let displayPreferenceWrites = 0;
+let forceWorkspaceConflict = false;
+let workspacePayload = null;
+let resolveInitialWorkspace;
+const initialWorkspace = new Promise((resolve) => { resolveInitialWorkspace = resolve; });
+const workspaceWrites = [];
 const ApiClient = {
     getUrl(value) { requestedUrls.push(value); return `/${value}`; },
+    ajax(request) {
+        if (request.url.includes("UserWorkspace") && request.type === "GET") {
+            return workspacePayload ? Promise.resolve(workspacePayload) : initialWorkspace;
+        }
+        if (request.url.endsWith("/EmbyLyricEnhance/Themes") && request.type === "GET") {
+            return Promise.resolve([]);
+        }
+        if (request.url.includes("UserWorkspace") && request.type === "PUT") {
+            const body = JSON.parse(request.data);
+            workspaceWrites.push(body);
+            if (forceWorkspaceConflict) {
+                forceWorkspaceConflict = false;
+                const conflictValue = Object.assign({}, workspacePayload, { Revision: 99 });
+                workspacePayload = conflictValue;
+                return Promise.resolve({
+                    Value: conflictValue, Conflict: true,
+                    ConflictCopy: { Id: "conflict-copy", Name: "自动保存冲突", Revision: 1, ThemeJson: body.DraftJson }
+                });
+            }
+            workspacePayload = {
+                Revision: Number(workspacePayload && workspacePayload.Revision || 0) + 1,
+                DraftJson: body.DraftJson,
+                GlobalStateJson: body.GlobalStateJson,
+                ActiveThemeId: body.ActiveThemeId,
+                LegacyImported: true,
+                Themes: []
+            };
+            return Promise.resolve({ Value: workspacePayload, Conflict: false });
+        }
+        return Promise.resolve({});
+    },
     getJSON(url) {
         if (url.includes("PublicConfiguration")) return Promise.resolve({ defaultTheme: "apple", allowUserThemeOverride: true });
         if (url.includes("UserWorkspace")) return Promise.resolve({});
@@ -181,8 +225,9 @@ const ApiClient = {
             { Text: `${match[1]} translation`, StartPositionTicks: 0, EndPositionTicks: 100000000 }
         ] });
     },
-    getCurrentUserId() { return "runtime-user"; }, getDisplayPreferences() { return Promise.resolve({}); },
-    isMinServerVersion() { return true; }, updatePartialDisplayPreferences() { return Promise.resolve(); },
+    getCurrentUserId() { return currentUserId; }, serverId() { return currentServerId; },
+    getDisplayPreferences() { return Promise.resolve({}); }, isMinServerVersion() { return true; },
+    updatePartialDisplayPreferences() { displayPreferenceWrites += 1; return Promise.resolve(); },
     getScaledImageUrl(id) { return `/Items/${id}/Images/Primary`; }
 };
 const connectionManager = { default: { getApiClient() { return ApiClient; } } };
@@ -209,6 +254,7 @@ async function settle() {
     await new Promise((resolve) => setImmediate(resolve));
     for (let index = 0; index < 4; index++) await Promise.resolve();
 }
+function wait(milliseconds) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 function createPage() {
     const page = new Node("div"); page.className = "view-videoosd-videoosd";
     const native = new Node("div"); native.className = "videoOsdBottom"; native.setAttribute("aria-hidden", "false");
@@ -225,6 +271,56 @@ function deferLyrics(id) {
     assert.strictEqual(osd.onResume(), "resume"); await settle();
     const root = first.page.querySelector(".elyric-player-root");
     assert(root, "onResume should mount the custom root");
+    assert.strictEqual(root.getAttribute("data-elyric-workspace-ready"), "false",
+        "the editable stage must remain gated until UserWorkspace resolves");
+    assert.strictEqual(root.querySelector(".elyric-player-stage").getAttribute("aria-busy"), "true");
+    assert.notStrictEqual(root.querySelector(".elyric-player-lyric-viewport").getAttribute("data-elyric-theme"), "focus",
+        "stale unscoped localStorage must never be applied during startup");
+    root.querySelectorAll(".elyric-theme-choice")[1].click();
+    await wait(550);
+    assert.strictEqual(workspaceWrites.length, 0, "initialization must block debounced Workspace writes");
+    assert.strictEqual(displayPreferenceWrites, 0, "daily persistence must never write DisplayPreferences");
+
+    const serverDraft = JSON.parse(JSON.stringify(window.__elyricPlayerThemeV5Fixtures[0]));
+    serverDraft.name = "账号权威主题";
+    serverDraft.lyrics.style = "gradient";
+    serverDraft.layouts.landscape.metadata.x = 111;
+    serverDraft.layouts.portrait.metadata.x = 222;
+    serverDraft.controls.profiles.landscape.groups.transport.gap = 19;
+    serverDraft.controls.profiles.portrait.groups.transport.gap = 27;
+    workspacePayload = {
+        Revision: 7, DraftJson: JSON.stringify(serverDraft),
+        GlobalStateJson: JSON.stringify({ theme: "gradient", layout: "custom" }),
+        LegacyImported: true, Themes: []
+    };
+    resolveInitialWorkspace(workspacePayload); await settle();
+    assert.strictEqual(root.getAttribute("data-elyric-workspace-ready"), "true");
+    assert.strictEqual(root.getAttribute("data-elyric-workspace-source"), "server");
+    assert.strictEqual(root.getAttribute("data-elyric-workspace-revision"), "7");
+    assert.strictEqual(root.getAttribute("data-elyric-account-scope"), "server-a.runtime-user");
+    assert.strictEqual(root.querySelector(".elyric-player-lyric-viewport").getAttribute("data-elyric-theme"), "gradient");
+    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x, 111);
+    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.portrait.metadata.x, 222);
+    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.controls.profiles.landscape.groups.transport.gap, 19);
+    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.controls.profiles.portrait.groups.transport.gap, 27,
+        "one account draft must retain independent landscape and portrait control profiles");
+    root.querySelectorAll(".elyric-theme-choice")[4].click();
+    await wait(550); await settle();
+    assert.strictEqual(workspaceWrites.length, 1, "post-restore edits should debounce into one Workspace PUT");
+    assert.strictEqual(workspaceWrites[0].ExpectedRevision, 7);
+    assert.strictEqual(JSON.parse(workspaceWrites[0].DraftJson).schemaVersion, 5);
+    assert.strictEqual(displayPreferenceWrites, 0);
+    const confirmedCacheKeys = [...stored.keys()].filter((key) => key.includes("workspace-cache"));
+    assert(confirmedCacheKeys.some((key) => key.endsWith("server-a.runtime-user")),
+        "the last server-confirmed cache must be isolated by server and user");
+    forceWorkspaceConflict = true;
+    root.querySelectorAll(".elyric-theme-choice")[0].click();
+    await wait(550); await settle();
+    assert.strictEqual(root.getAttribute("data-elyric-workspace-source"), "conflict");
+    assert.strictEqual(root.getAttribute("data-elyric-workspace-revision"), "99");
+    assert.strictEqual(root.getAttribute("data-elyric-preference-state"), "conflict");
+    assert(osd.__elyricRenderer.__elyricUserPlayerThemes.some((theme) => theme.id === "conflict-copy"),
+        "revision conflicts must preserve the local draft as a named conflict copy");
     [".elyric-player-stage", ".elyric-player-lyric-viewport", ".elyric-player-queue-panel",
         ".elyric-player-settings-panel", ".elyric-player-media-panel"].forEach((selector) => {
         const element = root.querySelector(selector); assert(element && root.contains(element), `${selector} must live inside the root`);
@@ -260,6 +356,32 @@ function deferLyrics(id) {
     assert.strictEqual(first.native.getAttribute("aria-hidden"), "false"); assert(!first.native.hasAttribute("inert"));
     assert.strictEqual(first.native.style.visibility, "visible"); assert.strictEqual(bindings.length, 0); assert.strictEqual(frames.size, 0);
     assert.strictEqual(osd.destroy(), "destroy"); first.page.remove();
+
+    currentUserId = "other-user"; currentServerId = "server-b";
+    const secondAccountDraft = JSON.parse(JSON.stringify(serverDraft));
+    secondAccountDraft.layouts.landscape.metadata.x = 333;
+    workspacePayload = {
+        Revision: 3, DraftJson: JSON.stringify(secondAccountDraft),
+        GlobalStateJson: JSON.stringify({ theme: "apple", layout: "custom" }),
+        LegacyImported: true, Themes: []
+    };
+    const scoped = createPage(); const scopedOsd = new VideoOsd(scoped.page);
+    scopedOsd.onResume(); await settle();
+    const scopedRoot = scoped.page.querySelector(".elyric-player-root");
+    assert.strictEqual(scopedRoot.getAttribute("data-elyric-account-scope"), "server-b.other-user");
+    assert.strictEqual(scopedOsd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x, 333,
+        "a second server/user pair must restore only its own Workspace");
+    const scopedCacheKeys = [...stored.keys()].filter((key) => key.includes("workspace-cache"));
+    assert(scopedCacheKeys.some((key) => key.endsWith("server-a.runtime-user"))
+        && scopedCacheKeys.some((key) => key.endsWith("server-b.other-user")),
+    "confirmed browser caches must be isolated across both server and user identity");
+    scopedOsd.onPause(); scoped.page.remove();
+    currentUserId = "runtime-user"; currentServerId = "server-a";
+    workspacePayload = {
+        Revision: 99, DraftJson: JSON.stringify(serverDraft),
+        GlobalStateJson: JSON.stringify({ theme: "gradient", layout: "custom" }),
+        LegacyImported: true, Themes: []
+    };
 
     const limited = createPage(); const next = manager.nextTrack; manager.nextTrack = null;
     currentItem = item("song-a", "歌曲 A"); state = Object.assign({}, state, { NowPlayingItem: currentItem });

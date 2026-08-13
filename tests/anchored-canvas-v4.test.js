@@ -9,7 +9,8 @@ const adapter = fs.readFileSync(
     "utf8"
 );
 
-assert(adapter.includes('PLAYER_THEME_LAYOUT_MODEL = "anchored-canvas-v1"'));
+assert(adapter.includes('PLAYER_THEME_LAYOUT_MODEL = "anchored-canvas-v2"'));
+assert(adapter.includes('PLAYER_THEME_SCHEMA_VERSION = 5'));
 assert(adapter.includes('matchMedia("(orientation: portrait)")'));
 assert(adapter.includes("keyboardReducedViewport") && adapter.includes("playerThemeV2ActiveProfile"),
     "soft-keyboard visual viewport changes must preserve the current physical orientation");
@@ -74,4 +75,8 @@ const ultrawide = metrics(3440, 1440, "landscape");
 assert(ultrawide.designWidth > standard.designWidth,
     "the long edge should expand symmetrically instead of stretching the base canvas");
 
-console.log("anchored canvas V4 geometry matrix: ok");
+assert(adapter.includes('"artwork", "metadata", "lyrics", "visualizer", "controlDock"'),
+    "V5 should expose exactly five editable canvas layers");
+assert(adapter.includes("normalizePlayerControlDockProfile") && adapter.includes("applyPlayerControlDock"),
+    "V5 should normalize and render the constrained control dock");
+console.log("anchored canvas V5 geometry matrix and control dock: ok");

@@ -11,10 +11,11 @@ Current adapter: **Emby Server 4.9.5.0**
 - Groups original lyrics, romanization, and translations that share a start time
 - Parses enhanced LRC `<mm:ss.xx>` word timing and recomputes state after playback, seek forward, or seek backward
 - Smooths word timing between Emby's native callbacks with `requestAnimationFrame` instead of visibly stepping at roughly 400 ms intervals
-- Provides five built-in lyric themes that can be switched instantly on the playback page and remembered by the browser
+- Provides five built-in lyric rendering styles that can be switched instantly and synchronized through the authenticated workspace
 - Replaces the lyric playback page's visual layer with nine read-only built-in compositions plus an unlimited per-user theme library
 - Uses a single `PlayerThemeV2` registry for editor controls, validation, CSS/Canvas bindings, serialization, migration, and server rules
-- Lets users drag, resize, rotate, layer, hide, lock, align, snap, nudge, undo, and redo artwork, metadata, lyrics, visualizer, progress, transport, volume, and auxiliary layers
+- Lets users drag, resize, rotate, layer, hide, lock, align, snap, nudge, undo, and redo artwork, metadata, lyrics, visualizer, and one constrained control dock
+- Lets each orientation arrange control-dock rows and groups, reorder or hide eligible buttons, choose alignment and gaps, and move groups between rows while keeping progress and play/pause available
 - Stores exactly two anchored design canvases—landscape (`1200×900`) and portrait (`900×1200`)—with independent scale/offset transforms and a persistent out-of-stage settings safety entry
 - Supports Emby artwork, private image uploads, HTTPS artwork, private WOFF2 fonts, HTTPS WOFF2 fonts, polygon clipping, and independent three-tier lyric typography
 - Integrates metadata, artwork, seeking, volume/mute, stop, previous/play/next, shuffle, repeat, queue, annotation, and artwork-rotation controls
@@ -64,7 +65,7 @@ No Emby restart is required after switching. Force-refresh Emby Web and clear th
 
 ## C# settings and per-user theme service
 
-The 0.4.0 C# plugin keeps the sanitized public display-default endpoint and adds an authenticated `PlayerThemeV2` workspace, named-theme library, and private asset service. User identity is derived only from the active Emby request; clients cannot select another user ID. Each workspace and theme is atomically persisted under the plugin data directory with integer revisions. Concurrent writes keep the server version and create a conflict copy instead of silently overwriting either edit.
+The 0.5.0 C# plugin keeps the sanitized public display-default endpoint and adds an authenticated Theme V5 workspace, named-theme library, private asset service, and strict constrained-control-dock validation. User identity is derived only from the active Emby request; clients cannot select another user ID. Each workspace and theme is atomically persisted under the plugin data directory with integer revisions. Concurrent writes keep the server version and create a conflict copy instead of silently overwriting either edit.
 
 Named themes have no artificial count limit. Administrators can configure the maximum theme JSON size, maximum asset size, and per-user storage quota. Uploaded resources are restricted to signature-checked PNG, JPEG, WebP, AVIF, and WOFF2 files. The frontend auto-saves a draft after about 500 ms, keeps a local offline queue, imports up to 24 legacy themes once, and retains the local cache after the server confirms migration.
 
@@ -74,11 +75,11 @@ See [`plugin/README_CN.md`](plugin/README_CN.md) for build, Docker installation,
 
 Opening the lyric view replaces the page's visual layer instead of stacking another dock over Emby's controls. It provides metadata, artwork ambience, seeking, volume/mute, stop, previous/play-pause/next, shuffle, repeat, play queue, annotation visibility, artwork rotation, and theme selection.
 
-The **Interface** selector provides nine immutable built-in compositions backed by the same parameter model. Entering canvas edit mode captures the active composition, closes the modal settings drawer, and exposes eight editable layer boxes. Settings remains the highest interactive layer and never uses backdrop blur; oversized lyrics and the queue cannot cover it. Editing an immutable preset is saved as a new user theme.
+The **Interface** selector provides nine immutable built-in compositions backed by the same parameter model. Entering canvas edit mode captures the active composition, closes the modal settings drawer, and exposes five editable layer boxes: artwork, metadata, lyrics, visualizer, and control dock. Settings remains the highest interactive layer and never uses backdrop blur; oversized lyrics and the queue cannot cover it. Editing an immutable preset is saved as a new user theme.
 
-Only orientation selects layout: landscape covers desktop, landscape tablet, and landscape phone; portrait covers portrait tablet and phone. Window size, ultrawide screens, short landscape screens, and soft keyboards do not create a third implicit layout. Every built-in theme is a complete public V4 parameter document; theme IDs are used only for catalog names, previews, and migration mapping, never for hidden geometry or visual CSS branches.
+Only orientation selects layout: landscape covers desktop, landscape tablet, and landscape phone; portrait covers portrait tablet and phone. Window size, ultrawide screens, short landscape screens, and soft keyboards do not create a third implicit layout. Every built-in theme is a complete public V5 `anchored-canvas-v2` document; V3/V4 remain import-compatible. Theme IDs are used only for catalog names, previews, and migration mapping, never for hidden geometry or visual CSS branches.
 
-The theme library can save, duplicate, rename, delete, and restore designs through the current Emby account. Theme snapshots include all frequency-analysis values, artwork source, three lyric tiers, follow delay, media-information fields, popup styling, and control safety settings. Artwork can use the current Emby image, a private upload, or an HTTPS URL. Lyrics can be positioned and sized freely; primary, secondary, and later lines have independent font source, size, weight, italic, spacing, line height, color, opacity, stroke, shadow, glow, and played/current/future colors.
+The theme library can save, duplicate, rename, delete, and restore designs through the current Emby account. UserWorkspace is the account authority; confirmed caches, drafts, and offline queues are isolated by Emby server plus user identity, and legacy browser state is read only for a first-time migration. Theme snapshots include both orientation layouts, both control-dock profiles, all frequency-analysis values, artwork source, three lyric tiers, follow delay, media-information fields, popup styling, and control safety settings. Artwork can use the current Emby image, a private upload, or an HTTPS URL. Lyrics can be positioned and sized freely; primary, secondary, and later lines have independent font source, size, weight, italic, spacing, line height, color, opacity, stroke, shadow, glow, and played/current/future colors.
 
 The shell owns presentation and interaction while playback, seeking, queue state, and casting remain delegated to Emby's active `playbackmanager` session. It does not start a second audio engine. A custom button is disabled when its corresponding capability is unavailable.
 

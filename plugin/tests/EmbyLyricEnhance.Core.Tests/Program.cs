@@ -131,6 +131,69 @@ var validThemeV4Json = $$"""
 Check(PlayerThemeV2Validator.ValidateThemeJson(validThemeV4Json, 64 * 1024) == validThemeV4Json,
     "complete anchored ThemeDocumentV4 JSON should be accepted");
 
+var completeV5Layout = $$"""
+{
+  "artwork": {{completeV4Layer}},
+  "metadata": {{completeV4Layer}},
+  "lyrics": {{completeV4Layer}},
+  "visualizer": {{completeV4Layer}},
+  "controlDock": {{completeV4Layer}}
+}
+""";
+var dockGroups = """
+{
+  "progress": { "visible": true, "order": [], "hiddenButtons": [], "align": "center", "gap": 0 },
+  "transport": { "visible": true, "order": ["previous","playPause","next"], "hiddenButtons": [], "align": "center", "gap": 12 },
+  "volume": { "visible": true, "order": ["mute","slider","value"], "hiddenButtons": [], "align": "end", "gap": 8 },
+  "auxiliary": { "visible": true, "order": ["shuffle","repeat","stop","queue","media","secondaryLyrics","artworkRotation"], "hiddenButtons": [], "align": "start", "gap": 8 }
+}
+""";
+var dockProfile = $$"""
+{
+  "rows": [
+    { "groups": ["progress"], "justify": "center", "align": "center", "gap": 0 },
+    { "groups": ["auxiliary","transport","volume"], "justify": "space-between", "align": "center", "gap": 20 }
+  ],
+  "groups": {{dockGroups}}
+}
+""";
+var validThemeV5Json = $$"""
+{
+  "format": "emby-lyric-theme",
+  "schemaVersion": 5,
+  "layoutModel": "anchored-canvas-v2",
+  "name": "V5 dock test",
+  "baseTheme": "album",
+  "viewportTransforms": {
+    "landscape": { "scale": 1, "offsetX": 0, "offsetY": 0 },
+    "portrait": { "scale": 1, "offsetX": 0, "offsetY": 0 }
+  },
+  "layouts": { "landscape": {{completeV5Layout}}, "portrait": {{completeV5Layout}} },
+  "controls": { "safeArea": 64, "profiles": { "landscape": {{dockProfile}}, "portrait": {{dockProfile}} } },
+  "artwork": { "source": "emby", "mode": "single", "material": "vinyl" },
+  "console": { "material": "minimal", "safeArea": 64 }
+}
+""";
+Check(PlayerThemeV2Validator.ValidateThemeJson(validThemeV5Json, 128 * 1024) == validThemeV5Json,
+    "complete Theme V5 document and dock should be accepted");
+foreach (var invalidV5 in new[]
+{
+    validThemeV5Json.Replace("\"controlDock\":", "\"transport\":"),
+    validThemeV5Json.Replace("\"playPause\"", "\"previous\""),
+    validThemeV5Json.Replace("\"hiddenButtons\": []", "\"hiddenButtons\": [\"playPause\"]", StringComparison.Ordinal)
+})
+{
+    try
+    {
+        PlayerThemeV2Validator.ValidateThemeJson(invalidV5, 128 * 1024);
+        Check(false, "invalid Theme V5 layers or dock controls should be rejected");
+    }
+    catch (ArgumentException)
+    {
+        Check(true, "strict Theme V5 dock rejection");
+    }
+}
+
 foreach (var invalidV4 in new[]
 {
     validThemeV4Json.Replace("\"layoutModel\": \"anchored-canvas-v1\",", ""),

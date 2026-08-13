@@ -6,15 +6,19 @@ namespace EmbyLyricEnhance.Core;
 
 public static class PlayerThemeV2Schema
 {
-    public const int Version = 4;
+    public const int Version = 5;
 
-    public const int PreviousVersion = 3;
+    public const int PreviousVersion = 4;
+
+    public const int V3Version = 3;
 
     public const int LegacyVersion = 2;
 
     public const string DocumentFormat = "emby-lyric-theme";
 
-    public const string LayoutModel = "anchored-canvas-v1";
+    public const string LayoutModel = "anchored-canvas-v2";
+
+    public const string PreviousLayoutModel = "anchored-canvas-v1";
 
     public static readonly string[] ResponsiveProfiles =
     {
@@ -33,10 +37,13 @@ public static class PlayerThemeV2Schema
         "metadata",
         "lyrics",
         "visualizer",
-        "progress",
-        "transport",
-        "volume",
-        "auxiliary"
+        "controlDock"
+    };
+
+    public static readonly string[] V4LayerIds =
+    {
+        "artwork", "metadata", "lyrics", "visualizer",
+        "progress", "transport", "volume", "auxiliary"
     };
 
     // The server validates every scalar family that the web editor can serialize.
@@ -80,7 +87,8 @@ public static class PlayerThemeV2Schema
         "layer-range",
         "anchor-enum",
         "viewport-transform-range",
-        "visualizer-analysis-range"
+        "visualizer-analysis-range",
+        "control-dock"
     };
 }
 
