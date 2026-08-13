@@ -9,7 +9,9 @@ const adapter = fs.readFileSync(
     "utf8"
 );
 
-assert(adapter.includes('PLAYER_THEME_LAYOUT_MODEL = "anchored-canvas-v2"'));
+assert(adapter.includes('PLAYER_THEME_LAYOUT_MODEL = "fixed-canvas-v1"'));
+assert(adapter.includes('landscape: { width: 1920, height: 1080 }'));
+assert(adapter.includes('portrait: { width: 1080, height: 1920 }'));
 assert(adapter.includes('PLAYER_THEME_SCHEMA_VERSION = 5'));
 assert(adapter.includes('matchMedia("(orientation: portrait)")'));
 assert(adapter.includes("keyboardReducedViewport") && adapter.includes("playerThemeV2ActiveProfile"),
@@ -33,14 +35,14 @@ function metrics(viewportWidth, viewportHeight, profile, transform = {}) {
     const safe = 64;
     const availableWidth = viewportWidth;
     const availableHeight = viewportHeight - safe;
-    const baseWidth = profile === "portrait" ? 900 : 1200;
-    const baseHeight = profile === "portrait" ? 1200 : 900;
+    const baseWidth = profile === "portrait" ? 1080 : 1920;
+    const baseHeight = profile === "portrait" ? 1920 : 1080;
     const baseScale = Math.min(availableWidth / baseWidth, availableHeight / baseHeight);
-    const designWidth = availableWidth / baseScale;
-    const designHeight = availableHeight / baseScale;
+    const designWidth = baseWidth;
+    const designHeight = baseHeight;
     const scale = baseScale * (transform.scale || 1);
-    const originX = availableWidth / 2 - designWidth * scale / 2 + (transform.offsetX || 0) * scale;
-    const originY = safe + availableHeight / 2 - designHeight * scale / 2 + (transform.offsetY || 0) * scale;
+    const originX = (availableWidth - designWidth * scale) / 2 + (transform.offsetX || 0) * scale;
+    const originY = safe + (availableHeight - designHeight * scale) / 2 + (transform.offsetY || 0) * scale;
     return {
         scale, designWidth, designHeight, originX, originY,
         forward(x, y) { return { x: originX + x * scale, y: originY + y * scale }; },
@@ -49,7 +51,7 @@ function metrics(viewportWidth, viewportHeight, profile, transform = {}) {
 }
 
 const viewports = [
-    [390, 844, "portrait"], [440, 900, "portrait"], [768, 1024, "portrait"],
+    [390, 844, "portrait"], [440, 900, "portrait"], [768, 1024, "portrait"], [1080, 1920, "portrait"],
     [844, 390, "landscape"], [1024, 768, "landscape"], [1366, 768, "landscape"],
     [1920, 1080, "landscape"], [2560, 1440, "landscape"], [3440, 1440, "landscape"],
     [3840, 2160, "landscape"]
@@ -72,8 +74,18 @@ viewports.forEach(([width, height, profile]) => {
 
 const standard = metrics(1920, 1080, "landscape");
 const ultrawide = metrics(3440, 1440, "landscape");
-assert(ultrawide.designWidth > standard.designWidth,
-    "the long edge should expand symmetrically instead of stretching the base canvas");
+assert.strictEqual(standard.designWidth, 1920);
+assert.strictEqual(standard.designHeight, 1080);
+assert.strictEqual(ultrawide.designWidth, 1920);
+assert.strictEqual(ultrawide.designHeight, 1080,
+    "every landscape viewport should retain one fixed 1920x1080 design canvas");
+const ultrawideCanvasWidth = ultrawide.designWidth * ultrawide.scale;
+assert(ultrawide.originX > 0 && ultrawideCanvasWidth < 3440,
+    "ultrawide screens should center the contained canvas and leave both sides blank");
+const portrait = metrics(1080, 1920, "portrait");
+assert.strictEqual(portrait.designWidth, 1080);
+assert.strictEqual(portrait.designHeight, 1920,
+    "every portrait viewport should retain one fixed 1080x1920 design canvas");
 
 assert(adapter.includes('"artwork", "metadata", "lyrics", "visualizer", "controlDock"'),
     "V5 should expose exactly five editable canvas layers");

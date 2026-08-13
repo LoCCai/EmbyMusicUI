@@ -10,15 +10,15 @@
 
 ## 0. 2026-08-13 Theme V5 实施记录
 
-- 主题文档升级为 `schemaVersion: 5`、`anchored-canvas-v2`，V3/V4 继续兼容读取。
+- 主题文档升级为 `schemaVersion: 5`、`fixed-canvas-v1`：横屏固定 `1920×1080`，竖屏固定 `1080×1920`；其他比例只做 contain 居中等比缩放，多余区域留空。V3/V4 与早期 V5 `anchored-canvas-v2` 继续兼容读取并一次性迁移。
 - 正式画布只保留 `landscape` 与 `portrait`，且只包含 `artwork/metadata/lyrics/visualizer/controlDock` 五个图层。
-- Workspace 成为账号唯一权威源；浏览器确认缓存、主题草稿和离线队列均按 `serverId + userId` 隔离。
+- Workspace 成为账号唯一权威源；浏览器确认缓存、主题草稿和离线队列均按 `serverId + userId` 隔离。服务端草稿无条件作为当前账号的完整构图恢复，不再因其最初来源是内置预设而被刷新覆盖；PUT 只有收到递增 revision 才显示“账号已同步”。
 - 非空 Workspace 永远优先于旧浏览器数据；只有全新且未迁移的账号会读取一次旧 `DisplayPreferences/localStorage`。
 - 日常 500ms 防抖保存只写 Workspace，不再持续双写旧 DisplayPreferences。
 - 控制坞随主题分别保存横竖屏的行、分组、按钮顺序、显隐、对齐、间距和换行；进度与播放按钮不可删除。
 - 自动化已覆盖服务器 Workspace 胜出、初始化前零保存、账号/服务器缓存隔离、横竖 profile 共存、500ms PUT 与 revision 冲突副本。
 - 本地 C# 严格编译、真实 Emby 4.9.1.90 API 合同、Theme V5/单根运行时测试已通过；POSIX 安装器测试需在 Linux/Docker 主机执行。
-- 插件版本为 `0.5.0`，前端构建 ID 为 `2026.08.13-theme-v5-control-dock`，需重装 DLL 并重启 Emby。
+- 插件版本为 `0.5.0`，前端构建 ID 为 `2026.08.13-theme-v5-fixed-canvas-sync`。服务端图层坐标范围已扩大，需重装 DLL 并重启 Emby。
 
 ## 1. 结论与升级原则
 

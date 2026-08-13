@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.13-theme-v5-control-dock */
+/* ELYRIC_BUILD:2026.08.13-theme-v5-fixed-canvas-sync */
 ;(function () {
     "use strict";
 
@@ -36,12 +36,17 @@
     var PLAYER_PREFERENCES_KEY = "emby-lyric-enhance.player-preferences.v2";
     var PLAYER_THEME_LIBRARY_STORAGE_KEY = "emby-lyric-enhance.player-themes.v1";
     var PLAYER_THEME_DESIGN_STORAGE_KEY = "emby-lyric-enhance.player-theme-design.v1";
-    var PLAYER_BUILD_ID = "2026.08.13-theme-v5-control-dock";
+    var PLAYER_BUILD_ID = "2026.08.13-theme-v5-fixed-canvas-sync";
     var PLAYER_PREFERENCES_VERSION = 5;
     var PLAYER_THEME_SCHEMA_VERSION = 5;
     var PLAYER_THEME_DOCUMENT_FORMAT = "emby-lyric-theme";
-    var PLAYER_THEME_LAYOUT_MODEL = "anchored-canvas-v2";
+    var PLAYER_THEME_LAYOUT_MODEL = "fixed-canvas-v1";
+    var PLAYER_THEME_LEGACY_V5_LAYOUT_MODEL = "anchored-canvas-v2";
     var PLAYER_THEME_PREVIOUS_LAYOUT_MODEL = "anchored-canvas-v1";
+    var PLAYER_THEME_CANVAS_SIZES = {
+        landscape: { width: 1920, height: 1080 },
+        portrait: { width: 1080, height: 1920 }
+    };
     var PLAYER_THEME_V3_MIGRATION_BACKUP_KEY = "emby-lyric-enhance.player-theme-v3-backup.v1";
     var MAX_LEGACY_USER_PLAYER_THEMES = 24;
     var PLAYER_PREFERENCES_SAVE_DELAY = 500;
@@ -827,7 +832,7 @@
                         ? normalizePlayerThemeV2Boolean
                         : function (value) {
                             var ranges = {
-                                x: [-1200, 1200], y: [-1200, 1200], width: [44, 2400], height: [44, 2400],
+                                x: [-1920, 1920], y: [-1920, 1920], width: [44, 3840], height: [44, 3840],
                                 rotation: [-360, 360], z: [0, 1000], opacity: [0, 1]
                             };
                             return normalizePlayerThemeV2Number(
@@ -913,20 +918,42 @@
     function defaultPlayerThemeV2Layouts() {
         return {
             landscape: {
-                artwork: defaultPlayerThemeV2Layer(72, 36, 360, 500, 12, false, "start", "center"),
-                metadata: defaultPlayerThemeV2Layer(-72, 86, 500, 144, 14, false, "end", "start"),
-                lyrics: defaultPlayerThemeV2Layer(-72, 38, 520, 420, 11, false, "end", "center"),
-                visualizer: defaultPlayerThemeV2Layer(0, -148, 960, 72, 9, false, "center", "end"),
-                controlDock: defaultPlayerThemeV2Layer(0, -104, 1056, 142, 17, false, "center", "end")
+                artwork: defaultPlayerThemeV2Layer(115.2, 43.2, 576, 600, 12, false, "start", "center"),
+                metadata: defaultPlayerThemeV2Layer(-115.2, 103.2, 800, 172.8, 14, false, "end", "start"),
+                lyrics: defaultPlayerThemeV2Layer(-115.2, 45.6, 832, 504, 11, false, "end", "center"),
+                visualizer: defaultPlayerThemeV2Layer(0, -177.6, 1536, 86.4, 9, false, "center", "end"),
+                controlDock: defaultPlayerThemeV2Layer(0, -124.8, 1689.6, 170.4, 17, false, "center", "end")
             },
             portrait: {
-                artwork: defaultPlayerThemeV2Layer(0, 86, 500, 340, 12, false, "center", "start"),
-                metadata: defaultPlayerThemeV2Layer(0, 446, 756, 132, 14, false, "center", "start"),
-                lyrics: defaultPlayerThemeV2Layer(0, 646, 792, 348, 11, false, "center", "start"),
-                visualizer: defaultPlayerThemeV2Layer(0, -184, 720, 72, 9, false, "center", "end"),
-                controlDock: defaultPlayerThemeV2Layer(0, -198, 792, 186, 17, false, "center", "end")
+                artwork: defaultPlayerThemeV2Layer(0, 137.6, 600, 544, 12, false, "center", "start"),
+                metadata: defaultPlayerThemeV2Layer(0, 713.6, 907.2, 211.2, 14, false, "center", "start"),
+                lyrics: defaultPlayerThemeV2Layer(0, 1033.6, 950.4, 556.8, 11, false, "center", "start"),
+                visualizer: defaultPlayerThemeV2Layer(0, -294.4, 864, 115.2, 9, false, "center", "end"),
+                controlDock: defaultPlayerThemeV2Layer(0, -316.8, 950.4, 297.6, 17, false, "center", "end")
             }
         };
+    }
+
+    function scaleLegacyPlayerThemeV2Layer(layer, portrait) {
+        if (!layer || "object" !== typeof layer) { return layer; }
+        var scaled = clonePlayerThemeV2Value(layer);
+        var scaleX = portrait ? 1.2 : 1.6;
+        var scaleY = portrait ? 1.6 : 1.2;
+        ["x", "width"].forEach(function (key) {
+            if (isFinite(Number(scaled[key]))) { scaled[key] = Math.round(Number(scaled[key]) * scaleX * 10) / 10; }
+        });
+        ["y", "height"].forEach(function (key) {
+            if (isFinite(Number(scaled[key]))) { scaled[key] = Math.round(Number(scaled[key]) * scaleY * 10) / 10; }
+        });
+        return scaled;
+    }
+
+    function scaleLegacyPlayerThemeV2Layout(layout, portrait) {
+        var scaled = {};
+        Object.keys(layout || {}).forEach(function (layerId) {
+            scaled[layerId] = scaleLegacyPlayerThemeV2Layer(layout[layerId], portrait);
+        });
+        return scaled;
     }
 
     function normalizePlayerControlDockProfile(source, portrait) {
@@ -1114,12 +1141,14 @@
         }
     }
 
-    function playerThemeV5LayoutFromV4(layout, portrait, fallbackLayout) {
+    function playerThemeV5LayoutFromV4(layout, portrait, fallbackLayout, scaleLegacyGeometry) {
         var converted = {};
         var fallback = fallbackLayout || defaultPlayerThemeV2Layouts()[portrait ? "portrait" : "landscape"];
         ["artwork", "metadata", "lyrics", "visualizer"].forEach(function (layerId) {
             converted[layerId] = layout && layout[layerId]
-                ? clonePlayerThemeV2Value(layout[layerId])
+                ? (scaleLegacyGeometry
+                    ? scaleLegacyPlayerThemeV2Layer(layout[layerId], portrait)
+                    : clonePlayerThemeV2Value(layout[layerId]))
                 : clonePlayerThemeV2Value(fallback[layerId]);
         });
         converted.controlDock = clonePlayerThemeV2Value(fallback.controlDock);
@@ -1143,6 +1172,15 @@
         };
     }
 
+    function hasCompletePlayerThemeV2Layouts(layouts) {
+        return PLAYER_THEME_V2_PROFILE_IDS.every(function (profileId) {
+            var layout = layouts && layouts[profileId];
+            return !!layout && PLAYER_THEME_V2_LAYER_IDS.every(function (layerId) {
+                return !!layout[layerId] && "object" === typeof layout[layerId];
+            });
+        });
+    }
+
     function migratePlayerThemeV2State(source, baseLayout) {
         var incoming = source && "object" === typeof source
             ? clonePlayerThemeV2Value(source)
@@ -1151,13 +1189,21 @@
         var fallbackLayouts = playerThemeV5LayoutsForBase(baseLayout);
         if (PLAYER_THEME_SCHEMA_VERSION === version && PLAYER_THEME_LAYOUT_MODEL === incoming.layoutModel) {
             // Current documents already own both direction layouts.
+        } else if (PLAYER_THEME_SCHEMA_VERSION === version
+            && PLAYER_THEME_LEGACY_V5_LAYOUT_MODEL === incoming.layoutModel) {
+            incoming.layouts = hasCompletePlayerThemeV2Layouts(incoming.layouts)
+                ? {
+                    landscape: scaleLegacyPlayerThemeV2Layout(incoming.layouts.landscape, false),
+                    portrait: scaleLegacyPlayerThemeV2Layout(incoming.layouts.portrait, true)
+                }
+                : clonePlayerThemeV2Value(fallbackLayouts);
         } else if (4 === version && PLAYER_THEME_PREVIOUS_LAYOUT_MODEL === incoming.layoutModel) {
             incoming.layouts = {
                 landscape: playerThemeV5LayoutFromV4(
-                    incoming.layouts && incoming.layouts.landscape, false, fallbackLayouts.landscape
+                    incoming.layouts && incoming.layouts.landscape, false, fallbackLayouts.landscape, true
                 ),
                 portrait: playerThemeV5LayoutFromV4(
-                    incoming.layouts && incoming.layouts.portrait, true, fallbackLayouts.portrait
+                    incoming.layouts && incoming.layouts.portrait, true, fallbackLayouts.portrait, true
                 )
             };
             incoming.controls = defaultPlayerControlDock();
@@ -1329,8 +1375,9 @@
             width: Math.max(44, viewport.width - safeInsets.left - safeInsets.right),
             height: Math.max(44, viewport.height - safeInsets.top - safeInsets.bottom - toolbarInset)
         };
-        var baseWidth = "portrait" === profileId ? 900 : 1200;
-        var baseHeight = "portrait" === profileId ? 1200 : 900;
+        var canvasSize = PLAYER_THEME_CANVAS_SIZES[profileId];
+        var baseWidth = canvasSize.width;
+        var baseHeight = canvasSize.height;
         var baseScale = Math.max(.001, Math.min(available.width / baseWidth, available.height / baseHeight));
         if (profileId !== currentPlayerThemeV2Profile()) {
             var previewScale = Math.min(
@@ -1351,11 +1398,11 @@
             : { scale: 1, offsetX: 0, offsetY: 0 };
         var userScale = normalizePlayerThemeV2Number(transform.scale, .5, 1.6, 1);
         var scale = baseScale * userScale;
-        var designWidth = available.width / baseScale;
-        var designHeight = available.height / baseScale;
-        var originX = available.left + available.width / 2 - designWidth * scale / 2
+        var designWidth = baseWidth;
+        var designHeight = baseHeight;
+        var originX = available.left + (available.width - designWidth * scale) / 2
             + normalizePlayerThemeV2Number(transform.offsetX, -600, 600, 0) * scale;
-        var originY = available.top + available.height / 2 - designHeight * scale / 2
+        var originY = available.top + (available.height - designHeight * scale) / 2
             + normalizePlayerThemeV2Number(transform.offsetY, -600, 600, 0) * scale;
         return {
             profileId: profileId, viewport: viewport, available: available,
@@ -1853,8 +1900,8 @@
     }
 
     function playerThemeV4LayerFromPercent(layer, portrait) {
-        var canvasWidth = portrait ? 900 : 1200;
-        var canvasHeight = portrait ? 1200 : 900;
+        var canvasWidth = portrait ? 1080 : 1920;
+        var canvasHeight = portrait ? 1920 : 1080;
         return defaultPlayerThemeV2Layer(
             Math.round(Number(layer.x) / 100 * canvasWidth * 10) / 10,
             Math.round(Number(layer.y) / 100 * canvasHeight * 10) / 10,
@@ -2780,10 +2827,10 @@
                 ? clonePlayerThemeV2Value(source.layouts || migratedState.layouts)
                 : {
                     landscape: playerThemeV5LayoutFromV4(
-                        source.layouts && source.layouts.landscape, false, migratedState.layouts.landscape
+                        source.layouts && source.layouts.landscape, false, migratedState.layouts.landscape, true
                     ),
                     portrait: playerThemeV5LayoutFromV4(
-                        source.layouts && source.layouts.portrait, true, migratedState.layouts.portrait
+                        source.layouts && source.layouts.portrait, true, migratedState.layouts.portrait, true
                     )
                 };
             migratedState.viewportTransforms = clonePlayerThemeV2Value(
@@ -3655,6 +3702,14 @@
         return "无法连接服务器主题库；" + prefix;
     }
 
+    function playerThemeV2WorkspaceUnavailableStatus(error) {
+        var status = Number(error && (error.status || error.statusCode) || 0);
+        if (404 === status) { return "主题同步接口未加载（HTTP 404）；请重新安装插件 DLL 并重启 Emby"; }
+        if (401 === status || 403 === status) { return "当前 Emby 登录无权读取主题同步接口（HTTP " + status + "）"; }
+        if (status >= 500) { return "主题同步接口异常（HTTP " + status + "）；请检查插件日志与存储目录权限"; }
+        return "无法连接账号主题同步接口；当前仅使用安全默认主题";
+    }
+
     function normalizeRemotePlayerTheme(record) {
         var serialized = playerThemeV2ResponseValue(record, "themeJson", "ThemeJson", "{}");
         var source = {};
@@ -3693,12 +3748,21 @@
     }
 
     function requestPlayerThemeV2Workspace(renderer) {
+        var themesRequest = playerThemeV2ApiRequest(renderer, "GET", PLAYER_THEMES_PATH).then(function (summaries) {
+            return { summaries: Array.isArray(summaries) ? summaries : [], error: null };
+        }, function (error) {
+            return { summaries: null, error: error };
+        });
         return Promise.all([
             playerThemeV2ApiRequest(renderer, "GET", PLAYER_WORKSPACE_PATH),
-            playerThemeV2ApiRequest(renderer, "GET", PLAYER_THEMES_PATH)
+            themesRequest
         ]).then(function (results) {
             var workspace = results[0] || {};
-            var summaries = Array.isArray(results[1]) ? results[1] : [];
+            var themesResult = results[1] || {};
+            var summaries = Array.isArray(themesResult.summaries)
+                ? themesResult.summaries
+                : playerThemeV2ResponseValue(workspace, "themes", "Themes", []);
+            summaries = Array.isArray(summaries) ? summaries : [];
             renderer.__elyricWorkspaceRevision = Number(
                 playerThemeV2ResponseValue(workspace, "revision", "Revision", 0)
             );
@@ -3710,6 +3774,7 @@
             );
             mergeRemotePlayerThemeSummaries(renderer, summaries);
             storeConfirmedPlayerThemeV2Workspace(renderer, workspace, summaries);
+            renderer.__elyricThemeLibraryApiError = themesResult.error || null;
             return workspace;
         });
     }
@@ -3724,7 +3789,11 @@
         } catch (error) {}
         try {
             var draft = normalizeSavedPlayerTheme(JSON.parse(draftJson), 0);
-            if (draft) { preferences.playerThemeDesign = draft; }
+            if (draft) {
+                preferences.playerThemeDesign = draft;
+                // The Workspace draft is the complete active composition. Once
+                // edited it must restore independently of its original preset.
+            }
         } catch (error) {}
         preferences.activePlayerThemeId = renderer.__elyricActiveUserPlayerThemeId || null;
         return preferences;
@@ -3831,7 +3900,14 @@
         return playerThemeV2ApiRequest(renderer, "PUT", PLAYER_WORKSPACE_PATH, body).then(function (result) {
             var value = playerThemeV2ResponseValue(result, "value", "Value", result);
             var conflict = !!playerThemeV2ResponseValue(result, "conflict", "Conflict", false);
-            renderer.__elyricWorkspaceRevision = Number(playerThemeV2ResponseValue(value, "revision", "Revision", renderer.__elyricWorkspaceRevision || 0));
+            var previousRevision = Number(renderer.__elyricWorkspaceRevision || 0);
+            var confirmedRevision = Number(playerThemeV2ResponseValue(value, "revision", "Revision", 0));
+            if (!(confirmedRevision > previousRevision) && !conflict) {
+                var invalidWorkspaceResponse = new Error("服务器 Workspace 接口未确认新的 revision");
+                invalidWorkspaceResponse.status = 502;
+                throw invalidWorkspaceResponse;
+            }
+            renderer.__elyricWorkspaceRevision = confirmedRevision || previousRevision;
             renderer.__elyricWorkspaceLegacyImported = !!playerThemeV2ResponseValue(
                 value, "legacyImported", "LegacyImported", true
             );
@@ -3856,7 +3932,16 @@
                     "conflict"
                 );
             }
-            return true;
+            setAttributeIfChanged(
+                renderer.__elyricThemeControl,
+                "data-elyric-workspace-revision",
+                String(renderer.__elyricWorkspaceRevision || 0)
+            );
+            if ("undefined" !== typeof window && window.__elyricPlayerDiagnostics) {
+                window.__elyricPlayerDiagnostics.workspaceRevision = Number(renderer.__elyricWorkspaceRevision || 0);
+                window.__elyricPlayerDiagnostics.syncSource = conflict ? "conflict" : "server";
+            }
+            return !conflict;
         }).catch(function () {
             queuePlayerThemeV2Operation(renderer, { kind: "workspace", method: "PUT", path: PLAYER_WORKSPACE_PATH, body: body });
             updatePreferenceStatus(renderer, "local", "离线修改已进入待同步队列");
@@ -4143,7 +4228,10 @@
                 schemaVersion: PLAYER_THEME_SCHEMA_VERSION,
                 profile: renderer.__elyricThemeV2Profile || currentPlayerThemeV2Profile(),
                 rootCount: document.querySelectorAll ? document.querySelectorAll(".elyric-player-root").length : 1,
-                syncSource: source
+                syncSource: source,
+                workspaceErrorStatus: Number(renderer.__elyricWorkspaceLastErrorStatus || 0),
+                workspaceErrorMessage: renderer.__elyricWorkspaceLastErrorMessage || "",
+                themeLibraryApiAvailable: !renderer.__elyricThemeLibraryApiError
             };
         }
         if (renderer.__elyricPlayerStage) { renderer.__elyricPlayerStage.removeAttribute("aria-busy"); }
@@ -4169,10 +4257,16 @@
         var scope = playerThemeV2AccountScope(renderer);
         var userId = scope.userId;
         var previousReady = !!renderer.__elyricWorkspaceReady;
+        if (renderer.__elyricPreferenceSaveTimer) {
+            clearTimeout(renderer.__elyricPreferenceSaveTimer);
+            renderer.__elyricPreferenceSaveTimer = 0;
+        }
         renderer.__elyricPreferenceApiClient = apiClient;
         renderer.__elyricPreferenceUserId = userId;
         renderer.__elyricWorkspaceReady = false;
         renderer.__elyricWorkspaceSource = "loading";
+        renderer.__elyricWorkspaceLastErrorStatus = 0;
+        renderer.__elyricWorkspaceLastErrorMessage = "";
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-workspace-ready", "false");
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-workspace-source", "loading");
         if (renderer.__elyricPlayerStage) { renderer.__elyricPlayerStage.setAttribute("aria-busy", "true"); }
@@ -4220,6 +4314,8 @@
                 });
             });
         }).catch(function (error) {
+            renderer.__elyricWorkspaceLastErrorStatus = Number(error && (error.status || error.statusCode) || 0);
+            renderer.__elyricWorkspaceLastErrorMessage = String(error && error.message || "Workspace request failed");
             var cached = loadConfirmedPlayerThemeV2Workspace(renderer);
             if (cached) {
                 mergeRemotePlayerThemeSummaries(renderer, cached.summaries || []);
@@ -4236,7 +4332,17 @@
                 updatePreferenceStatus(renderer, "pending", "账号刷新失败；保留当前界面并等待重试");
                 return null;
             }
-            return finalizeUserPlayerPreferencesRestore(renderer, null, unavailable ? "api-unavailable" : "safe-default");
+            var restored = finalizeUserPlayerPreferencesRestore(
+                renderer,
+                null,
+                unavailable ? "api-unavailable" : "safe-default"
+            );
+            updatePreferenceStatus(
+                renderer,
+                unavailable ? "api-unavailable" : "safe-default",
+                playerThemeV2WorkspaceUnavailableStatus(error)
+            );
+            return restored;
         });
         return renderer.__elyricUserPreferencesPromise;
     }
@@ -4341,12 +4447,10 @@
             }
         });
         if (preferences.playerThemeDesign) {
-            if ("custom" === renderer.__elyricPlayerLayout) {
-                applyPlayerThemeDefinition(
-                    renderer,
-                    preferences.playerThemeDesign
-                );
-            }
+            applyPlayerThemeDefinition(
+                renderer,
+                preferences.playerThemeDesign
+            );
         } else if ("custom" === renderer.__elyricPlayerLayout && activeUserPlayerTheme(renderer)) {
             applyPlayerThemeDefinition(renderer, activeUserPlayerTheme(renderer));
         } else if ("custom" !== renderer.__elyricPlayerLayout) {
@@ -7727,10 +7831,10 @@
         );
         validateImportedThemeEnum(layer, "anchorX", PLAYER_THEME_V2_ANCHORS, sectionName);
         validateImportedThemeEnum(layer, "anchorY", PLAYER_THEME_V2_ANCHORS, sectionName);
-        validateImportedThemeNumber(layer, "x", -1200, 1200, sectionName);
-        validateImportedThemeNumber(layer, "y", -1200, 1200, sectionName);
-        validateImportedThemeNumber(layer, "width", 44, 2400, sectionName);
-        validateImportedThemeNumber(layer, "height", 44, 2400, sectionName);
+        validateImportedThemeNumber(layer, "x", -1920, 1920, sectionName);
+        validateImportedThemeNumber(layer, "y", -1920, 1920, sectionName);
+        validateImportedThemeNumber(layer, "width", 44, 3840, sectionName);
+        validateImportedThemeNumber(layer, "height", 44, 3840, sectionName);
         validateImportedThemeNumber(layer, "rotation", -360, 360, sectionName);
         validateImportedThemeNumber(layer, "z", 0, 1000, sectionName);
         validateImportedThemeNumber(layer, "opacity", 0, 1, sectionName);
@@ -7816,13 +7920,16 @@
         if (portableVersion >= 4) {
             var expectedLayoutModel = 5 === portableVersion
                 ? PLAYER_THEME_LAYOUT_MODEL : PLAYER_THEME_PREVIOUS_LAYOUT_MODEL;
-            if (expectedLayoutModel !== documentValue.layoutModel) {
+            var allowedLayoutModels = 5 === portableVersion
+                ? [PLAYER_THEME_LAYOUT_MODEL, PLAYER_THEME_LEGACY_V5_LAYOUT_MODEL]
+                : [expectedLayoutModel];
+            if (allowedLayoutModels.indexOf(documentValue.layoutModel) < 0) {
                 throw new Error("Theme V4 必须声明 anchored-canvas-v1 布局模型");
             }
             if (!documentValue.viewportTransforms) {
                 throw new Error("Theme V4 缺少 viewportTransforms");
             }
-            validateImportedThemeEnum(documentValue, "layoutModel", [expectedLayoutModel], "theme");
+            validateImportedThemeEnum(documentValue, "layoutModel", allowedLayoutModels, "theme");
             validateImportedThemeObject(documentValue.viewportTransforms, "viewportTransforms", ["landscape", "portrait"]);
             ["landscape", "portrait"].forEach(function (profileId) {
                 var transform = documentValue.viewportTransforms[profileId];
@@ -8487,8 +8594,8 @@
             replaceElementText(
                 renderer.__elyricThemeV2InheritanceStatus,
                 "landscape" === renderer.__elyricThemeV2Profile
-                    ? "横屏独立布局 · 1200 × 900"
-                    : "竖屏独立布局 · 900 × 1200"
+                    ? "横屏独立布局 · 1920 × 1080"
+                    : "竖屏独立布局 · 1080 × 1920"
             );
         }
         if (renderer.__elyricThemeV2InheritanceReset) {
@@ -8584,7 +8691,7 @@
                 renderer.__elyricThemeV2Guides,
                 "data-preview-label",
                 simulated ? ("portrait" === renderer.__elyricThemeV2Profile
-                    ? "竖屏预览 · 900 × 1200" : "横屏预览 · 1200 × 900") : "安全画布"
+                    ? "竖屏预览 · 1080 × 1920" : "横屏预览 · 1920 × 1080") : "安全画布"
             );
             setDisplayStyle(renderer.__elyricThemeV2Guides, "--elyric-preview-left", previewMetrics.available.left + "px");
             setDisplayStyle(renderer.__elyricThemeV2Guides, "--elyric-preview-top", previewMetrics.available.top + "px");
@@ -8907,8 +9014,8 @@
             var input = document.createElement("input");
             input.type = "number";
             input.min = item[2]; input.max = item[3]; input.step = item[4];
-            if ("x" === item[0] || "y" === item[0]) { input.min = -1200; input.max = 1200; input.step = 1; }
-            if ("width" === item[0] || "height" === item[0]) { input.min = 44; input.max = 2400; input.step = 1; }
+            if ("x" === item[0] || "y" === item[0]) { input.min = -1920; input.max = 1920; input.step = 1; }
+            if ("width" === item[0] || "height" === item[0]) { input.min = 44; input.max = 3840; input.step = 1; }
             input.addEventListener("change", function () {
                 var value = Number(input.value);
                 var patch = {};
@@ -10780,6 +10887,9 @@
         renderer.__elyricPreferenceStatus = null;
         renderer.__elyricWorkspaceReady = false;
         renderer.__elyricWorkspaceSource = null;
+        renderer.__elyricWorkspaceLastErrorStatus = 0;
+        renderer.__elyricWorkspaceLastErrorMessage = "";
+        renderer.__elyricThemeLibraryApiError = null;
         renderer.__elyricUserPreferencesPromise = null;
         renderer.__elyricSettingsOpen = false;
         renderer.__elyricQueuePanel = null;

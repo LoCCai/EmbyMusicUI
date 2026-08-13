@@ -193,7 +193,8 @@ public static class PlayerThemeV2Validator
                 throw new ArgumentException("Theme V4 must declare its anchored canvas layout model.");
             }
             ValidateOptionalEnum(root, "layoutModel", version == PlayerThemeV2Schema.Version
-                ? PlayerThemeV2Schema.LayoutModel : PlayerThemeV2Schema.PreviousLayoutModel);
+                ? new[] { PlayerThemeV2Schema.LayoutModel, PlayerThemeV2Schema.LegacyV5LayoutModel }
+                : new[] { PlayerThemeV2Schema.PreviousLayoutModel });
             if (!TryGetPropertyIgnoreCase(root, "viewportTransforms", out var viewportTransforms))
             {
                 throw new ArgumentException("Theme V4 must contain both viewport transforms.");
@@ -554,8 +555,8 @@ public static class PlayerThemeV2Validator
 
             var valid = property.Name switch
             {
-                "x" or "y" => anchored ? value is >= -1200 and <= 1200 : value is >= -100 and <= 200,
-                "width" or "height" => anchored ? value is >= 44 and <= 2400 : value is >= 1 and <= 200,
+                "x" or "y" => anchored ? value is >= -1920 and <= 1920 : value is >= -100 and <= 200,
+                "width" or "height" => anchored ? value is >= 44 and <= 3840 : value is >= 1 and <= 200,
                 "rotation" => value is >= -360 and <= 360,
                 "z" => value is >= 0 and <= 1000,
                 "opacity" => value is >= 0 and <= 1,
@@ -691,7 +692,8 @@ public static class PlayerThemeV2Validator
                 throw new ArgumentException("Theme V4 must declare its anchored canvas layout model.");
             }
             ValidateOptionalEnum(v2, "layoutModel", v2Version == PlayerThemeV2Schema.Version
-                ? PlayerThemeV2Schema.LayoutModel : PlayerThemeV2Schema.PreviousLayoutModel);
+                ? new[] { PlayerThemeV2Schema.LayoutModel, PlayerThemeV2Schema.LegacyV5LayoutModel }
+                : new[] { PlayerThemeV2Schema.PreviousLayoutModel });
             if (!TryGetPropertyIgnoreCase(v2, "viewportTransforms", out var transforms))
             {
                 throw new ArgumentException("Theme V4 must contain both viewport transforms.");

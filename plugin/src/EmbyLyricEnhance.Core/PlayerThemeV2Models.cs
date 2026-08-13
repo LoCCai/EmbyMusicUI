@@ -16,7 +16,9 @@ public static class PlayerThemeV2Schema
 
     public const string DocumentFormat = "emby-lyric-theme";
 
-    public const string LayoutModel = "anchored-canvas-v2";
+    public const string LayoutModel = "fixed-canvas-v1";
+
+    public const string LegacyV5LayoutModel = "anchored-canvas-v2";
 
     public const string PreviousLayoutModel = "anchored-canvas-v1";
 

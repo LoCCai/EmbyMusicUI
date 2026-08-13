@@ -176,6 +176,7 @@ let currentUserId = "runtime-user";
 let currentServerId = "server-a";
 let displayPreferenceWrites = 0;
 let forceWorkspaceConflict = false;
+let failThemeList = false;
 let workspacePayload = null;
 let resolveInitialWorkspace;
 const initialWorkspace = new Promise((resolve) => { resolveInitialWorkspace = resolve; });
@@ -185,6 +186,9 @@ const ApiClient = {
     ajax(request) {
         if (request.url.includes("UserWorkspace") && request.type === "GET") {
             return workspacePayload ? Promise.resolve(workspacePayload) : initialWorkspace;
+        }
+        if (request.url.endsWith("/EmbyLyricEnhance/Themes") && request.type === "GET" && failThemeList) {
+            return Promise.reject(Object.assign(new Error("theme list unavailable"), { status: 500 }));
         }
         if (request.url.endsWith("/EmbyLyricEnhance/Themes") && request.type === "GET") {
             return Promise.resolve([]);
@@ -290,7 +294,7 @@ function deferLyrics(id) {
     serverDraft.controls.profiles.portrait.groups.transport.gap = 27;
     workspacePayload = {
         Revision: 7, DraftJson: JSON.stringify(serverDraft),
-        GlobalStateJson: JSON.stringify({ theme: "gradient", layout: "custom" }),
+        GlobalStateJson: JSON.stringify({ theme: "gradient", layout: "album" }),
         LegacyImported: true, Themes: []
     };
     resolveInitialWorkspace(workspacePayload); await settle();
@@ -299,6 +303,7 @@ function deferLyrics(id) {
     assert.strictEqual(root.getAttribute("data-elyric-workspace-revision"), "7");
     assert.strictEqual(root.getAttribute("data-elyric-account-scope"), "server-a.runtime-user");
     assert.strictEqual(root.querySelector(".elyric-player-lyric-viewport").getAttribute("data-elyric-theme"), "gradient");
+    assert.strictEqual(osd.__elyricRenderer.__elyricPlayerLayout, "album");
     assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x, 111);
     assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.portrait.metadata.x, 222);
     assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.controls.profiles.landscape.groups.transport.gap, 19);
@@ -309,10 +314,20 @@ function deferLyrics(id) {
     assert.strictEqual(workspaceWrites.length, 1, "post-restore edits should debounce into one Workspace PUT");
     assert.strictEqual(workspaceWrites[0].ExpectedRevision, 7);
     assert.strictEqual(JSON.parse(workspaceWrites[0].DraftJson).schemaVersion, 5);
+    assert.strictEqual(JSON.parse(workspaceWrites[0].DraftJson).layoutModel, "fixed-canvas-v1");
+    assert.strictEqual(root.getAttribute("data-elyric-workspace-revision"), "8",
+        "the visible sync revision must update only after the server acknowledges the PUT");
     assert.strictEqual(displayPreferenceWrites, 0);
     const confirmedCacheKeys = [...stored.keys()].filter((key) => key.includes("workspace-cache"));
     assert(confirmedCacheKeys.some((key) => key.endsWith("server-a.runtime-user")),
         "the last server-confirmed cache must be isolated by server and user");
+    failThemeList = true;
+    osd.__elyricRenderer.__elyricThemeV2OnlineHandler();
+    await settle();
+    assert.strictEqual(root.getAttribute("data-elyric-workspace-source"), "server",
+        "a theme-library list failure must not suppress an otherwise valid Workspace draft");
+    assert.strictEqual(window.__elyricPlayerDiagnostics.themeLibraryApiAvailable, false);
+    failThemeList = false;
     forceWorkspaceConflict = true;
     root.querySelectorAll(".elyric-theme-choice")[0].click();
     await wait(550); await settle();

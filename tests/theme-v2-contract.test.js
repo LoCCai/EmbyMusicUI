@@ -21,8 +21,14 @@ assert(adapter.includes("PLAYER_THEME_V2_REGISTRY"), "the web editor should expo
     assert(adapter.includes(`\"${profile}\"`) || adapter.includes(`${profile}:`), `${profile} should have a saved layout profile`);
     assert(models.includes(`\"${profile}\"`), `${profile} should be server-validated`);
 });
-assert(adapter.includes('layoutModel: PLAYER_THEME_LAYOUT_MODEL') && models.includes('LayoutModel = "anchored-canvas-v2"'),
+assert(adapter.includes('layoutModel: PLAYER_THEME_LAYOUT_MODEL') && models.includes('LayoutModel = "fixed-canvas-v1"'),
     "V5 themes should declare the anchored canvas model");
+assert(adapter.includes('PLAYER_THEME_LEGACY_V5_LAYOUT_MODEL = "anchored-canvas-v2"')
+    && models.includes('LegacyV5LayoutModel = "anchored-canvas-v2"'),
+    "existing V5 account drafts should migrate once into the fixed 16:9/9:16 canvas");
+assert(adapter.includes('applyPlayerThemeDefinition(\n                renderer,\n                preferences.playerThemeDesign')
+    && adapter.includes('服务器 Workspace 接口未确认新的 revision'),
+    "Workspace drafts must restore regardless of their source preset and sync only after a revision acknowledgement");
 assert(adapter.includes("viewportTransforms") && models.includes("viewportTransforms"),
     "both orientations should persist an independent viewport transform");
 assert(validator.includes("Theme V4 must declare its anchored canvas layout model")
@@ -67,6 +73,12 @@ assert(!/if \(persist\) \{\s*(?:storeTheme|storePlayerLayout|storeArtworkRotatio
     "daily edits must not keep writing unscoped legacy browser keys");
 assert(adapter.includes("storeConfirmedPlayerThemeV2Workspace(renderer, value, summaries)"),
     "every confirmed Workspace PUT should refresh the account-scoped offline cache");
+assert(adapter.includes("renderer.__elyricThemeLibraryApiError = themesResult.error || null")
+    && adapter.includes("workspaceErrorStatus"),
+    "a theme-list failure must not suppress an otherwise valid Workspace and API failures must remain diagnosable");
+assert(adapter.includes("主题同步接口未加载（HTTP 404）")
+    && adapter.includes("playerThemeV2WorkspaceUnavailableStatus(error)"),
+    "the settings status must explain when the account-sync DLL route is missing instead of reporting a generic default");
 assert(models.includes('"control-dock"') && validator.includes("ValidateControlDockProfile"),
     "the server must strictly validate V5 control dock profiles");
 

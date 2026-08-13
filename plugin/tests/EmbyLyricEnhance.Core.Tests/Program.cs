@@ -161,7 +161,7 @@ var validThemeV5Json = $$"""
 {
   "format": "emby-lyric-theme",
   "schemaVersion": 5,
-  "layoutModel": "anchored-canvas-v2",
+  "layoutModel": "fixed-canvas-v1",
   "name": "V5 dock test",
   "baseTheme": "album",
   "viewportTransforms": {
@@ -176,6 +176,14 @@ var validThemeV5Json = $$"""
 """;
 Check(PlayerThemeV2Validator.ValidateThemeJson(validThemeV5Json, 128 * 1024) == validThemeV5Json,
     "complete Theme V5 document and dock should be accepted");
+var legacyThemeV5Json = validThemeV5Json.Replace("fixed-canvas-v1", "anchored-canvas-v2");
+Check(PlayerThemeV2Validator.ValidateThemeJson(legacyThemeV5Json, 128 * 1024) == legacyThemeV5Json,
+    "the earlier anchored-canvas-v2 Theme V5 model should remain readable for one-time migration");
+var extendedFixedCanvasTheme = validThemeV5Json
+    .Replace("\"x\": 72", "\"x\": 1800")
+    .Replace("\"width\": 360", "\"width\": 3600");
+Check(PlayerThemeV2Validator.ValidateThemeJson(extendedFixedCanvasTheme, 128 * 1024) == extendedFixedCanvasTheme,
+    "fixed 1920x1080 and 1080x1920 canvases should accept their expanded design-unit geometry range");
 foreach (var invalidV5 in new[]
 {
     validThemeV5Json.Replace("\"controlDock\":", "\"transport\":"),
