@@ -14,19 +14,24 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public static readonly Guid PluginId = Guid.Parse("efbd3f14-8799-4a7d-a5ad-7ef93c5b0e5d");
     private static readonly object FallbackThemeStoreLock = new();
     private static UserThemeStore? _fallbackThemeStore;
+    private readonly IApplicationPaths _applicationPaths;
+    private readonly object _runtimeInitializationLock = new();
+    private bool _runtimeInitialized;
 
     public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
         : base(applicationPaths, xmlSerializer)
     {
-        Instance = this;
-        ImportLegacyThemeStore(
-            Path.Combine(DataFolderPath, "player-theme-v2"),
-            ThemeStoreRoot(applicationPaths));
-        ThemeStore = CreateThemeStore(applicationPaths, Configuration);
+        // Emby assigns BasePlugin.DataFolderPath in SetStartupInfo(), after the
+        // plugin constructor has returned. Reading DataFolderPath here leaves a
+        // half-constructed plugin and throws Path.Combine(..., path2) when the
+        // server first resolves one of this assembly's HTTP services.
+        _applicationPaths = applicationPaths;
+        ThemeStore = CreateThemeStore(applicationPaths);
         lock (FallbackThemeStoreLock)
         {
             _fallbackThemeStore = ThemeStore;
         }
+        Instance = this;
     }
 
     public static Plugin? Instance { get; private set; }
@@ -43,9 +48,10 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public static UserThemeStore ResolveThemeStore(IApplicationPaths applicationPaths)
     {
-        if (Instance?.ThemeStore is { } initialized)
+        if (Instance is not null)
         {
-            return initialized;
+            Instance.EnsureRuntimeInitialized();
+            return Instance.ThemeStore;
         }
         lock (FallbackThemeStoreLock)
         {
@@ -53,7 +59,21 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
     }
 
-    public UserThemeStore ThemeStore { get; }
+    public static PublicDisplayOptions GetPublicDisplayOptions()
+    {
+        var instance = Instance;
+        if (instance is null)
+        {
+            return DisplayOptionsSanitizer.Sanitize(null);
+        }
+
+        instance.EnsureRuntimeInitialized();
+        return instance._runtimeInitialized
+            ? DisplayOptionsSanitizer.Sanitize(instance.Configuration.Display)
+            : DisplayOptionsSanitizer.Sanitize(null);
+    }
+
+    public UserThemeStore ThemeStore { get; private set; }
 
     public override Guid Id => PluginId;
 
@@ -64,6 +84,48 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private static string ThemeStoreRoot(IApplicationPaths applicationPaths)
     {
         return Path.Combine(applicationPaths.DataPath, "EmbyLyricEnhance", "player-theme-v2");
+    }
+
+    private void EnsureRuntimeInitialized()
+    {
+        if (_runtimeInitialized)
+        {
+            return;
+        }
+
+        lock (_runtimeInitializationLock)
+        {
+            if (_runtimeInitialized)
+            {
+                return;
+            }
+
+            string dataFolderPath;
+            try
+            {
+                dataFolderPath = DataFolderPath;
+            }
+            catch (ArgumentNullException)
+            {
+                // A very early service resolution can still race Emby's
+                // SetStartupInfo callback. Callers use safe defaults and retry.
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(dataFolderPath))
+            {
+                return;
+            }
+
+            ImportLegacyThemeStore(
+                Path.Combine(dataFolderPath, "player-theme-v2"),
+                ThemeStoreRoot(_applicationPaths));
+            ThemeStore = CreateThemeStore(_applicationPaths, Configuration);
+            lock (FallbackThemeStoreLock)
+            {
+                _fallbackThemeStore = ThemeStore;
+            }
+            _runtimeInitialized = true;
+        }
     }
 
     private static void ImportLegacyThemeStore(string legacyRoot, string currentRoot)

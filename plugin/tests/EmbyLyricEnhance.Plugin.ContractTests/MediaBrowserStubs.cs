@@ -7,11 +7,22 @@ namespace MediaBrowser.Common.Configuration
     {
         string DataPath { get; }
     }
+
+    public sealed class ContractApplicationPaths : IApplicationPaths
+    {
+        public string DataPath { get; } = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "emby-lyric-enhance-contract");
+    }
 }
 
 namespace MediaBrowser.Model.Serialization
 {
     public interface IXmlSerializer
+    {
+    }
+
+    public sealed class ContractXmlSerializer : IXmlSerializer
     {
     }
 }
@@ -53,6 +64,8 @@ namespace MediaBrowser.Common.Plugins
     public abstract class BasePlugin<TConfiguration>
         where TConfiguration : BasePluginConfiguration, new()
     {
+        private readonly string? _startupDataFolderPath = null;
+
         protected BasePlugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
         {
             Configuration = new TConfiguration();
@@ -60,7 +73,9 @@ namespace MediaBrowser.Common.Plugins
 
         public TConfiguration Configuration { get; }
 
-        public string DataFolderPath => System.IO.Path.GetTempPath();
+        public string DataFolderPath => System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            _startupDataFolderPath!);
 
         public abstract Guid Id { get; }
 

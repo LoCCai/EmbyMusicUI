@@ -92,7 +92,7 @@ if ($LASTEXITCODE -ne 0) {
     /nullable:enable `
     /deterministic+ `
     /warnaserror+ `
-    /target:library `
+    /target:exe `
     "/out:$pluginContractOutput" `
     @references `
     @coreSources `
@@ -102,12 +102,11 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$contractReferences = [Reflection.Assembly]::LoadFile($pluginContractOutput).GetReferencedAssemblies().Name
+$contractReferences = [Reflection.Assembly]::LoadFile(
+    $pluginContractOutput).GetReferencedAssemblies().Name
 if ($contractReferences -contains "EmbyLyricEnhance.Core") {
     throw "Plugin contract output still depends on the standalone EmbyLyricEnhance.Core assembly."
 }
-
-Write-Output "plugin API contract stubs compile: ok"
 
 $realApiDirectories = @(
     (Join-Path $repositoryRoot ".packages\mediabrowser.common\$EmbyApiVersion\lib\netstandard2.0"),
@@ -156,6 +155,15 @@ $runtimeConfig = @{
     (Join-Path $artifactRoot "EmbyLyricEnhance.Core.Tests.runtimeconfig.json"),
     $runtimeConfig,
     [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText(
+    (Join-Path $artifactRoot "EmbyLyricEnhance.Plugin.Contract.runtimeconfig.json"),
+    $runtimeConfig,
+    [Text.UTF8Encoding]::new($false))
+
+& $dotnet $pluginContractOutput
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
 
 & $dotnet $testOutput
 exit $LASTEXITCODE

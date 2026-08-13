@@ -12,6 +12,6 @@ public sealed class PublicConfigurationService : IService
 {
     public object Get(GetPublicConfiguration request)
     {
-        return DisplayOptionsSanitizer.Sanitize(Plugin.Instance?.Configuration.Display);
+        return Plugin.GetPublicDisplayOptions();
     }
 }

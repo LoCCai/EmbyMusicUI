@@ -34,6 +34,17 @@ assert(controllerSource.includes('define(["apiClientResolver"]'),
 assert(pluginSource.includes("IsMainConfigPage = true"), "Emby should register the settings page as the main plugin configuration page");
 assert(pluginSource.includes('Path.Combine(applicationPaths.DataPath, "EmbyLyricEnhance", "player-theme-v2")'),
     "account theme storage should use Emby's persistent application data path");
+const pluginConstructor = pluginSource.match(/public Plugin\([\s\S]*?\n    \}/)[0];
+const pluginConstructorBody = pluginConstructor.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+assert(!pluginConstructorBody.includes("DataFolderPath") && !pluginConstructorBody.includes("Configuration"),
+    "the plugin constructor must not read Emby startup-dependent base properties");
+assert(pluginConstructor.indexOf("ThemeStore = CreateThemeStore(applicationPaths);")
+    < pluginConstructor.indexOf("Instance = this;"),
+    "the public plugin singleton must only be published after constructor initialization succeeds");
+assert(pluginSource.includes("EnsureRuntimeInitialized()")
+    && pluginSource.includes('Path.Combine(dataFolderPath, "player-theme-v2")')
+    && pluginSource.includes("catch (ArgumentNullException)"),
+    "legacy data and configured quotas should initialize lazily after Emby startup");
 assert(pluginSource.includes("ImportLegacyThemeStore") && pluginSource.includes("File.Copy(source, target, false)"),
     "moving the store to the application data path should preserve any existing account themes");
 assert(userThemeServiceSource.includes("IApplicationPaths applicationPaths")
@@ -88,6 +99,9 @@ assert(adapterCss.includes("data-elyric-settings-open=\"true\"")
     "the mobile player should hide the lyric layer while full-screen settings are open");
 assert(serviceSource.includes(`/EmbyLyricEnhance/PublicConfiguration`));
 assert(serviceSource.includes("\"GET\""), "public display defaults should be read-only");
+assert(serviceSource.includes("Plugin.GetPublicDisplayOptions()")
+    && !serviceSource.includes("Plugin.Instance?.Configuration"),
+    "the public route should not directly trigger startup-dependent plugin configuration loading");
 assert(!serviceSource.includes("POST") && !serviceSource.includes("PUT") && !serviceSource.includes("DELETE"),
     "the public display route must not expose mutations");
 
