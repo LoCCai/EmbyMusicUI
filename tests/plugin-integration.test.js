@@ -11,6 +11,7 @@ const pluginRoot = path.join(root, "plugin", "src", "EmbyLyricEnhance.Plugin");
 const coreRoot = path.join(root, "plugin", "src", "EmbyLyricEnhance.Core");
 const pluginSource = fs.readFileSync(path.join(pluginRoot, "Plugin.cs"), "utf8");
 const serviceSource = fs.readFileSync(path.join(pluginRoot, "PublicConfigurationService.cs"), "utf8");
+const userThemeServiceSource = fs.readFileSync(path.join(pluginRoot, "UserThemeService.cs"), "utf8");
 const projectSource = fs.readFileSync(path.join(pluginRoot, "EmbyLyricEnhance.Plugin.csproj"), "utf8");
 const pageSource = fs.readFileSync(path.join(pluginRoot, "Configuration", "configPage.html"), "utf8");
 const controllerSource = fs.readFileSync(path.join(pluginRoot, "Configuration", "configPage.js"), "utf8");
@@ -31,6 +32,17 @@ assert(controllerSource.includes(pluginId), "the admin controller should use the
 assert(controllerSource.includes('define(["apiClientResolver"]'),
     "the admin controller should resolve the authenticated client through Emby's AMD module");
 assert(pluginSource.includes("IsMainConfigPage = true"), "Emby should register the settings page as the main plugin configuration page");
+assert(pluginSource.includes('Path.Combine(applicationPaths.DataPath, "EmbyLyricEnhance", "player-theme-v2")'),
+    "account theme storage should use Emby's persistent application data path");
+assert(pluginSource.includes("ImportLegacyThemeStore") && pluginSource.includes("File.Copy(source, target, false)"),
+    "moving the store to the application data path should preserve any existing account themes");
+assert(userThemeServiceSource.includes("IApplicationPaths applicationPaths")
+    && userThemeServiceSource.includes("Plugin.ResolveThemeStore(applicationPaths)"),
+    "the authenticated theme routes must remain usable when the plugin singleton is not constructed");
+assert(pluginSource.includes("FallbackThemeStoreLock") && pluginSource.includes("_fallbackThemeStore ??="),
+    "fallback service instances should share one revision lock and atomic theme store");
+assert(!userThemeServiceSource.includes("The plugin theme store is not initialized."),
+    "theme routes must not return HTTP 500 solely because the plugin singleton is unavailable");
 assert(pluginSource.includes("EnableInMainMenu = true"), "the settings page should have a persistent server menu entry");
 assert(pluginSource.includes('MenuSection = "server"'), "the settings page should be grouped with server administration pages");
 assert(pageSource.includes('data-controller="__plugin/embylyricenhanceconfigjsv040"'),

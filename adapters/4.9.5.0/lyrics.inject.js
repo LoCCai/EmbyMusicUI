@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.13-theme-v5-fixed-canvas-sync */
+/* ELYRIC_BUILD:2026.08.13-theme-v5-fixed-canvas-sync-r2 */
 ;(function () {
     "use strict";
 
@@ -36,7 +36,7 @@
     var PLAYER_PREFERENCES_KEY = "emby-lyric-enhance.player-preferences.v2";
     var PLAYER_THEME_LIBRARY_STORAGE_KEY = "emby-lyric-enhance.player-themes.v1";
     var PLAYER_THEME_DESIGN_STORAGE_KEY = "emby-lyric-enhance.player-theme-design.v1";
-    var PLAYER_BUILD_ID = "2026.08.13-theme-v5-fixed-canvas-sync";
+    var PLAYER_BUILD_ID = "2026.08.13-theme-v5-fixed-canvas-sync-r2";
     var PLAYER_PREFERENCES_VERSION = 5;
     var PLAYER_THEME_SCHEMA_VERSION = 5;
     var PLAYER_THEME_DOCUMENT_FORMAT = "emby-lyric-theme";
@@ -918,18 +918,18 @@
     function defaultPlayerThemeV2Layouts() {
         return {
             landscape: {
-                artwork: defaultPlayerThemeV2Layer(115.2, 43.2, 576, 600, 12, false, "start", "center"),
-                metadata: defaultPlayerThemeV2Layer(-115.2, 103.2, 800, 172.8, 14, false, "end", "start"),
-                lyrics: defaultPlayerThemeV2Layer(-115.2, 45.6, 832, 504, 11, false, "end", "center"),
-                visualizer: defaultPlayerThemeV2Layer(0, -177.6, 1536, 86.4, 9, false, "center", "end"),
-                controlDock: defaultPlayerThemeV2Layer(0, -124.8, 1689.6, 170.4, 17, false, "center", "end")
+                artwork: defaultPlayerThemeV2Layer(134.4, 183.6, 576, 583.2, 12, false, "start", "start"),
+                metadata: defaultPlayerThemeV2Layer(940.8, 108, 800, 172.8, 14, false, "start", "start"),
+                lyrics: defaultPlayerThemeV2Layer(921.6, 313.2, 864, 475.2, 11, false, "start", "start"),
+                visualizer: defaultPlayerThemeV2Layer(0, 810, 1536, 75.6, 9, false, "center", "start"),
+                controlDock: defaultPlayerThemeV2Layer(0, -28, 1689.6, 150, 17, false, "center", "end")
             },
             portrait: {
-                artwork: defaultPlayerThemeV2Layer(0, 137.6, 600, 544, 12, false, "center", "start"),
-                metadata: defaultPlayerThemeV2Layer(0, 713.6, 907.2, 211.2, 14, false, "center", "start"),
-                lyrics: defaultPlayerThemeV2Layer(0, 1033.6, 950.4, 556.8, 11, false, "center", "start"),
-                visualizer: defaultPlayerThemeV2Layer(0, -294.4, 864, 115.2, 9, false, "center", "end"),
-                controlDock: defaultPlayerThemeV2Layer(0, -316.8, 950.4, 297.6, 17, false, "center", "end")
+                artwork: defaultPlayerThemeV2Layer(0, 115.2, 600, 576, 12, false, "center", "start"),
+                metadata: defaultPlayerThemeV2Layer(0, 729.6, 907.2, 240, 14, false, "center", "start"),
+                lyrics: defaultPlayerThemeV2Layer(0, 998.4, 950.4, 400, 11, false, "center", "start"),
+                visualizer: defaultPlayerThemeV2Layer(0, 1430, 864, 100, 9, false, "center", "start"),
+                controlDock: defaultPlayerThemeV2Layer(0, -30, 1000, 330, 17, false, "center", "end")
             }
         };
     }
@@ -1051,7 +1051,7 @@
                 auxiliary: {
                     visible: true,
                     order: ["shuffle", "repeat", "stop", "queue", "media", "secondaryLyrics", "artworkRotation"],
-                    hiddenButtons: [], align: portrait ? "center" : "start", gap: 8
+                    hiddenButtons: [], align: portrait ? "center" : "start", gap: portrait ? 4 : 8
                 }
             }
         };
@@ -1163,13 +1163,24 @@
         }
         var fallback = defaultPlayerThemeV2Layouts();
         return {
-            landscape: playerThemeV5LayoutFromV4(
+            landscape: playerThemeV5SafeBuiltInLayout(playerThemeV5LayoutFromV4(
                 playerThemeV4LayoutFromPercent(sourceLayouts.landscape, false), false, fallback.landscape
-            ),
-            portrait: playerThemeV5LayoutFromV4(
+            ), false, fallback.landscape),
+            portrait: playerThemeV5SafeBuiltInLayout(playerThemeV5LayoutFromV4(
                 playerThemeV4LayoutFromPercent(sourceLayouts.portrait, true), true, fallback.portrait
-            )
+            ), true, fallback.portrait)
         };
+    }
+
+    function playerThemeV5SafeBuiltInLayout(layout, portrait, fallbackLayout) {
+        var safe = clonePlayerThemeV2Value(layout || fallbackLayout);
+        var fallback = fallbackLayout || defaultPlayerThemeV2Layouts()[portrait ? "portrait" : "landscape"];
+        safe.controlDock = clonePlayerThemeV2Value(fallback.controlDock);
+        if (portrait) {
+            safe.lyrics.height = Math.min(Number(safe.lyrics.height) || 400, 400);
+            safe.visualizer = clonePlayerThemeV2Value(fallback.visualizer);
+        }
+        return safe;
     }
 
     function hasCompletePlayerThemeV2Layouts(layouts) {
@@ -1364,16 +1375,12 @@
         var profileId = PLAYER_THEME_V2_PROFILE_IDS.indexOf(profileOverride) >= 0
             ? profileOverride : currentPlayerThemeV2Profile();
         var viewport = frozenViewport || playerThemeV2ViewportRect();
-        var safeSize = renderer && renderer.__elyricThemeV2 && renderer.__elyricThemeV2.controls
-            ? normalizePlayerThemeV2Number(renderer.__elyricThemeV2.controls.safeArea, 44, 180, 64)
-            : 64;
-        var toolbarInset = Math.max(44, safeSize);
         var safeInsets = playerThemeV2SafeInsets(renderer);
         var available = {
             left: viewport.left + safeInsets.left,
-            top: viewport.top + safeInsets.top + toolbarInset,
+            top: viewport.top + safeInsets.top,
             width: Math.max(44, viewport.width - safeInsets.left - safeInsets.right),
-            height: Math.max(44, viewport.height - safeInsets.top - safeInsets.bottom - toolbarInset)
+            height: Math.max(44, viewport.height - safeInsets.top - safeInsets.bottom)
         };
         var canvasSize = PLAYER_THEME_CANVAS_SIZES[profileId];
         var baseWidth = canvasSize.width;
@@ -1388,8 +1395,8 @@
             available.height = baseHeight * previewScale;
             available.left = viewport.left + safeInsets.left
                 + (viewport.width - safeInsets.left - safeInsets.right - available.width) / 2;
-            available.top = viewport.top + safeInsets.top + toolbarInset
-                + Math.max(0, (viewport.height - safeInsets.top - safeInsets.bottom - toolbarInset - available.height) / 2);
+            available.top = viewport.top + safeInsets.top
+                + Math.max(0, (viewport.height - safeInsets.top - safeInsets.bottom - available.height) / 2);
             baseScale = previewScale;
         }
         var transform = renderer && renderer.__elyricThemeV2
@@ -1545,13 +1552,13 @@
                 group.style.alignItems = playerControlDockCssAlignment(groupDefinition.align);
                 group.style.justifyContent = playerControlDockCssAlignment(groupDefinition.align);
                 group.style.gap = Number(groupDefinition.gap || 0) + "px";
-                group.style.display = groupDefinition.visible ? "flex" : "none";
+                group.style.setProperty("display", groupDefinition.visible ? "flex" : "none", "important");
                 (groupDefinition.order || []).forEach(function (buttonId) {
                     var element = items[groupId] && items[groupId][buttonId];
                     if (!element) { return; }
                     var hidden = groupDefinition.hiddenButtons.indexOf(buttonId) >= 0
                         && "playPause" !== buttonId;
-                    element.style.display = hidden ? "none" : "";
+                    element.style.setProperty("display", hidden ? "none" : "inline-flex", "important");
                     element.setAttribute("data-elyric-control-item", buttonId);
                     group.appendChild(element);
                 });

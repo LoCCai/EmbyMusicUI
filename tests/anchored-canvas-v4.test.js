@@ -32,9 +32,8 @@ assert(!adapter.includes("rect.left / window.innerWidth * 100"),
     "V4 must not infer saved geometry from the rendered viewport");
 
 function metrics(viewportWidth, viewportHeight, profile, transform = {}) {
-    const safe = 64;
     const availableWidth = viewportWidth;
-    const availableHeight = viewportHeight - safe;
+    const availableHeight = viewportHeight;
     const baseWidth = profile === "portrait" ? 1080 : 1920;
     const baseHeight = profile === "portrait" ? 1920 : 1080;
     const baseScale = Math.min(availableWidth / baseWidth, availableHeight / baseHeight);
@@ -42,7 +41,7 @@ function metrics(viewportWidth, viewportHeight, profile, transform = {}) {
     const designHeight = baseHeight;
     const scale = baseScale * (transform.scale || 1);
     const originX = (availableWidth - designWidth * scale) / 2 + (transform.offsetX || 0) * scale;
-    const originY = safe + (availableHeight - designHeight * scale) / 2 + (transform.offsetY || 0) * scale;
+    const originY = (availableHeight - designHeight * scale) / 2 + (transform.offsetY || 0) * scale;
     return {
         scale, designWidth, designHeight, originX, originY,
         forward(x, y) { return { x: originX + x * scale, y: originY + y * scale }; },
@@ -76,6 +75,8 @@ const standard = metrics(1920, 1080, "landscape");
 const ultrawide = metrics(3440, 1440, "landscape");
 assert.strictEqual(standard.designWidth, 1920);
 assert.strictEqual(standard.designHeight, 1080);
+assert.strictEqual(standard.scale, 1,
+    "the requested 1920x1080 viewport should render the design canvas at exactly 1:1");
 assert.strictEqual(ultrawide.designWidth, 1920);
 assert.strictEqual(ultrawide.designHeight, 1080,
     "every landscape viewport should retain one fixed 1920x1080 design canvas");
@@ -86,9 +87,17 @@ const portrait = metrics(1080, 1920, "portrait");
 assert.strictEqual(portrait.designWidth, 1080);
 assert.strictEqual(portrait.designHeight, 1920,
     "every portrait viewport should retain one fixed 1080x1920 design canvas");
+assert.strictEqual(portrait.scale, 1,
+    "the requested 1080x1920 viewport should render the design canvas at exactly 1:1");
 
 assert(adapter.includes('"artwork", "metadata", "lyrics", "visualizer", "controlDock"'),
     "V5 should expose exactly five editable canvas layers");
 assert(adapter.includes("normalizePlayerControlDockProfile") && adapter.includes("applyPlayerControlDock"),
     "V5 should normalize and render the constrained control dock");
+const css = fs.readFileSync(
+    path.join(__dirname, "..", "adapters", "4.9.5.0", "lyrics.inject.css"),
+    "utf8"
+);
+assert(!css.includes("calc(44px / var(--elyric-control-stage-scale"),
+    "control-dock buttons must not be inverse-scaled inside already sized rendered geometry");
 console.log("anchored canvas V5 geometry matrix and control dock: ok");

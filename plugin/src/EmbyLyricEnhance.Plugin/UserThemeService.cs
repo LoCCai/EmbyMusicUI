@@ -105,10 +105,14 @@ public sealed class MutationResult
 public sealed class UserThemeService : IService, IRequiresRequest
 {
     private readonly IAuthorizationContext _authorizationContext;
+    private readonly UserThemeStore _store;
 
-    public UserThemeService(IAuthorizationContext authorizationContext)
+    public UserThemeService(
+        IAuthorizationContext authorizationContext,
+        MediaBrowser.Common.Configuration.IApplicationPaths applicationPaths)
     {
         _authorizationContext = authorizationContext;
+        _store = Plugin.ResolveThemeStore(applicationPaths);
     }
 
     public IRequest Request { get; set; } = null!;
@@ -210,8 +214,7 @@ public sealed class UserThemeService : IService, IRequiresRequest
         return new MutationResult { Deleted = Store.DeleteAsset(CurrentUserId(), request.Id) };
     }
 
-    private UserThemeStore Store => Plugin.Instance?.ThemeStore
-        ?? throw new InvalidOperationException("The plugin theme store is not initialized.");
+    private UserThemeStore Store => _store;
 
     private long CurrentUserId()
     {

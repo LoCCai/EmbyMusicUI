@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.13-theme-v5-fixed-canvas-sync */
+/* ELYRIC_BUILD:2026.08.13-theme-v5-fixed-canvas-sync-r2 */
 .elyric-subline {
     display: block;
     max-width: 100%;
@@ -4963,8 +4963,22 @@ body[data-elyric-theme-v2-profile="landscape"] .elyric-player-settings-panel {
 }
 
 .elyric-player-control-dock .elyric-player-button {
-    min-width: max(44px, calc(44px / var(--elyric-control-stage-scale, 1))) !important;
-    min-height: max(44px, calc(44px / var(--elyric-control-stage-scale, 1))) !important;
+    position: relative !important;
+    inset: auto !important;
+    width: max(44px, calc(52px * var(--elyric-control-stage-scale, 1))) !important;
+    min-width: max(44px, calc(52px * var(--elyric-control-stage-scale, 1))) !important;
+    height: max(44px, calc(52px * var(--elyric-control-stage-scale, 1))) !important;
+    min-height: max(44px, calc(52px * var(--elyric-control-stage-scale, 1))) !important;
+    flex: 0 0 auto !important;
+    padding: 0 !important;
+    transform: none !important;
+}
+
+.elyric-player-control-dock .elyric-player-button-playPause {
+    width: max(56px, calc(68px * var(--elyric-control-stage-scale, 1))) !important;
+    min-width: max(56px, calc(68px * var(--elyric-control-stage-scale, 1))) !important;
+    height: max(56px, calc(68px * var(--elyric-control-stage-scale, 1))) !important;
+    min-height: max(56px, calc(68px * var(--elyric-control-stage-scale, 1))) !important;
 }
 
 .elyric-control-dock-designer-body,
