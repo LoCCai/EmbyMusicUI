@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.13-theme-v5-fixed-canvas-sync-r2 */
+/* ELYRIC_BUILD:2026.08.13-theme-v5-system-repair-r3 */
 .elyric-subline {
     display: block;
     max-width: 100%;
@@ -4183,7 +4183,7 @@ body[data-elyric-designer-open="true"] .elyric-player-v2-layer {
 
 .elyric-v2-layer-box {
     position: fixed;
-    z-index: 2147481000;
+    z-index: 761;
     box-sizing: border-box;
     min-width: 44px;
     min-height: 44px;
@@ -4246,7 +4246,7 @@ body[data-elyric-designer-open="true"] .elyric-player-v2-layer {
 
 .elyric-v2-alignment-guides {
     position: fixed;
-    z-index: 2147480990;
+    z-index: 760;
     inset: 0;
     pointer-events: none;
 }
@@ -4288,7 +4288,7 @@ body[data-elyric-designer-open="true"] .elyric-player-v2-layer {
 .elyric-v2-alignment-guides i:last-child { right: 0; left: 0; top: 50%; height: 1px; }
 
 .elyric-player-settings-panel {
-    z-index: 2147483600 !important;
+    z-index: 720 !important;
     color: var(--elyric-panel-text, #fff) !important;
     background: var(--elyric-surface-solid, #121722) !important;
     -webkit-backdrop-filter: none !important;
@@ -4296,10 +4296,10 @@ body[data-elyric-designer-open="true"] .elyric-player-v2-layer {
     isolation: isolate;
 }
 
-.elyric-player-overlay-scrim { z-index: 2147482000 !important; }
-.elyric-player-queue-panel { z-index: 2147483000 !important; }
+.elyric-player-overlay-scrim { z-index: 700 !important; }
+.elyric-player-queue-panel { z-index: 720 !important; }
 .elyric-player-media-panel {
-    z-index: 2147483000 !important;
+    z-index: 720 !important;
     border-radius: var(--elyric-v2-popup-radius, 24px) !important;
     background: var(--elyric-design-media-surface, #111827) !important;
     background: color-mix(
@@ -4398,7 +4398,7 @@ body[data-elyric-designer-open="true"] .elyric-player-v2-layer {
 
 .elyric-player-safety-toolbar {
     position: fixed;
-    z-index: 2147483500;
+    z-index: 650;
     top: max(.55rem, env(safe-area-inset-top, 0px));
     right: max(.65rem, env(safe-area-inset-right, 0px));
     display: flex;
@@ -4772,7 +4772,7 @@ body[data-elyric-theme-v2="true"] .elyric-player-v2-layer-lyrics {
 
 .elyric-v2-designer-exit {
     position: fixed;
-    z-index: 2147483700;
+    z-index: 762;
     top: max(.85rem, calc(env(safe-area-inset-top, 0px) + .5rem));
     left: 50%;
     min-width: 7.5rem;
@@ -5030,6 +5030,180 @@ body[data-elyric-theme-v2-profile="landscape"] .elyric-player-settings-panel {
 @media (max-width: 760px) {
     .elyric-player-control-row { flex-wrap: wrap; }
     .elyric-control-dock-row-heading { flex-wrap: wrap; }
+}
+
+/* Theme V5 system repair: one root, one overlay geometry owner and compact safe playback. */
+.elyric-player-root {
+    --elyric-layer-stage: 100;
+    --elyric-layer-safety: 650;
+    --elyric-layer-scrim: 700;
+    --elyric-layer-overlay: 720;
+    --elyric-layer-designer: 760;
+}
+
+.elyric-player-root .elyric-player-overlay-scrim { z-index: var(--elyric-layer-scrim) !important; }
+.elyric-player-root .elyric-player-safety-toolbar { z-index: var(--elyric-layer-safety) !important; }
+.elyric-player-root .elyric-v2-alignment-guides { z-index: var(--elyric-layer-designer) !important; }
+.elyric-player-root .elyric-v2-layer-box { z-index: calc(var(--elyric-layer-designer) + 1) !important; }
+.elyric-player-root .elyric-v2-designer-exit { z-index: calc(var(--elyric-layer-designer) + 2) !important; }
+.elyric-player-root .elyric-player-settings-panel,
+.elyric-player-root .elyric-player-media-panel,
+.elyric-player-root .elyric-player-queue-panel {
+    position: fixed !important;
+    z-index: var(--elyric-layer-overlay) !important;
+    inset: auto !important;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-width: 0 !important;
+    max-width: calc(100vw - 2rem) !important;
+    overflow: visible !important;
+    border: 1px solid color-mix(in srgb, currentColor 17%, transparent) !important;
+    border-radius: var(--elyric-v2-popup-radius, 24px) !important;
+    color: var(--elyric-v2-panel-on, var(--elyric-panel-text, #fff)) !important;
+    background: color-mix(
+        in srgb,
+        var(--elyric-v2-panel-bg, var(--elyric-design-media-surface, #121722))
+            var(--elyric-v2-popup-opacity, 96%),
+        transparent
+    ) !important;
+    box-shadow: 0 1.25rem 4rem rgb(0 0 0 / .34), inset 0 1px rgb(255 255 255 / .09) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(135%) !important;
+    backdrop-filter: blur(24px) saturate(135%) !important;
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    transition:
+        opacity 200ms cubic-bezier(.2, .78, .2, 1),
+        transform 200ms cubic-bezier(.2, .78, .2, 1),
+        display 200ms;
+    transition-behavior: allow-discrete;
+}
+
+.elyric-player-root .elyric-player-settings-panel[hidden],
+.elyric-player-root .elyric-player-media-panel[hidden],
+.elyric-player-root .elyric-player-queue-panel[hidden] {
+    display: none !important;
+    opacity: 0;
+    transform: translateY(.65rem) scale(.975);
+}
+
+.elyric-player-root .elyric-player-settings-header,
+.elyric-player-root .elyric-player-queue-header {
+    position: relative !important;
+    z-index: 2;
+    top: auto !important;
+    flex: 0 0 auto;
+    margin: 0 !important;
+    padding: .8rem 1rem !important;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 13%, transparent);
+    border-radius: inherit inherit 0 0;
+    background: color-mix(
+        in srgb,
+        var(--elyric-v2-panel-bg, var(--elyric-design-media-surface, #121722)) 94%,
+        transparent
+    ) !important;
+}
+
+.elyric-player-root .elyric-player-settings-body,
+.elyric-player-root .elyric-player-media-body,
+.elyric-player-root .elyric-player-queue-body {
+    min-height: 0;
+    overflow: hidden auto !important;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+
+.elyric-player-root .elyric-player-settings-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: .65rem;
+    padding: .8rem 1rem 1rem;
+}
+
+.elyric-player-root [data-elyric-anchor-mode="button"]::after {
+    position: absolute;
+    left: var(--elyric-overlay-anchor-tip-x, 1.5rem);
+    width: .8rem;
+    height: .8rem;
+    content: "";
+    border: solid color-mix(in srgb, currentColor 17%, transparent);
+    background: var(--elyric-v2-panel-bg, var(--elyric-design-media-surface, #121722));
+    pointer-events: none;
+}
+
+.elyric-player-root [data-elyric-anchor-mode="button"][data-elyric-anchor-placement="above"]::after {
+    bottom: -.46rem;
+    border-width: 0 1px 1px 0;
+    transform: translateX(-50%) rotate(45deg);
+}
+
+.elyric-player-root [data-elyric-anchor-mode="button"][data-elyric-anchor-placement="below"]::after {
+    top: -.46rem;
+    border-width: 1px 0 0 1px;
+    transform: translateX(-50%) rotate(45deg);
+}
+
+.elyric-player-root [data-elyric-anchor-mode="drawer"] {
+    transform-origin: center bottom !important;
+    border-radius: 1.35rem !important;
+}
+
+.elyric-player-root .elyric-player-control-dock {
+    overflow: hidden !important;
+    padding: clamp(.35rem, .75vw, .75rem) !important;
+}
+
+.elyric-player-root .elyric-player-control-row { min-height: 0; }
+.elyric-player-root .elyric-player-control-dock .elyric-player-button {
+    width: clamp(44px, calc(48px * var(--elyric-control-stage-scale, 1)), 58px) !important;
+    min-width: clamp(44px, calc(48px * var(--elyric-control-stage-scale, 1)), 58px) !important;
+    height: clamp(44px, calc(48px * var(--elyric-control-stage-scale, 1)), 58px) !important;
+    min-height: clamp(44px, calc(48px * var(--elyric-control-stage-scale, 1)), 58px) !important;
+}
+
+.elyric-player-root .elyric-player-control-dock .elyric-player-button-playPause {
+    width: clamp(54px, calc(62px * var(--elyric-control-stage-scale, 1)), 72px) !important;
+    min-width: clamp(54px, calc(62px * var(--elyric-control-stage-scale, 1)), 72px) !important;
+    height: clamp(54px, calc(62px * var(--elyric-control-stage-scale, 1)), 72px) !important;
+    min-height: clamp(54px, calc(62px * var(--elyric-control-stage-scale, 1)), 72px) !important;
+}
+
+@media (orientation: portrait) {
+    .elyric-player-root .elyric-player-control-dock .elyric-player-volume { display: none !important; }
+    .elyric-player-root .elyric-player-control-dock { gap: .25rem !important; }
+    .elyric-player-root .elyric-player-control-row { flex-wrap: nowrap; }
+}
+
+.elyric-player-root[data-elyric-short-landscape="true"] .elyric-player-control-dock .elyric-player-volume,
+.elyric-player-root[data-elyric-short-landscape="true"] .elyric-player-control-dock .elyric-player-button-rotation,
+.elyric-player-root[data-elyric-short-landscape="true"] .elyric-player-control-dock .elyric-player-button-secondline {
+    display: none !important;
+}
+
+.elyric-player-root[data-elyric-short-landscape="true"] .elyric-player-control-dock {
+    gap: .18rem !important;
+    padding: .25rem !important;
+}
+
+.elyric-player-root[data-elyric-short-landscape="true"] .elyric-player-control-row {
+    flex-wrap: nowrap;
+}
+
+@starting-style {
+    .elyric-player-root .elyric-player-settings-panel:not([hidden]),
+    .elyric-player-root .elyric-player-media-panel:not([hidden]),
+    .elyric-player-root .elyric-player-queue-panel:not([hidden]) {
+        opacity: 0;
+        transform: translateY(.65rem) scale(.975);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .elyric-player-root .elyric-player-settings-panel,
+    .elyric-player-root .elyric-player-media-panel,
+    .elyric-player-root .elyric-player-queue-panel,
+    .elyric-player-root .elyric-player-v2-layer { transition-duration: 1ms !important; }
 }
 
 /* ELYRIC_ENHANCE_END:4.9.5.0 */

@@ -26,7 +26,7 @@ assert(adapter.includes('layoutModel: PLAYER_THEME_LAYOUT_MODEL') && models.incl
 assert(adapter.includes('PLAYER_THEME_LEGACY_V5_LAYOUT_MODEL = "anchored-canvas-v2"')
     && models.includes('LegacyV5LayoutModel = "anchored-canvas-v2"'),
     "existing V5 account drafts should migrate once into the fixed 16:9/9:16 canvas");
-assert(adapter.includes('applyPlayerThemeDefinition(\n                renderer,\n                preferences.playerThemeDesign')
+assert(/applyPlayerThemeDefinition\(\s*renderer,\s*preferences\.playerThemeDesign\s*\)/.test(adapter)
     && adapter.includes('服务器 Workspace 接口未确认新的 revision'),
     "Workspace drafts must restore regardless of their source preset and sync only after a revision acknowledgement");
 assert(adapter.includes("viewportTransforms") && models.includes("viewportTransforms"),
@@ -120,7 +120,8 @@ tuningRanges.filter(([, id]) => !geometricTuning.has(id)).forEach(([, id, minimu
 assert(adapter.includes("PLAYER_LEGACY_GEOMETRY_TUNING_IDS.indexOf(definition.id) < 0"),
     "V4 serialization should filter the duplicate legacy geometry tuning fields");
 assert(css.includes("backdrop-filter: none !important"), "the settings editor should remain opaque and unblurred");
-assert(css.includes("z-index: 2147483600"), "the settings editor should stay above lyrics, queue and canvas handles");
+assert(css.includes("--elyric-layer-overlay") && css.includes("--elyric-layer-designer"),
+    "single-root overlays and designer handles should use one bounded layer-token system");
 assert(css.includes("V4 geometry ownership") && css.includes(".elyric-player-safety-toolbar"),
     "V4 should declare one geometry owner and an out-of-stage safety toolbar");
 assert(!adapter.includes('isCompactPlayerViewport() ? "compact" : "desktop"'),

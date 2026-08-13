@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.13-theme-v5-fixed-canvas-sync-r2 */
+/* ELYRIC_BUILD:2026.08.13-theme-v5-system-repair-r3 */
 ;(function () {
     "use strict";
 
@@ -36,7 +36,7 @@
     var PLAYER_PREFERENCES_KEY = "emby-lyric-enhance.player-preferences.v2";
     var PLAYER_THEME_LIBRARY_STORAGE_KEY = "emby-lyric-enhance.player-themes.v1";
     var PLAYER_THEME_DESIGN_STORAGE_KEY = "emby-lyric-enhance.player-theme-design.v1";
-    var PLAYER_BUILD_ID = "2026.08.13-theme-v5-fixed-canvas-sync-r2";
+    var PLAYER_BUILD_ID = "2026.08.13-theme-v5-system-repair-r3";
     var PLAYER_PREFERENCES_VERSION = 5;
     var PLAYER_THEME_SCHEMA_VERSION = 5;
     var PLAYER_THEME_DOCUMENT_FORMAT = "emby-lyric-theme";
@@ -47,6 +47,7 @@
         landscape: { width: 1920, height: 1080 },
         portrait: { width: 1080, height: 1920 }
     };
+    var PLAYER_THEME_MAX_RENDER_SCALE = 4 / 3;
     var PLAYER_THEME_V3_MIGRATION_BACKUP_KEY = "emby-lyric-enhance.player-theme-v3-backup.v1";
     var MAX_LEGACY_USER_PLAYER_THEMES = 24;
     var PLAYER_PREFERENCES_SAVE_DELAY = 500;
@@ -56,6 +57,8 @@
     var PLAYER_THEME_V2_OFFLINE_QUEUE_KEY = "emby-lyric-enhance.theme-v5.offline-queue";
     var PLAYER_THEME_V2_WORKSPACE_CACHE_KEY = "emby-lyric-enhance.theme-v5.workspace-cache";
     var PLAYER_THEME_V2_LEGACY_ARCHIVE_KEY = "emby-lyric-enhance.theme-v5.legacy-archive";
+    var PLAYER_THEME_V5_REPAIR_BACKUP_KEY = "emby-lyric-enhance.theme-v5.layout-repair-backups";
+    var PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION = 1;
     var PUBLIC_CONFIGURATION_PATH = "EmbyLyricEnhance/PublicConfiguration";
     var PLAYER_LAYOUTS = [
         { id: "album", label: "编辑唱片" },
@@ -1092,6 +1095,7 @@
         return {
             schemaVersion: PLAYER_THEME_SCHEMA_VERSION,
             layoutModel: PLAYER_THEME_LAYOUT_MODEL,
+            layoutRepairRevision: 0,
             viewportTransforms: {
                 landscape: { scale: 1, offsetX: 0, offsetY: 0 },
                 portrait: { scale: 1, offsetX: 0, offsetY: 0 }
@@ -1179,6 +1183,28 @@
         if (portrait) {
             safe.lyrics.height = Math.min(Number(safe.lyrics.height) || 400, 400);
             safe.visualizer = clonePlayerThemeV2Value(fallback.visualizer);
+            var metadataRect = playerThemeV2LayerDesignRect(safe.metadata, {
+                designWidth: PLAYER_THEME_CANVAS_SIZES.portrait.width,
+                designHeight: PLAYER_THEME_CANVAS_SIZES.portrait.height
+            });
+            var lyricRect = playerThemeV2LayerDesignRect(safe.lyrics, {
+                designWidth: PLAYER_THEME_CANVAS_SIZES.portrait.width,
+                designHeight: PLAYER_THEME_CANVAS_SIZES.portrait.height
+            });
+            var requiredLyricTop = metadataRect.top + metadataRect.height + 20;
+            if (lyricRect.top < requiredLyricTop) {
+                safe.lyrics.y = Number(safe.lyrics.y || 0) + requiredLyricTop - lyricRect.top;
+            }
+            var visualizerRect = playerThemeV2LayerDesignRect(safe.visualizer, {
+                designWidth: PLAYER_THEME_CANVAS_SIZES.portrait.width,
+                designHeight: PLAYER_THEME_CANVAS_SIZES.portrait.height
+            });
+            var repairedLyricRect = playerThemeV2LayerDesignRect(safe.lyrics, {
+                designWidth: PLAYER_THEME_CANVAS_SIZES.portrait.width,
+                designHeight: PLAYER_THEME_CANVAS_SIZES.portrait.height
+            });
+            var maximumLyricHeight = visualizerRect.top - repairedLyricRect.top - 20;
+            safe.lyrics.height = Math.max(44, Math.min(Number(safe.lyrics.height) || 400, maximumLyricHeight));
         }
         return safe;
     }
@@ -1246,6 +1272,13 @@
         });
         sanitizedRoot.v2.schemaVersion = PLAYER_THEME_SCHEMA_VERSION;
         sanitizedRoot.v2.layoutModel = PLAYER_THEME_LAYOUT_MODEL;
+        sanitizedRoot.v2.layoutRepairRevision = Math.max(
+            0,
+            Math.min(
+                PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION,
+                Math.round(Number(state.layoutRepairRevision) || 0)
+            )
+        );
         sanitizedRoot.v2.controls = normalizePlayerControlDock(state.controls);
         return sanitizedRoot.v2;
     }
@@ -1385,7 +1418,11 @@
         var canvasSize = PLAYER_THEME_CANVAS_SIZES[profileId];
         var baseWidth = canvasSize.width;
         var baseHeight = canvasSize.height;
-        var baseScale = Math.max(.001, Math.min(available.width / baseWidth, available.height / baseHeight));
+        var baseScale = Math.max(.001, Math.min(
+            PLAYER_THEME_MAX_RENDER_SCALE,
+            available.width / baseWidth,
+            available.height / baseHeight
+        ));
         if (profileId !== currentPlayerThemeV2Profile()) {
             var previewScale = Math.min(
                 Math.max(240, available.width * .72) / baseWidth,
@@ -1403,6 +1440,9 @@
             && renderer.__elyricThemeV2.viewportTransforms[profileId]
             ? renderer.__elyricThemeV2.viewportTransforms[profileId]
             : { scale: 1, offsetX: 0, offsetY: 0 };
+        if (!(renderer && renderer.__elyricThemeV2DesignerOpen)) {
+            transform = { scale: 1, offsetX: 0, offsetY: 0 };
+        }
         var userScale = normalizePlayerThemeV2Number(transform.scale, .5, 1.6, 1);
         var scale = baseScale * userScale;
         var designWidth = baseWidth;
@@ -1441,6 +1481,118 @@
         };
     }
 
+    function playerThemeV5CompactLandscape() {
+        var viewport = playerThemeV2ViewportRect();
+        return viewport.width >= viewport.height && (viewport.height < 520 || viewport.width < 960);
+    }
+
+    function playerThemeV5RectanglesOverlap(first, second, gap) {
+        if (!first || !second) { return false; }
+        gap = Math.max(0, Number(gap) || 0);
+        return first.left < second.left + second.width + gap
+            && first.left + first.width + gap > second.left
+            && first.top < second.top + second.height + gap
+            && first.top + first.height + gap > second.top;
+    }
+
+    function playerThemeV5SafeLayout(profileId) {
+        return clonePlayerThemeV2Value(defaultPlayerThemeV2Layouts()[profileId]);
+    }
+
+    function playerThemeV5LayoutIsSafe(layout, profileId) {
+        if (!layout) { return false; }
+        var canvas = PLAYER_THEME_CANVAS_SIZES[profileId];
+        var gap = "portrait" === profileId ? 20 : 0;
+        var epsilon = .1;
+        var rects = {};
+        var metrics = {
+            designWidth: canvas.width,
+            designHeight: canvas.height
+        };
+        var safeMargin = "portrait" === profileId ? 20 : 24;
+        var valid = PLAYER_THEME_V2_LAYER_IDS.every(function (layerId) {
+            var layer = layout[layerId];
+            if (!layer) { return false; }
+            var rect = playerThemeV2LayerDesignRect(layer, metrics);
+            rects[layerId] = rect;
+            return rect.width + epsilon >= 44 && rect.height + epsilon >= 44
+                && rect.left + epsilon >= safeMargin && rect.top + epsilon >= safeMargin
+                && rect.left + rect.width <= canvas.width - safeMargin + epsilon
+                && rect.top + rect.height <= canvas.height - safeMargin + epsilon;
+        });
+        if (!valid) { return false; }
+        if ("portrait" === profileId) {
+            var order = ["artwork", "metadata", "lyrics", "visualizer", "controlDock"];
+            for (var index = 1; index < order.length; index++) {
+                var previous = rects[order[index - 1]];
+                var current = rects[order[index]];
+                if (!previous || !current
+                    || previous.top + previous.height + gap > current.top + epsilon) { return false; }
+            }
+            return true;
+        }
+        return !playerThemeV5RectanglesOverlap(rects.artwork, rects.metadata, gap)
+            && !playerThemeV5RectanglesOverlap(rects.artwork, rects.lyrics, gap)
+            && !playerThemeV5RectanglesOverlap(rects.metadata, rects.lyrics, gap)
+            && !playerThemeV5RectanglesOverlap(rects.lyrics, rects.visualizer, gap)
+            && !playerThemeV5RectanglesOverlap(rects.visualizer, rects.controlDock, gap);
+    }
+
+    function repairPlayerThemeV5Layout(layout, profileId) {
+        var repaired = clonePlayerThemeV2Value(layout || {});
+        var safe = playerThemeV5SafeLayout(profileId);
+        var canvas = PLAYER_THEME_CANVAS_SIZES[profileId];
+        PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+            if (!repaired[layerId] || "object" !== typeof repaired[layerId]) {
+                repaired[layerId] = clonePlayerThemeV2Value(safe[layerId]);
+                return;
+            }
+            var layer = repaired[layerId];
+            var fallback = safe[layerId];
+            layer.width = Math.min(canvas.width - 40, Math.max(44, Number(layer.width) || fallback.width));
+            layer.height = Math.min(canvas.height - 40, Math.max(44, Number(layer.height) || fallback.height));
+            layer.hidden = "controlDock" === layerId ? false : !!layer.hidden;
+        });
+        if (!playerThemeV5LayoutIsSafe(repaired, profileId)) {
+            // Keep the complete visual styling while replacing only unsafe geometry.
+            PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+                var visual = repaired[layerId];
+                var geometry = safe[layerId];
+                ["anchorX", "anchorY", "x", "y", "width", "height"].forEach(function (key) {
+                    visual[key] = geometry[key];
+                });
+                visual.hidden = "controlDock" === layerId ? false : !!visual.hidden;
+            });
+        }
+        return repaired;
+    }
+
+    function repairPlayerThemeV5State(source) {
+        var state = normalizePlayerThemeV2State(source);
+        var changed = false;
+        PLAYER_THEME_V2_PROFILE_IDS.forEach(function (profileId) {
+            var transform = state.viewportTransforms[profileId] || {};
+            if (Number(transform.scale) !== 1 || Number(transform.offsetX) !== 0 || Number(transform.offsetY) !== 0) {
+                state.viewportTransforms[profileId] = { scale: 1, offsetX: 0, offsetY: 0 };
+                changed = true;
+            }
+            if (!playerThemeV5LayoutIsSafe(state.layouts[profileId], profileId)) {
+                state.layouts[profileId] = repairPlayerThemeV5Layout(state.layouts[profileId], profileId);
+                changed = true;
+            }
+        });
+        if (changed && Number(state.layoutRepairRevision) < PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION) {
+            state.layoutRepairRevision = PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION;
+        }
+        return { state: state, changed: changed };
+    }
+
+    function playerThemeV5PlaybackState(renderer, source) {
+        var state = normalizePlayerThemeV2State(source, renderer && renderer.__elyricThemeBaseLayout);
+        if (renderer && renderer.__elyricThemeV2DesignerOpen) { return state; }
+        return repairPlayerThemeV5State(state).state;
+    }
+
     function playerThemeV2RenderedRect(layer, metrics) {
         var design = playerThemeV2LayerDesignRect(layer, metrics);
         var point = metrics.forward(design.left, design.top);
@@ -1448,8 +1600,14 @@
         var height = design.height * metrics.scale;
         var grab = 44;
         var viewport = metrics.viewport;
-        point.x = Math.min(viewport.left + viewport.width - grab, Math.max(viewport.left - width + grab, point.x));
-        point.y = Math.min(viewport.top + viewport.height - grab, Math.max(viewport.top - height + grab, point.y));
+        var editing = !!(metrics.renderer && metrics.renderer.__elyricThemeV2DesignerOpen);
+        if (editing) {
+            point.x = Math.min(viewport.left + viewport.width - grab, Math.max(viewport.left - width + grab, point.x));
+            point.y = Math.min(viewport.top + viewport.height - grab, Math.max(viewport.top - height + grab, point.y));
+        } else {
+            point.x = Math.min(viewport.left + viewport.width - width, Math.max(viewport.left, point.x));
+            point.y = Math.min(viewport.top + viewport.height - height, Math.max(viewport.top, point.y));
+        }
         return { left: point.x, top: point.y, width: width, height: height };
     }
 
@@ -1463,6 +1621,7 @@
         }
         var displayedLayer = layer;
         var metrics = playerThemeV2StageMetrics(renderer, renderer.__elyricThemeV2Profile);
+        metrics.renderer = renderer;
         var rect = playerThemeV2RenderedRect(displayedLayer, metrics);
         element.classList.add("elyric-player-v2-layer", "elyric-player-v2-layer-" + layerId);
         element.style.setProperty("position", "fixed", "important");
@@ -1687,7 +1846,10 @@
         renderer.__elyricThemeV2Profile = PLAYER_THEME_V2_PROFILE_IDS.indexOf(profileOverride) >= 0
             ? profileOverride
             : currentPlayerThemeV2Profile();
-        var profile = playerThemeV2StageLayers(renderer, renderer.__elyricThemeV2Profile);
+        var renderedState = renderer.__elyricThemeV2DesignerOpen
+            ? renderer.__elyricThemeV2
+            : repairPlayerThemeV5State(renderer.__elyricThemeV2).state;
+        var profile = clonePlayerThemeV2Value(renderedState.layouts[renderer.__elyricThemeV2Profile]);
         PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
             applyPlayerThemeV2Layer(renderer, layerId, profile[layerId]);
         });
@@ -1718,6 +1880,11 @@
         applyPlayerControlDock(renderer, renderer.__elyricThemeV2Profile);
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-theme-v2", "true");
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-theme-v2-profile", renderer.__elyricThemeV2Profile);
+        setAttributeIfChanged(
+            renderer.__elyricThemeControl,
+            "data-elyric-short-landscape",
+            playerThemeV5CompactLandscape() ? "true" : "false"
+        );
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-theme-v2", "true");
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-theme-v2-profile", renderer.__elyricThemeV2Profile);
         if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
@@ -2023,14 +2190,14 @@
         var state = defaultPlayerThemeV2State();
         var sourceLayouts = PLAYER_THEME_V4_BUILTIN_LAYOUTS[layoutId] || PLAYER_THEME_V4_BUILTIN_LAYOUTS.album;
         state.layouts = {
-            landscape: playerThemeV5LayoutFromV4(
+            landscape: playerThemeV5SafeBuiltInLayout(playerThemeV5LayoutFromV4(
                 playerThemeV4LayoutFromPercent(sourceLayouts.landscape, false), false,
                 defaultPlayerThemeV2Layouts().landscape
-            ),
-            portrait: playerThemeV5LayoutFromV4(
+            ), false, defaultPlayerThemeV2Layouts().landscape),
+            portrait: playerThemeV5SafeBuiltInLayout(playerThemeV5LayoutFromV4(
                 playerThemeV4LayoutFromPercent(sourceLayouts.portrait, true), true,
                 defaultPlayerThemeV2Layouts().portrait
-            )
+            ), true, defaultPlayerThemeV2Layouts().portrait)
         };
         var colors = preset && preset.colors ? preset.colors : {};
         ["primary", "secondary", "tertiary"].forEach(function (lineId) {
@@ -2993,6 +3160,7 @@
         window.__elyricPortablePlayerThemeV5 = function (theme) {
             return portablePlayerThemeV5(theme, false);
         };
+        window.__elyricPlayerThemeV5LayoutIsSafe = playerThemeV5LayoutIsSafe;
         window.__elyricValidatePortablePlayerThemeV3 = validatePortablePlayerThemeV3Document;
         // Compatibility aliases for older test harnesses and exported tooling.
         window.__elyricPlayerThemeV4Fixtures = window.__elyricPlayerThemeV5Fixtures;
@@ -3426,6 +3594,13 @@
             return null;
         }
         var preferences = { version: PLAYER_PREFERENCES_VERSION, tuning: {} };
+        preferences.layoutRepairRevision = Math.max(
+            0,
+            Math.min(
+                PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION,
+                Math.round(Number(source.layoutRepairRevision) || 0)
+            )
+        );
         if (isKnownTheme(source.theme)) {
             preferences.theme = source.theme;
         }
@@ -3512,6 +3687,7 @@
         });
         var preferences = {
             version: PLAYER_PREFERENCES_VERSION,
+            layoutRepairRevision: Number(renderer.__elyricLayoutRepairRevision || PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION),
             theme: renderer.__elyricTheme || "classic",
             layout: renderer.__elyricPlayerLayout || "album",
             artworkRotation: false !== renderer.__elyricArtworkRotation,
@@ -3609,6 +3785,87 @@
                 confirmedAt: Date.now(), workspace: workspace || {}, summaries: summaries || []
             }));
         } catch (error) {}
+    }
+
+    function backupPlayerThemeV5Repair(renderer, theme, workspaceRevision) {
+        if (!theme || "undefined" === typeof localStorage) { return; }
+        try {
+            var key = playerThemeV2ScopedKey(PLAYER_THEME_V5_REPAIR_BACKUP_KEY, renderer);
+            var backups = JSON.parse(localStorage.getItem(key) || "[]");
+            if (!Array.isArray(backups)) { backups = []; }
+            var serialized = JSON.stringify(theme);
+            if (!backups.some(function (entry) { return entry && entry.json === serialized; })) {
+                backups.push({
+                    repairedAt: Date.now(),
+                    workspaceRevision: Number(workspaceRevision || 0),
+                    readOnly: true,
+                    json: serialized
+                });
+                localStorage.setItem(key, JSON.stringify(backups.slice(-12)));
+            }
+        } catch (error) {}
+    }
+
+    function loadPlayerThemeV5RepairBackups(renderer) {
+        if ("undefined" === typeof localStorage) { return []; }
+        try {
+            var key = playerThemeV2ScopedKey(PLAYER_THEME_V5_REPAIR_BACKUP_KEY, renderer);
+            var backups = JSON.parse(localStorage.getItem(key) || "[]");
+            return Array.isArray(backups) ? backups.filter(function (entry) {
+                return entry && entry.readOnly && "string" === typeof entry.json;
+            }) : [];
+        } catch (error) { return []; }
+    }
+
+    function restoreLatestPlayerThemeV5RepairBackup(renderer) {
+        var backups = loadPlayerThemeV5RepairBackups(renderer);
+        var entry = backups[backups.length - 1];
+        var original = null;
+        try { original = entry ? normalizeSavedPlayerTheme(JSON.parse(entry.json), 0) : null; }
+        catch (error) { original = null; }
+        if (!original || !original.v2) {
+            updatePlayerThemeLibraryStatus(renderer, "当前账号没有可回退的布局修复备份", "error");
+            syncPlayerThemeLibraryControls(renderer);
+            return false;
+        }
+        renderer.__elyricActiveUserPlayerThemeId = null;
+        renderer.__elyricThemeBaseLayout = original.baseLayout;
+        renderer.__elyricPlayerLayout = "custom";
+        renderer.__elyricLayoutRepairRevision = PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION;
+        applyPlayerLayout(renderer, "custom", false);
+        applyPlayerThemeDefinition(renderer, original);
+        storeCurrentPlayerThemeDesign(renderer);
+        scheduleUserPlayerPreferencesSave(renderer);
+        syncPlayerThemeLibraryControls(renderer);
+        updatePlayerThemeLibraryStatus(
+            renderer,
+            "已回退到修复前只读备份；播放态仍会应用最低安全约束，可在画布编辑中继续调整",
+            "synced"
+        );
+        return true;
+    }
+
+    function repairPlayerThemeV5PreferenceDraft(renderer, preferences, workspaceRevision) {
+        var theme = preferences && preferences.playerThemeDesign;
+        if (!theme || !theme.v2
+            || Number(preferences.layoutRepairRevision) >= PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION) {
+            return false;
+        }
+        var repaired = repairPlayerThemeV5State(theme.v2);
+        if (!repaired.changed) { return false; }
+        backupPlayerThemeV5Repair(renderer, theme, workspaceRevision);
+        var repairCopy = clonePlayerThemeV2Value(theme);
+        repairCopy.id = "layout-repair-" + Date.now().toString(36);
+        repairCopy.name = normalizePlayerThemeName(theme.name + "（安全修复）", "布局安全修复");
+        repairCopy.v2 = repaired.state;
+        repairCopy.revision = 0;
+        repairCopy.updatedAt = Date.now();
+        repairCopy.repairSourceId = theme.id || "draft";
+        preferences.playerThemeDesign = repairCopy;
+        preferences.layoutRepairRevision = PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION;
+        renderer.__elyricLayoutRepairRevision = PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION;
+        renderer.__elyricPendingLayoutRepair = true;
+        return true;
     }
 
     function loadConfirmedPlayerThemeV2Workspace(renderer) {
@@ -3802,6 +4059,20 @@
                 // edited it must restore independently of its original preset.
             }
         } catch (error) {}
+        repairPlayerThemeV5PreferenceDraft(
+            renderer,
+            preferences,
+            playerThemeV2ResponseValue(workspace, "revision", "Revision", 0)
+        );
+        if (Number(preferences.layoutRepairRevision) >= PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION
+            && Array.isArray(preferences.playerThemes)) {
+            preferences.playerThemes = preferences.playerThemes.map(function (theme) {
+                if (!theme || !theme.v2) { return theme; }
+                var repairedTheme = clonePlayerThemeV2Value(theme);
+                repairedTheme.v2 = repairPlayerThemeV5State(repairedTheme.v2).state;
+                return repairedTheme;
+            });
+        }
         preferences.activePlayerThemeId = renderer.__elyricActiveUserPlayerThemeId || null;
         return preferences;
     }
@@ -4255,6 +4526,14 @@
                 }
             }, 0);
         }
+        if (renderer.__elyricPendingLayoutRepair && "server" === source) {
+            renderer.__elyricPendingLayoutRepair = false;
+            setTimeout(function () {
+                if (renderer.__elyricThemeControl && renderer.__elyricWorkspaceReady) {
+                    persistUserPlayerPreferences(renderer);
+                }
+            }, 0);
+        }
         return preferences;
     }
 
@@ -4383,6 +4662,9 @@
             return;
         }
         renderer.__elyricApplyingUserPreferences = true;
+        renderer.__elyricLayoutRepairRevision = Number(
+            preferences.layoutRepairRevision || renderer.__elyricLayoutRepairRevision || 0
+        );
         if (Array.isArray(preferences.playerThemes)) {
             renderer.__elyricUserPlayerThemes = preferences.playerThemes.slice(0, MAX_LEGACY_USER_PLAYER_THEMES);
             storePlayerThemeLibrary(renderer);
@@ -5098,6 +5380,179 @@
         return true;
     }
 
+    var PLAYER_OVERLAY_LAYOUTS = {
+        media: { minimumWidth: 360, maximumWidth: 480, landscapeHeight: .56, portraitHeight: .54 },
+        queue: { minimumWidth: 380, maximumWidth: 460, landscapeHeight: .66, portraitHeight: .66 },
+        settings: { minimumWidth: 420, maximumWidth: 520, landscapeHeight: .78, portraitHeight: .82 }
+    };
+
+    function playerOverlayParts(renderer, kind) {
+        var anchored = renderer.__elyricOverlayAnchors && renderer.__elyricOverlayAnchors[kind];
+        if ("media" === kind) {
+            return { panel: renderer.__elyricMediaPanel, button: anchored || renderer.__elyricMediaButton };
+        }
+        if ("queue" === kind) {
+            return {
+                panel: renderer.__elyricQueuePanel,
+                button: anchored || renderer.__elyricPlayerButtons && renderer.__elyricPlayerButtons.queue
+            };
+        }
+        return { panel: renderer.__elyricSettingsPanel, button: anchored || renderer.__elyricSettingsButton };
+    }
+
+    function clearPlayerOverlayPosition(renderer, kind, mode) {
+        var panel = playerOverlayParts(renderer, kind).panel;
+        if (!panel) { return; }
+        ["top", "right", "bottom", "left", "width", "height", "max-height", "--elyric-overlay-anchor-tip-x",
+            "--elyric-media-anchor-tip-x"].forEach(function (propertyName) {
+            if (panel.style && panel.style.removeProperty) { panel.style.removeProperty(propertyName); }
+        });
+        setAttributeIfChanged(panel, "data-elyric-overlay-kind", kind);
+        setAttributeIfChanged(panel, "data-elyric-anchor-mode", mode || "drawer");
+        removeAttributeIfPresent(panel, "data-elyric-anchor-placement");
+    }
+
+    function positionPlayerOverlay(renderer, kind) {
+        var parts = playerOverlayParts(renderer, kind);
+        var panel = parts.panel;
+        var button = parts.button;
+        var spec = PLAYER_OVERLAY_LAYOUTS[kind];
+        if (!panel || !spec || !panel.getBoundingClientRect) { return; }
+        var viewport = playerThemeV2ViewportRect();
+        var margin = 16;
+        var gap = 12;
+        var userHeightRatio = "media" === kind
+            ? Math.max(.28, Math.min(.88, Number(renderer.__elyricPlayerTuning
+                && renderer.__elyricPlayerTuning.mediaMaxHeight || 72) / 100))
+            : 1;
+        if ("portrait" === currentPlayerThemeV2Profile() || !button || !button.getBoundingClientRect) {
+            clearPlayerOverlayPosition(renderer, kind, "drawer");
+            var drawerWidth = Math.max(0, viewport.width - margin * 2);
+            var drawerHeight = Math.min(
+                viewport.height * Math.min(spec.portraitHeight, userHeightRatio),
+                Number(panel.scrollHeight) || viewport.height * spec.portraitHeight,
+                viewport.height - margin * 2
+            );
+            panel.style.setProperty("left", Math.round(viewport.left + margin) + "px", "important");
+            panel.style.setProperty("right", "auto", "important");
+            panel.style.setProperty("top", "auto", "important");
+            panel.style.setProperty("bottom", Math.round(margin) + "px", "important");
+            panel.style.setProperty("width", Math.round(drawerWidth) + "px", "important");
+            panel.style.setProperty("height", "auto", "important");
+            panel.style.setProperty("max-height", Math.round(drawerHeight) + "px", "important");
+            return;
+        }
+        var buttonRect = button.getBoundingClientRect();
+        var panelRect = panel.getBoundingClientRect();
+        var desiredWidth = Math.min(
+            viewport.width - margin * 2,
+            Math.max(spec.minimumWidth, Math.min(spec.maximumWidth, Number(panelRect.width) || spec.maximumWidth))
+        );
+        var contentHeight = Number(panel.scrollHeight) || Number(panelRect.height) || viewport.height * spec.landscapeHeight;
+        var desiredHeight = Math.min(
+            contentHeight,
+            viewport.height * Math.min(spec.landscapeHeight, userHeightRatio),
+            viewport.height - margin * 2
+        );
+        var buttonLeft = Number(buttonRect.left) || 0;
+        var buttonRight = Number(buttonRect.right) || buttonLeft + 44;
+        var buttonTop = Number(buttonRect.top) || 0;
+        var buttonBottom = Number(buttonRect.bottom) || buttonTop + 44;
+        var availableAbove = Math.max(0, buttonTop - viewport.top - gap - margin);
+        var availableBelow = Math.max(0, viewport.top + viewport.height - buttonBottom - gap - margin);
+        var preferred = renderer.__elyricOverlayPreferredPlacements
+            && renderer.__elyricOverlayPreferredPlacements[kind] || "above";
+        var placeAbove = "below" === preferred
+            ? !(availableBelow >= Math.min(desiredHeight, 260) || availableBelow >= availableAbove)
+            : availableAbove >= Math.min(desiredHeight, 260) || availableAbove >= availableBelow;
+        var availableHeight = placeAbove ? availableAbove : availableBelow;
+        var finalHeight = Math.max(120, Math.min(desiredHeight, availableHeight));
+        var center = (buttonLeft + buttonRight) / 2;
+        var left = Math.min(
+            viewport.left + viewport.width - desiredWidth - margin,
+            Math.max(viewport.left + margin, center - desiredWidth / 2)
+        );
+        var top = placeAbove
+            ? Math.max(viewport.top + margin, buttonTop - gap - finalHeight)
+            : Math.min(viewport.top + viewport.height - margin - finalHeight, buttonBottom + gap);
+        var anchorX = Math.min(desiredWidth - 18, Math.max(18, center - left));
+        panel.style.setProperty("left", Math.round(left) + "px", "important");
+        panel.style.setProperty("top", Math.round(top) + "px", "important");
+        panel.style.setProperty("right", "auto", "important");
+        panel.style.setProperty("bottom", "auto", "important");
+        panel.style.setProperty("width", Math.round(desiredWidth) + "px", "important");
+        panel.style.setProperty("height", "auto", "important");
+        panel.style.setProperty("max-height", Math.round(finalHeight) + "px", "important");
+        panel.style.setProperty("--elyric-overlay-anchor-tip-x", Math.round(anchorX) + "px");
+        panel.style.setProperty("--elyric-media-anchor-tip-x", Math.round(anchorX) + "px");
+        setAttributeIfChanged(panel, "data-elyric-overlay-kind", kind);
+        setAttributeIfChanged(panel, "data-elyric-anchor-mode", "button");
+        setAttributeIfChanged(panel, "data-elyric-anchor-placement", placeAbove ? "above" : "below");
+    }
+
+    function repositionPlayerOverlays(renderer) {
+        if (renderer.__elyricSettingsOpen) { positionPlayerOverlay(renderer, "settings"); }
+        if (renderer.__elyricMediaOpen) { positionPlayerOverlay(renderer, "media"); }
+        if (renderer.__elyricQueueOpen) { positionPlayerOverlay(renderer, "queue"); }
+    }
+
+    function createPlayerOverlayManager(renderer) {
+        renderer.__elyricOverlayAnchors = renderer.__elyricOverlayAnchors || {};
+        renderer.__elyricOverlayPreferredPlacements = renderer.__elyricOverlayPreferredPlacements || {};
+        return {
+            open: function (options) {
+                var kind = options && options.kind;
+                if (options && options.anchorElement) {
+                    renderer.__elyricOverlayAnchors[kind] = options.anchorElement;
+                }
+                renderer.__elyricOverlayPreferredPlacements[kind]
+                    = options && options.preferredPlacement || "above";
+                if ("media" === kind) { setMediaPanelOpen(renderer, true); }
+                else if ("queue" === kind) { setQueueOpen(renderer, true); }
+                else if ("settings" === kind) { setSettingsPanelOpen(renderer, true); }
+                else if ("designer" === kind) {
+                    setSettingsPanelOpen(renderer, false, true);
+                    setMediaPanelOpen(renderer, false);
+                    setQueueOpen(renderer, false);
+                    setPlayerThemeV2DesignerOpen(renderer, true);
+                }
+            },
+            close: function (kind) {
+                if ("media" === kind) { setMediaPanelOpen(renderer, false); }
+                else if ("queue" === kind) { setQueueOpen(renderer, false); }
+                else if ("settings" === kind) { setSettingsPanelOpen(renderer, false); }
+                else if ("designer" === kind) { setPlayerThemeV2DesignerOpen(renderer, false); }
+            },
+            reposition: function () { repositionPlayerOverlays(renderer); }
+        };
+    }
+
+    function requestPlayerOverlayOpen(renderer, kind, anchorElement, preferredPlacement) {
+        if (renderer.__elyricOverlayManager) {
+            renderer.__elyricOverlayManager.open({
+                kind: kind,
+                anchorElement: anchorElement,
+                preferredPlacement: preferredPlacement || "above"
+            });
+            return;
+        }
+        if ("media" === kind) { setMediaPanelOpen(renderer, true); }
+        else if ("queue" === kind) { setQueueOpen(renderer, true); }
+        else if ("settings" === kind) { setSettingsPanelOpen(renderer, true); }
+        else if ("designer" === kind) { setPlayerThemeV2DesignerOpen(renderer, true); }
+    }
+
+    function requestPlayerOverlayClose(renderer, kind) {
+        if (renderer.__elyricOverlayManager) {
+            renderer.__elyricOverlayManager.close(kind);
+            return;
+        }
+        if ("media" === kind) { setMediaPanelOpen(renderer, false); }
+        else if ("queue" === kind) { setQueueOpen(renderer, false); }
+        else if ("settings" === kind) { setSettingsPanelOpen(renderer, false); }
+        else if ("designer" === kind) { setPlayerThemeV2DesignerOpen(renderer, false); }
+    }
+
     function setSettingsPanelOpen(renderer, open, preserveDesigner) {
         open = !!open;
         var wasOpen = !!renderer.__elyricSettingsOpen;
@@ -5119,9 +5574,10 @@
         if (renderer.__elyricSettingsPanel) {
             if (open) {
                 if (!wasOpen) {
-                    renderer.__elyricSettingsPanel.scrollTop = 0;
+                    if (renderer.__elyricSettingsBody) { renderer.__elyricSettingsBody.scrollTop = 0; }
                 }
                 removeAttributeIfPresent(renderer.__elyricSettingsPanel, "hidden");
+                positionPlayerOverlay(renderer, "settings");
             } else {
                 setAttributeIfChanged(renderer.__elyricSettingsPanel, "hidden", "hidden");
             }
@@ -5141,6 +5597,7 @@
             if (renderer.__elyricThemeV2DesignerOpen && !preserveDesigner) {
                 setPlayerThemeV2DesignerOpen(renderer, false);
             }
+            scrollCurrentLyricIntoView(renderer, false);
             resumeLyricFollowing(renderer, false);
             restorePlayerOverlayFocus(renderer.__elyricSettingsPanel, renderer.__elyricSettingsButton);
         }
@@ -5162,69 +5619,7 @@
     }
 
     function positionMediaPanelNearTrigger(renderer) {
-        var panel = renderer && renderer.__elyricMediaPanel;
-        var button = renderer && renderer.__elyricMediaButton;
-        if (!panel || !button || !panel.getBoundingClientRect || !button.getBoundingClientRect) {
-            return;
-        }
-        var viewportWidth = "undefined" !== typeof window && isFinite(Number(window.innerWidth))
-            ? Number(window.innerWidth)
-            : 1280;
-        var viewportHeight = "undefined" !== typeof window && isFinite(Number(window.innerHeight))
-            ? Number(window.innerHeight)
-            : 720;
-        var anchored = "landscape" === currentPlayerThemeV2Profile();
-        if (!anchored) {
-            clearMediaPanelAnchor(renderer, "drawer");
-            return;
-        }
-        var margin = 16;
-        var gap = 12;
-        var buttonRect = button.getBoundingClientRect();
-        var panelRect = panel.getBoundingClientRect();
-        var desiredWidth = Math.min(
-            viewportWidth - margin * 2,
-            viewportWidth * Math.min(54, Math.max(18,
-                Number(renderer.__elyricPlayerTuning && renderer.__elyricPlayerTuning.mediaWidth) || 34)) / 100
-        );
-        var desiredHeight = Math.min(
-            viewportHeight - margin * 2,
-            viewportHeight * Math.min(88, Math.max(28,
-                Number(renderer.__elyricPlayerTuning && renderer.__elyricPlayerTuning.mediaMaxHeight) || 72)) / 100,
-            Number(panel.scrollHeight)
-                || Number(panelRect.height)
-                || Number(panelRect.bottom) - Number(panelRect.top)
-                || viewportHeight * .72
-        );
-        var buttonLeft = Number(buttonRect.left) || 0;
-        var buttonRight = Number(buttonRect.right) || buttonLeft + 44;
-        var buttonTop = Number(buttonRect.top) || 0;
-        var buttonBottom = Number(buttonRect.bottom) || buttonTop + 44;
-        var left = Math.min(
-            viewportWidth - desiredWidth - margin,
-            Math.max(margin, buttonLeft)
-        );
-        var availableAbove = Math.max(0, buttonTop - gap - margin);
-        var availableBelow = Math.max(0, viewportHeight - buttonBottom - gap - margin);
-        var placeAbove = availableAbove >= Math.min(desiredHeight, 260) || availableAbove >= availableBelow;
-        var available = placeAbove ? availableAbove : availableBelow;
-        var finalHeight = Math.max(0, Math.min(desiredHeight, available));
-        var top = placeAbove
-            ? Math.max(margin, buttonTop - gap - finalHeight)
-            : Math.min(viewportHeight - margin - finalHeight, buttonBottom + gap);
-        var anchorX = Math.min(
-            desiredWidth - 18,
-            Math.max(18, (buttonLeft + buttonRight) / 2 - left)
-        );
-        panel.style.setProperty("left", Math.round(left) + "px");
-        panel.style.setProperty("top", Math.round(top) + "px");
-        panel.style.setProperty("right", "auto");
-        panel.style.setProperty("bottom", "auto");
-        panel.style.setProperty("height", "auto");
-        panel.style.setProperty("max-height", Math.round(finalHeight) + "px");
-        panel.style.setProperty("--elyric-media-anchor-tip-x", Math.round(anchorX) + "px");
-        setAttributeIfChanged(panel, "data-elyric-anchor-mode", "button");
-        setAttributeIfChanged(panel, "data-elyric-anchor-placement", placeAbove ? "above" : "below");
+        positionPlayerOverlay(renderer, "media");
     }
 
     function setMediaPanelOpen(renderer, open) {
@@ -5260,6 +5655,7 @@
             focusPlayerOverlay(renderer.__elyricMediaPanel);
         }
         if (wasOpen && !open) {
+            scrollCurrentLyricIntoView(renderer, false);
             resumeLyricFollowing(renderer, false);
             restorePlayerOverlayFocus(renderer.__elyricMediaPanel, renderer.__elyricMediaButton);
         }
@@ -5851,7 +6247,7 @@
             }
             var source = audioContext.createMediaStreamSource(stream);
             var analyser = audioContext.createAnalyser();
-            analyser.fftSize = 2048;
+            analyser.fftSize = 4096;
             analyser.minDecibels = -92;
             analyser.maxDecibels = -12;
             analyser.smoothingTimeConstant = (null != renderer.__elyricVisualizerSmoothing
@@ -5877,7 +6273,8 @@
 
     function visualizerMediaIsSilent(renderer) {
         var mediaElement = renderer.__elyricVisualizerMediaElement || findVisualizerMediaElement(renderer);
-        return !!(mediaElement && (mediaElement.muted || 0 === Number(mediaElement.volume)));
+        return !!(mediaElement && (mediaElement.paused || mediaElement.ended
+            || mediaElement.muted || 0 === Number(mediaElement.volume)));
     }
 
     function readVisualizerWaveform(renderer, analyser) {
@@ -5898,6 +6295,30 @@
             data: renderer.__elyricVisualizerWaveformData,
             rms: Math.sqrt(energy / Math.max(1, renderer.__elyricVisualizerWaveformData.length)),
             peak: peak
+        };
+    }
+
+    function visualizerLogBandBounds(index, bandCount, minimumFrequency, maximumFrequency,
+        fftSize, sampleRate, frequencyBinCount) {
+        var startRatio = index / bandCount;
+        var endRatio = (index + 1) / bandCount;
+        var startFrequency = minimumFrequency
+            * Math.pow(maximumFrequency / minimumFrequency, startRatio);
+        var endFrequency = minimumFrequency
+            * Math.pow(maximumFrequency / minimumFrequency, endRatio);
+        var startBinFloat = Math.max(1, Math.min(
+            frequencyBinCount - 1,
+            startFrequency * fftSize / sampleRate
+        ));
+        var endBinFloat = Math.max(startBinFloat + .001, Math.min(
+            frequencyBinCount,
+            endFrequency * fftSize / sampleRate
+        ));
+        return {
+            startFrequency: startFrequency,
+            endFrequency: endFrequency,
+            startBinFloat: startBinFloat,
+            endBinFloat: endBinFloat
         };
     }
 
@@ -5927,28 +6348,33 @@
         var framePeak = 0;
         var i;
         for (i = 0; i < bandCount; i++) {
-            var startRatio = i / bandCount;
-            var endRatio = (i + 1) / bandCount;
-            var startFrequency = minimumFrequency
-                * Math.pow(maximumFrequency / minimumFrequency, startRatio);
-            var endFrequency = minimumFrequency
-                * Math.pow(maximumFrequency / minimumFrequency, endRatio);
-            var startBin = Math.max(1, Math.min(
-                analyser.frequencyBinCount - 1,
-                Math.floor(startFrequency * analyser.fftSize / sampleRate)
-            ));
-            var endBin = Math.max(startBin + 1, Math.min(
-                analyser.frequencyBinCount,
-                Math.ceil(endFrequency * analyser.fftSize / sampleRate)
-            ));
+            var bounds = visualizerLogBandBounds(
+                i, bandCount, minimumFrequency, maximumFrequency,
+                analyser.fftSize, sampleRate, analyser.frequencyBinCount
+            );
+            var startFrequency = bounds.startFrequency;
+            var endFrequency = bounds.endFrequency;
+            var startBinFloat = bounds.startBinFloat;
+            var endBinFloat = bounds.endBinFloat;
+            var firstBin = Math.max(1, Math.floor(startBinFloat));
+            var lastBin = Math.min(analyser.frequencyBinCount - 1, Math.ceil(endBinFloat));
             var total = 0;
+            var weightTotal = 0;
             var peak = 0;
-            for (var binIndex = startBin; binIndex < endBin; binIndex++) {
+            for (var binIndex = firstBin; binIndex <= lastBin; binIndex++) {
+                var overlap = Math.max(0, Math.min(endBinFloat, binIndex + 1) - Math.max(startBinFloat, binIndex));
+                if (!overlap && firstBin === lastBin) { overlap = 1; }
                 var binValue = renderer.__elyricVisualizerFrequencyData[binIndex] || 0;
-                total += binValue;
-                peak = Math.max(peak, binValue);
+                var nextValue = renderer.__elyricVisualizerFrequencyData[Math.min(
+                    analyser.frequencyBinCount - 1,
+                    binIndex + 1
+                )] || binValue;
+                var interpolated = binValue + (nextValue - binValue) * .5;
+                total += interpolated * overlap;
+                weightTotal += overlap;
+                peak = Math.max(peak, interpolated);
             }
-            var average = total / Math.max(1, endBin - startBin);
+            var average = total / Math.max(.001, weightTotal);
             var raw = (average * .72 + peak * .28) / 255;
             raw = Math.max(0, (raw - .018) / .982);
             var normalizedFrequency = bandCount > 1 ? i / (bandCount - 1) : 0;
@@ -5998,13 +6424,12 @@
         var samples = new Array(count);
         var i;
         if ("centerOut" === layoutId) {
-            for (i = 0; i < count; i++) {
-                var distanceFromCenter = Math.abs(i / (count - 1) * 2 - 1);
-                var sourceIndex = Math.min(
-                    values.length - 1,
-                    Math.round(distanceFromCenter * (values.length - 1))
-                );
-                samples[i] = values[sourceIndex] || 0;
+            var half = Math.ceil(count / 2);
+            for (i = 0; i < half; i++) {
+                var sourceIndex = Math.min(values.length - 1, i);
+                var mirroredValue = values[sourceIndex] || 0;
+                samples[half - 1 - i] = mirroredValue;
+                samples[count - half + i] = mirroredValue;
             }
             return samples;
         }
@@ -6012,6 +6437,13 @@
             samples[i] = values[Math.min(values.length - 1, i)] || 0;
         }
         return samples;
+    }
+
+    if ("undefined" !== typeof window) {
+        window.__elyricVisualizerV5 = {
+            logBandBounds: visualizerLogBandBounds,
+            mapFrequencyLayout: mapVisualizerFrequencyLayout
+        };
     }
 
     function visualizerSamples(renderer, count, time, amplitude, waveform) {
@@ -6061,6 +6493,20 @@
                 samples[i] = previous + (target - previous) * rate;
                 renderer.__elyricVisualizerEnergy[i] = samples[i];
             }
+            if ("centerOut" === layoutId) {
+                for (i = 0; i < Math.floor(count / 2); i++) {
+                    var pair = count - 1 - i;
+                    var symmetric = (samples[i] + samples[pair]) / 2;
+                    samples[i] = symmetric;
+                    samples[pair] = symmetric;
+                    renderer.__elyricVisualizerEnergy[i] = symmetric;
+                    renderer.__elyricVisualizerEnergy[pair] = symmetric;
+                }
+            }
+            return samples;
+        }
+        if (!renderer.__elyricPlaybackActive) {
+            for (i = 0; i < count; i++) { samples[i] = 0; }
             return samples;
         }
         var estimatedLayout = renderer.__elyricVisualizerFrequencyLayout || "centerOut";
@@ -6360,7 +6806,11 @@
             && window.matchMedia
             && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         drawVisualizerFrame(renderer, performance.now ? performance.now() : Date.now());
-        if (!renderer.__elyricPlaybackActive
+        function hasResidualEnergy() {
+            return !!(renderer.__elyricVisualizerEnergy
+                && renderer.__elyricVisualizerEnergy.some(function (value) { return Math.abs(value) > .002; }));
+        }
+        if ((!renderer.__elyricPlaybackActive && !hasResidualEnergy())
             || reducedMotion
             || (renderer.__elyricThemeControl
                 && null !== renderer.__elyricThemeControl.getAttribute("hidden"))) {
@@ -6368,7 +6818,8 @@
         }
         var step = function (timestamp) {
             renderer.__elyricVisualizerFrameId = 0;
-            if (!renderer.__elyricPlaybackActive || !renderer.__elyricVisualizerCanvas) {
+            if (!renderer.__elyricVisualizerCanvas
+                || (!renderer.__elyricPlaybackActive && !hasResidualEnergy())) {
                 return;
             }
             drawVisualizerFrame(renderer, timestamp);
@@ -6488,7 +6939,10 @@
         setAttributeIfChanged(queueButton, "data-elyric-active", open ? "true" : "false");
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-queue-open", open ? "true" : "false");
         if (renderer.__elyricQueuePanel) {
-            if (open) { removeAttributeIfPresent(renderer.__elyricQueuePanel, "hidden"); }
+            if (open) {
+                removeAttributeIfPresent(renderer.__elyricQueuePanel, "hidden");
+                positionPlayerOverlay(renderer, "queue");
+            }
             else { setAttributeIfChanged(renderer.__elyricQueuePanel, "hidden", "hidden"); }
         }
         syncPlayerPageState(renderer, isThemeContextVisible(renderer));
@@ -6497,6 +6951,8 @@
             renderOwnedQueue(renderer);
             if (!wasOpen) { focusPlayerOverlay(renderer.__elyricQueuePanel); }
         } else if (wasOpen) {
+            scrollCurrentLyricIntoView(renderer, false);
+            resumeLyricFollowing(renderer, false);
             restorePlayerOverlayFocus(renderer.__elyricQueuePanel, queueButton);
         }
     }
@@ -6538,7 +6994,15 @@
             setMediaPanelOpen(renderer, false);
         }
         if ("queue" === action) {
-            setQueueOpen(renderer, !renderer.__elyricQueueOpen);
+            if (renderer.__elyricQueueOpen) { requestPlayerOverlayClose(renderer, "queue"); }
+            else {
+                requestPlayerOverlayOpen(
+                    renderer,
+                    "queue",
+                    renderer.__elyricPlayerButtons && renderer.__elyricPlayerButtons.queue,
+                    "above"
+                );
+            }
             return;
         }
         if ("mute" === action) {
@@ -6925,6 +7389,7 @@
             if (renderer.__elyricMediaOpen) {
                 positionMediaPanelNearTrigger(renderer);
             }
+            repositionPlayerOverlays(renderer);
             return;
         }
 
@@ -7290,7 +7755,7 @@
         heading.className = "elyric-player-settings-section-title";
         heading.appendChild(document.createTextNode(title));
         section.appendChild(heading);
-        panel.appendChild(section);
+        (panel.__elyricSettingsBody || panel).appendChild(section);
         return section;
     }
 
@@ -7516,6 +7981,28 @@
             ).then(function (record) {
                 var loaded = normalizeRemotePlayerTheme(record);
                 if (!loaded) { return; }
+                if (loaded.v2) {
+                    var repaired = repairPlayerThemeV5State(loaded.v2);
+                    if (repaired.changed) {
+                        backupPlayerThemeV5Repair(renderer, loaded, renderer.__elyricWorkspaceRevision);
+                        var repairCopy = clonePlayerThemeV2Value(loaded);
+                        repairCopy.id = "layout-repair-" + Date.now().toString(36);
+                        repairCopy.name = normalizePlayerThemeName(loaded.name + "（安全修复）", "布局安全修复");
+                        repairCopy.v2 = repaired.state;
+                        repairCopy.revision = 0;
+                        repairCopy.updatedAt = Date.now();
+                        repairCopy.repairSourceId = loaded.id;
+                        renderer.__elyricUserPlayerThemes.push(repairCopy);
+                        renderer.__elyricActiveUserPlayerThemeId = repairCopy.id;
+                        storePlayerThemeLibrary(renderer);
+                        applyPlayerThemeDefinition(renderer, repairCopy);
+                        storeCurrentPlayerThemeDesign(renderer);
+                        syncNamedPlayerThemeV2(renderer, repairCopy, true).then(function () {
+                            return persistPlayerThemeV2Workspace(renderer);
+                        });
+                        return;
+                    }
+                }
                 var index = renderer.__elyricUserPlayerThemes.indexOf(theme);
                 renderer.__elyricUserPlayerThemes[index] = loaded;
                 selectPlayerThemeLibraryEntry(renderer, "user:" + loaded.id);
@@ -8569,8 +9056,8 @@
         exitButton.appendChild(document.createTextNode("完成编辑"));
         exitButton.addEventListener("click", function (event) {
             stopControlEvent(event);
-            setPlayerThemeV2DesignerOpen(renderer, false);
-            setSettingsPanelOpen(renderer, true);
+            requestPlayerOverlayClose(renderer, "designer");
+            requestPlayerOverlayOpen(renderer, "settings", renderer.__elyricSettingsButton, "above");
         });
         designerHost.appendChild(exitButton);
         renderer.__elyricThemeV2ExitButton = exitButton;
@@ -8910,10 +9397,8 @@
         var section = createSettingsSection(settingsPanel, "自由画布与完整样式", "elyric-v2-designer-settings");
         var toggle = createSettingsActionButton("画布编辑", "edit", function () {
             var open = !renderer.__elyricThemeV2DesignerOpen;
-            setPlayerThemeV2DesignerOpen(renderer, open);
-            if (open) {
-                setSettingsPanelOpen(renderer, false, true);
-            }
+            if (open) { requestPlayerOverlayOpen(renderer, "designer", renderer.__elyricThemeV2DesignerToggle); }
+            else { requestPlayerOverlayClose(renderer, "designer"); }
         }, "elyric-v2-designer-toggle");
         toggle.setAttribute("aria-pressed", "false");
         section.appendChild(toggle);
@@ -9633,7 +10118,8 @@
         setButtonIcon(mediaButton, "info");
         mediaButton.addEventListener("click", function (event) {
             stopControlEvent(event);
-            setMediaPanelOpen(renderer, !renderer.__elyricMediaOpen);
+            if (renderer.__elyricMediaOpen) { requestPlayerOverlayClose(renderer, "media"); }
+            else { requestPlayerOverlayOpen(renderer, "media", mediaButton, "above"); }
         });
         mediaButton.addEventListener("pointerdown", stopControlEvent);
         tools.appendChild(mediaButton);
@@ -9675,7 +10161,8 @@
         setButtonIcon(settingsButton, "settings");
         settingsButton.addEventListener("click", function (event) {
             stopControlEvent(event);
-            setSettingsPanelOpen(renderer, !renderer.__elyricSettingsOpen);
+            if (renderer.__elyricSettingsOpen) { requestPlayerOverlayClose(renderer, "settings"); }
+            else { requestPlayerOverlayOpen(renderer, "settings", settingsButton, "above"); }
         });
         settingsButton.addEventListener("pointerdown", stopControlEvent);
         stage.appendChild(controlDock);
@@ -9712,7 +10199,7 @@
         queueClose.setAttribute("aria-label", "关闭播放队列");
         setButtonIcon(queueClose, "close");
         queueClose.addEventListener("click", function (event) {
-            stopControlEvent(event); setQueueOpen(renderer, false);
+            stopControlEvent(event); requestPlayerOverlayClose(renderer, "queue");
         });
         queueHeader.appendChild(queueTitle); queueHeader.appendChild(queueClose);
         var queueBody = document.createElement("div");
@@ -9741,9 +10228,9 @@
         overlayScrim.setAttribute("hidden", "hidden");
         overlayScrim.addEventListener("click", function (event) {
             stopControlEvent(event);
-            setSettingsPanelOpen(renderer, false);
-            setMediaPanelOpen(renderer, false);
-            setQueueOpen(renderer, false);
+            requestPlayerOverlayClose(renderer, "settings");
+            requestPlayerOverlayClose(renderer, "media");
+            requestPlayerOverlayClose(renderer, "queue");
         });
 
         var settingsPanel = document.createElement("div");
@@ -9771,10 +10258,14 @@
         setButtonIcon(settingsClose, "close");
         settingsClose.addEventListener("click", function (event) {
             stopControlEvent(event);
-            setSettingsPanelOpen(renderer, false);
+            requestPlayerOverlayClose(renderer, "settings");
         });
         settingsHeader.appendChild(settingsClose);
         settingsPanel.appendChild(settingsHeader);
+        var settingsBody = document.createElement("div");
+        settingsBody.className = "elyric-player-settings-body";
+        settingsPanel.__elyricSettingsBody = settingsBody;
+        settingsPanel.appendChild(settingsBody);
 
         var tuningInputs = {};
         var tuningValues = {};
@@ -9820,6 +10311,10 @@
         var deleteThemeButton = createSettingsActionButton(
             "删除", "delete", function () { deleteActiveUserPlayerTheme(renderer); }, "elyric-theme-delete"
         );
+        var restoreRepairBackupButton = createSettingsActionButton(
+            "回退布局修复", "undo", function () { restoreLatestPlayerThemeV5RepairBackup(renderer); },
+            "elyric-theme-restore-repair"
+        );
         var copyJsonButton = createSettingsActionButton(
             "复制主题 JSON", "copy", function () { copyPortablePlayerTheme(renderer); }, "elyric-theme-copy-json"
         );
@@ -9845,7 +10340,8 @@
         );
         [
             newThemeButton, saveThemeButton, duplicateThemeButton, renameThemeButton,
-            deleteThemeButton, copyJsonButton, downloadJsonButton, pasteJsonButton, importFileButton
+            deleteThemeButton, restoreRepairBackupButton, copyJsonButton, downloadJsonButton,
+            pasteJsonButton, importFileButton
         ]
             .forEach(function (button) { themeLibraryActions.appendChild(button); });
         themeLibraryActions.appendChild(importFileInput);
@@ -10253,11 +10749,11 @@
         var toggleHelp = document.createElement("div");
         toggleHelp.className = "elyric-player-settings-note";
         toggleHelp.appendChild(document.createTextNode("底栏字幕图标控制第二行，旋转图标控制专辑封面；悬停或长按可查看按钮含义。系统减少动态效果设置始终优先。"));
-        settingsPanel.appendChild(toggleHelp);
+        settingsBody.appendChild(toggleHelp);
         var coreHelp = document.createElement("div");
         coreHelp.className = "elyric-player-settings-note elyric-player-settings-note-muted";
         coreHelp.appendChild(document.createTextNode("播放、队列、进度和音量仍由 Emby 原生会话管理；自有控件会即时反馈当前状态。"));
-        settingsPanel.appendChild(coreHelp);
+        settingsBody.appendChild(coreHelp);
         settingsPanel.addEventListener("click", stopControlEvent);
         settingsPanel.addEventListener("pointerdown", stopControlEvent);
 
@@ -10279,7 +10775,7 @@
         setButtonIcon(mediaClose, "close");
         mediaClose.addEventListener("click", function (event) {
             stopControlEvent(event);
-            setMediaPanelOpen(renderer, false);
+            requestPlayerOverlayClose(renderer, "media");
         });
         mediaHeader.appendChild(mediaClose);
         mediaPanel.appendChild(mediaHeader);
@@ -10359,12 +10855,14 @@
         renderer.__elyricSettingsButton = settingsButton;
         renderer.__elyricOverlayScrim = overlayScrim;
         renderer.__elyricSettingsPanel = settingsPanel;
+        renderer.__elyricSettingsBody = settingsBody;
         renderer.__elyricPreferenceStatus = preferenceStatus;
         renderer.__elyricSettingsOpen = false;
         renderer.__elyricMediaButton = mediaButton;
         renderer.__elyricMediaPanel = mediaPanel;
         renderer.__elyricMediaBody = mediaBody;
         renderer.__elyricMediaOpen = false;
+        renderer.__elyricOverlayManager = createPlayerOverlayManager(renderer);
         renderer.__elyricVisualizer = visualizer;
         renderer.__elyricQueuePanel = queuePanel;
         renderer.__elyricQueueBody = queueBody;
@@ -10411,8 +10909,13 @@
         renderer.__elyricPlayerThemeDeleteButton = deleteThemeButton;
         renderer.__elyricLyricFollowButton = followButton;
         var parametricViewportHandler = function (event) {
+            renderer.__elyricViewportTransitionUntil = Date.now() + 1200;
             if (event && "orientationchange" === event.type) {
                 playerThemeV2ActiveProfile = "";
+                if (renderer.__elyricOverlayManager) {
+                    renderer.__elyricOverlayManager.close("media");
+                    renderer.__elyricOverlayManager.close("queue");
+                }
             }
             var v2Profile = currentPlayerThemeV2Profile();
             if (renderer.__elyricThemeV2) {
@@ -10427,6 +10930,14 @@
             if (renderer.__elyricMediaOpen) {
                 positionMediaPanelNearTrigger(renderer);
             }
+            repositionPlayerOverlays(renderer);
+            setTimeout(function () {
+                if (!renderer.__elyricDestroyed) {
+                    updateWordStates(renderer, renderer.__elyricLastPositionTicks || 0);
+                    scrollCurrentLyricIntoView(renderer, false);
+                    repositionPlayerOverlays(renderer);
+                }
+            }, 0);
         };
         if ("undefined" !== typeof window && window.addEventListener) {
             window.addEventListener("resize", parametricViewportHandler);
@@ -10483,11 +10994,11 @@
                 if (event.stopPropagation) {
                     event.stopPropagation();
                 }
-                setSettingsPanelOpen(renderer, false);
-                setMediaPanelOpen(renderer, false);
-                setQueueOpen(renderer, false);
+                requestPlayerOverlayClose(renderer, "settings");
+                requestPlayerOverlayClose(renderer, "media");
+                requestPlayerOverlayClose(renderer, "queue");
                 if (renderer.__elyricThemeV2DesignerOpen) {
-                    setPlayerThemeV2DesignerOpen(renderer, false);
+                    requestPlayerOverlayClose(renderer, "designer");
                 }
                 return;
             }
@@ -10889,6 +11400,8 @@
         renderer.__elyricArtworkRotation = null;
         renderer.__elyricSettingsButton = null;
         renderer.__elyricSettingsPanel = null;
+        renderer.__elyricSettingsBody = null;
+        renderer.__elyricOverlayManager = null;
         renderer.__elyricOverlayScrim = null;
         renderer.__elyricOverlayKeyHandler = null;
         renderer.__elyricPreferenceStatus = null;
@@ -11064,7 +11577,33 @@
         element.setAttribute("data-elyric-render", renderKey);
     }
 
-    function createOwnedLyricRows(renderer) {
+    function findOwnedLyricIndex(renderer, positionTicks, requireActiveRange) {
+        var items = renderer && renderer.__elyricItems || [];
+        if (!items.length) { return -1; }
+        var position = Math.max(0, Number(positionTicks) || 0);
+        var low = 0;
+        var high = items.length - 1;
+        var candidate = -1;
+        while (low <= high) {
+            var middle = (low + high) >> 1;
+            var start = Number(items[middle] && items[middle].__elyric
+                && items[middle].__elyric.startTicks) || 0;
+            if (start <= position) {
+                candidate = middle;
+                low = middle + 1;
+            } else {
+                high = middle - 1;
+            }
+        }
+        if (candidate < 0) { return requireActiveRange ? -1 : 0; }
+        if (requireActiveRange) {
+            var lyric = items[candidate] && items[candidate].__elyric;
+            if (!lyric || position >= Number(lyric.endTicks)) { return -1; }
+        }
+        return candidate;
+    }
+
+    function createOwnedLyricRows(renderer, centerIndex) {
         var container = renderer && renderer.itemsContainer;
         if (!container || !container.appendChild) {
             return;
@@ -11073,7 +11612,20 @@
         while (container.firstChild) {
             container.removeChild(container.firstChild);
         }
-        (renderer.__elyricItems || []).forEach(function (item, index) {
+        var items = renderer.__elyricItems || [];
+        var windowRadius = 18;
+        if (!isFinite(Number(centerIndex))) {
+            centerIndex = findOwnedLyricIndex(renderer, renderer.__elyricLastPositionTicks, false);
+        }
+        centerIndex = Math.max(0, Math.min(items.length - 1, Number(centerIndex) || 0));
+        var windowStart = items.length > windowRadius * 2 + 1
+            ? Math.max(0, Math.min(items.length - windowRadius * 2 - 1, centerIndex - windowRadius))
+            : 0;
+        var windowEnd = Math.min(items.length, windowStart + windowRadius * 2 + 1);
+        renderer.__elyricWindowStart = windowStart;
+        renderer.__elyricWindowEnd = windowEnd;
+        items.slice(windowStart, windowEnd).forEach(function (item, localIndex) {
+            var index = windowStart + localIndex;
             var row = document.createElement("button");
             row.className = "lyricsItem secondaryText";
             row.setAttribute("type", "button");
@@ -11174,6 +11726,13 @@
         if (!container || !container.querySelectorAll) {
             return;
         }
+        var activeIndex = findOwnedLyricIndex(renderer, positionTicks, true);
+        var windowCenter = activeIndex >= 0
+            ? activeIndex : findOwnedLyricIndex(renderer, positionTicks, false);
+        if (windowCenter >= 0 && (windowCenter < Number(renderer.__elyricWindowStart || 0)
+            || windowCenter >= Number(renderer.__elyricWindowEnd || 0))) {
+            createOwnedLyricRows(renderer, windowCenter);
+        }
         var elements = container.querySelectorAll(".lyricsItem[data-index]");
         var currentElement = null;
         for (var i = 0; i < elements.length; i++) {
@@ -11183,11 +11742,9 @@
             if (!item || !item.__elyric) {
                 continue;
             }
-            var state = positionTicks < item.__elyric.startTicks
-                ? "future"
-                : positionTicks >= item.__elyric.endTicks
-                    ? "past"
-                    : "current";
+            var state = index === activeIndex
+                ? "current"
+                : index < windowCenter ? "past" : "future";
             setLineState(element, state);
             if ("current" === state) {
                 currentElement = element;
@@ -11357,7 +11914,9 @@
             setOwnedLyricStatus(renderer, hasMeaningfulLyricItems(renderer.__elyricItems)
                 ? "ready"
                 : renderer.__elyricItems.length ? "instrumental" : "empty");
-            createOwnedLyricRows(renderer); return Promise.resolve(renderer.__elyricItems);
+            createOwnedLyricRows(renderer);
+            updateWordStates(renderer, renderer.__elyricLastPositionTicks || 0);
+            return Promise.resolve(renderer.__elyricItems);
         }
         var url = apiClient.getUrl("Items/" + item.Id + "/" + selected.source.Id
             + "/Subtitles/" + selected.track.Index + "/Stream.js", {});
@@ -11370,6 +11929,7 @@
                 ? "ready"
                 : items && items.length ? "instrumental" : "empty");
             createOwnedLyricRows(renderer);
+            updateWordStates(renderer, renderer.__elyricLastPositionTicks || 0);
             return items;
         }, function () {
             if (requestId === renderer.__elyricLyricRequestId) {
@@ -11500,6 +12060,25 @@
         videoOsd.__elyricRenderer = null;
     }
 
+    function isOwnedPlayerRouteActive(renderer) {
+        var page = renderer && renderer.__elyricPlayerPage;
+        if (!page || false === page.isConnected) { return false; }
+        if ("undefined" !== typeof location) {
+            var route = String(location.hash || "");
+            if (route) {
+                return /(?:^|[!#/])videoosd\/videoosd\.html(?:[/?#]|$)/i.test(route);
+            }
+            var path = String(location.pathname || "");
+            if (/\/videoosd\/videoosd\.html(?:[/?#]|$)/i.test(path)) { return true; }
+        }
+        if (page.hidden
+            || "true" === (page.getAttribute && page.getAttribute("aria-hidden"))
+            || (page.classList && (page.classList.contains("hide") || page.classList.contains("hidden")))) {
+            return false;
+        }
+        return true;
+    }
+
     VideoOsd.prototype.onResume = function () {
         var result = originalVideoOsdOnResume.apply(this, arguments);
         var instance = this;
@@ -11511,6 +12090,13 @@
         return result;
     };
     VideoOsd.prototype.onPause = function () {
+        var renderer = this.__elyricRenderer;
+        if (renderer
+            && Number(renderer.__elyricViewportTransitionUntil || 0) > Date.now()
+            && isOwnedPlayerRouteActive(renderer)) {
+            repositionPlayerOverlays(renderer);
+            return;
+        }
         this.__elyricMountGeneration = (this.__elyricMountGeneration || 0) + 1;
         unmountOwnedPlayer(this);
         return originalVideoOsdOnPause.apply(this, arguments);

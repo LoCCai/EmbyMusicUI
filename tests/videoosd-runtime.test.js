@@ -237,7 +237,8 @@ const ApiClient = {
 const connectionManager = { default: { getApiClient() { return ApiClient; } } };
 const router = { default: { back() { calls.push(["back"]); return Promise.resolve(); } } };
 
-global.document = document; global.window = window; global.location = { search: "" };
+global.document = document; global.window = window;
+global.location = { search: "", hash: "#!/videoosd/videoosd.html", pathname: "/web/index.html" };
 global.MutationObserver = MutationObserver;
 global.Emby = { importModule() { return Promise.resolve({ show(anchor) { calls.push(["cast", anchor]); } }); } };
 
@@ -252,6 +253,26 @@ new Function("VideoOsd", "document", "MutationObserver", "performance", "request
     "localStorage", "ApiClient", "_connectionmanager", "_playbackmanager", "_events", "_approuter", adapter)(
     VideoOsd, document, MutationObserver, performance, requestAnimationFrame, cancelAnimationFrame,
     localStorage, ApiClient, connectionManager, { default: manager }, events, router);
+
+const visualizerV5 = window.__elyricVisualizerV5;
+assert(visualizerV5 && visualizerV5.logBandBounds && visualizerV5.mapFrequencyLayout);
+const testFrequencies = [60, 250, 1000, 8000];
+const bandCount = 48;
+testFrequencies.forEach((frequency) => {
+    const matchingBand = Array.from({ length: bandCount }, (_, index) => ({
+        index, bounds: visualizerV5.logBandBounds(index, bandCount, 30, 16000, 4096, 48000, 2048)
+    })).find((entry) => frequency >= entry.bounds.startFrequency && frequency < entry.bounds.endFrequency);
+    const expected = Math.log(frequency / 30) / Math.log(16000 / 30) * bandCount;
+    assert(matchingBand && Math.abs(matchingBand.index - expected) <= 1,
+        `${frequency}Hz must map to its expected logarithmic low-to-high region`);
+});
+const mappedCenterOut = visualizerV5.mapFrequencyLayout(
+    Array.from({ length: 24 }, (_, index) => index + 1), 48, "centerOut"
+);
+mappedCenterOut.forEach((value, index) => {
+    assert.strictEqual(value, mappedCenterOut[mappedCenterOut.length - 1 - index],
+        "the actual centerOut mapper must mirror every visual band exactly");
+});
 
 async function settle() {
     for (let index = 0; index < 8; index++) await Promise.resolve();
@@ -286,15 +307,23 @@ function deferLyrics(id) {
     assert.strictEqual(displayPreferenceWrites, 0, "daily persistence must never write DisplayPreferences");
 
     const serverDraft = JSON.parse(JSON.stringify(window.__elyricPlayerThemeV5Fixtures[0]));
+    assert.strictEqual(window.__elyricPlayerThemeV5Fixtures.length, 9,
+        "the runtime must expose all nine built-in Theme V5 fixtures");
+    window.__elyricPlayerThemeV5Fixtures.forEach((fixture) => {
+        ["landscape", "portrait"].forEach((profile) => {
+            assert(window.__elyricPlayerThemeV5LayoutIsSafe(fixture.layouts[profile], profile),
+                `${fixture.baseTheme} ${profile} must pass the shared playback safety solver without fallback`);
+        });
+    });
     serverDraft.name = "账号权威主题";
     serverDraft.lyrics.style = "gradient";
-    serverDraft.layouts.landscape.metadata.x = 111;
-    serverDraft.layouts.portrait.metadata.x = 222;
+    serverDraft.layouts.landscape.metadata.x = -1800;
+    serverDraft.layouts.portrait.metadata.x = -1800;
     serverDraft.controls.profiles.landscape.groups.transport.gap = 19;
     serverDraft.controls.profiles.portrait.groups.transport.gap = 27;
     workspacePayload = {
         Revision: 7, DraftJson: JSON.stringify(serverDraft),
-        GlobalStateJson: JSON.stringify({ theme: "gradient", layout: "album" }),
+        GlobalStateJson: JSON.stringify({ theme: "gradient", layout: "album", layoutRepairRevision: 0 }),
         LegacyImported: true, Themes: []
     };
     resolveInitialWorkspace(workspacePayload); await settle();
@@ -304,18 +333,25 @@ function deferLyrics(id) {
     assert.strictEqual(root.getAttribute("data-elyric-account-scope"), "server-a.runtime-user");
     assert.strictEqual(root.querySelector(".elyric-player-lyric-viewport").getAttribute("data-elyric-theme"), "gradient");
     assert.strictEqual(osd.__elyricRenderer.__elyricPlayerLayout, "album");
-    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x, 111);
-    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.portrait.metadata.x, 222);
+    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x, 940.8);
+    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.portrait.metadata.x, 0);
     assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.controls.profiles.landscape.groups.transport.gap, 19);
     assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.controls.profiles.portrait.groups.transport.gap, 27,
         "one account draft must retain independent landscape and portrait control profiles");
+    await wait(10); await settle();
+    assert.strictEqual(workspaceWrites.length, 1,
+        "an unsafe unmarked V5 draft should create one repaired Workspace revision after preserving its backup");
+    assert([...stored.keys()].some((key) => key.includes("layout-repair-backups")),
+        "the original unsafe draft must remain available as an account-scoped read-only backup");
+    assert(root.querySelector(".elyric-theme-restore-repair"),
+        "the theme library must expose the requested rollback entry for a preserved repair backup");
     root.querySelectorAll(".elyric-theme-choice")[4].click();
     await wait(550); await settle();
-    assert.strictEqual(workspaceWrites.length, 1, "post-restore edits should debounce into one Workspace PUT");
-    assert.strictEqual(workspaceWrites[0].ExpectedRevision, 7);
-    assert.strictEqual(JSON.parse(workspaceWrites[0].DraftJson).schemaVersion, 5);
-    assert.strictEqual(JSON.parse(workspaceWrites[0].DraftJson).layoutModel, "fixed-canvas-v1");
-    assert.strictEqual(root.getAttribute("data-elyric-workspace-revision"), "8",
+    assert.strictEqual(workspaceWrites.length, 2, "post-repair edits should debounce into one further Workspace PUT");
+    assert.strictEqual(workspaceWrites[1].ExpectedRevision, 8);
+    assert.strictEqual(JSON.parse(workspaceWrites[1].DraftJson).schemaVersion, 5);
+    assert.strictEqual(JSON.parse(workspaceWrites[1].DraftJson).layoutModel, "fixed-canvas-v1");
+    assert.strictEqual(root.getAttribute("data-elyric-workspace-revision"), "9",
         "the visible sync revision must update only after the server acknowledges the PUT");
     assert.strictEqual(displayPreferenceWrites, 0);
     const confirmedCacheKeys = [...stored.keys()].filter((key) => key.includes("workspace-cache"));
@@ -340,6 +376,19 @@ function deferLyrics(id) {
         ".elyric-player-settings-panel", ".elyric-player-media-panel"].forEach((selector) => {
         const element = root.querySelector(selector); assert(element && root.contains(element), `${selector} must live inside the root`);
     });
+    const settingsPanel = root.querySelector(".elyric-player-settings-panel");
+    const settingsBody = settingsPanel.querySelector(".elyric-player-settings-body");
+    assert(settingsBody && settingsPanel.contains(settingsBody), "settings content must scroll independently below its fixed header");
+    root.querySelector(".elyric-player-button-settings").click();
+    assert.strictEqual(settingsPanel.getAttribute("data-elyric-anchor-mode"), "button");
+    assert(["above", "below"].includes(settingsPanel.getAttribute("data-elyric-anchor-placement")));
+    assert(Number.parseFloat(settingsPanel.style.getPropertyValue("max-height")) <= window.innerHeight * .78);
+    root.querySelector(".elyric-player-settings-close").click();
+    root.querySelector(".elyric-player-button-queue").click(); await settle();
+    const queuePanel = root.querySelector(".elyric-player-queue-panel");
+    assert.strictEqual(queuePanel.getAttribute("data-elyric-anchor-mode"), "button");
+    assert(Number.parseFloat(queuePanel.style.getPropertyValue("max-height")) <= window.innerHeight * .66);
+    queuePanel.querySelector(".elyric-player-settings-close").click();
     assert.strictEqual(first.native.getAttribute("aria-hidden"), "true"); assert(first.native.hasAttribute("inert"));
     assert.strictEqual(first.native.style.visibility, "hidden");
 
@@ -367,6 +416,36 @@ function deferLyrics(id) {
     oldLyrics.resolve({ TrackEvents: [{ Text: "B 过期歌词", StartPositionTicks: 0, EndPositionTicks: 100000000 }] }); await settle();
     assert(lyrics.textContent.includes("C 最新歌词")); assert(!lyrics.textContent.includes("B 过期歌词"));
 
+    osd.__elyricRenderer.__elyricItems = Array.from({ length: 100 }, (_, index) => ({
+        Text: `长歌词 ${index}`,
+        __elyric: {
+            startTicks: index * 10000000,
+            endTicks: (index + 1) * 10000000,
+            sublines: [{ text: `长歌词 ${index}`, words: null }]
+        }
+    }));
+    osd.__elyricRenderer.__elyricGeneration += 1;
+    osd.__elyricRenderer.__elyricLastPositionTicks = 750000000;
+    state = Object.assign({}, state, {
+        PlayState: Object.assign({}, state.PlayState, { PositionTicks: 750000000 })
+    });
+    trigger(player, "timeupdate"); await settle();
+    const virtualRows = lyrics.querySelectorAll(".lyricsItem[data-index]");
+    assert(virtualRows.length <= 37 && virtualRows.some((row) => row.getAttribute("data-index") === "75"),
+        "long lyrics must keep only the current binary-seeked window in the DOM");
+
+    window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
+    assert.strictEqual(osd.onPause(), undefined,
+        "an Emby pause emitted during a viewport transition must not stop or unmount audio playback");
+    assert(first.page.querySelector(".elyric-player-root"));
+    location.hash = "#!/item?id=song-c";
+    window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
+    assert.strictEqual(osd.onPause(), "pause",
+        "the viewport grace period must not suppress a real pause after leaving the VideoOsd route");
+    assert(!first.page.querySelector(".elyric-player-root"));
+    location.hash = "#!/videoosd/videoosd.html";
+    osd.onResume(); await settle();
+    osd.__elyricRenderer.__elyricViewportTransitionUntil = 0;
     assert.strictEqual(osd.onPause(), "pause"); assert(!first.page.querySelector(".elyric-player-root"));
     assert.strictEqual(first.native.getAttribute("aria-hidden"), "false"); assert(!first.native.hasAttribute("inert"));
     assert.strictEqual(first.native.style.visibility, "visible"); assert.strictEqual(bindings.length, 0); assert.strictEqual(frames.size, 0);
@@ -377,15 +456,15 @@ function deferLyrics(id) {
     secondAccountDraft.layouts.landscape.metadata.x = 333;
     workspacePayload = {
         Revision: 3, DraftJson: JSON.stringify(secondAccountDraft),
-        GlobalStateJson: JSON.stringify({ theme: "apple", layout: "custom" }),
+        GlobalStateJson: JSON.stringify({ theme: "apple", layout: "custom", layoutRepairRevision: 0 }),
         LegacyImported: true, Themes: []
     };
     const scoped = createPage(); const scopedOsd = new VideoOsd(scoped.page);
     scopedOsd.onResume(); await settle();
     const scopedRoot = scoped.page.querySelector(".elyric-player-root");
     assert.strictEqual(scopedRoot.getAttribute("data-elyric-account-scope"), "server-b.other-user");
-    assert.strictEqual(scopedOsd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x, 333,
-        "a second server/user pair must restore only its own Workspace");
+    assert.strictEqual(scopedOsd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x, 940.8,
+        "a second server/user pair must independently repair only its own unsafe Workspace");
     const scopedCacheKeys = [...stored.keys()].filter((key) => key.includes("workspace-cache"));
     assert(scopedCacheKeys.some((key) => key.endsWith("server-a.runtime-user"))
         && scopedCacheKeys.some((key) => key.endsWith("server-b.other-user")),
@@ -394,7 +473,7 @@ function deferLyrics(id) {
     currentUserId = "runtime-user"; currentServerId = "server-a";
     workspacePayload = {
         Revision: 99, DraftJson: JSON.stringify(serverDraft),
-        GlobalStateJson: JSON.stringify({ theme: "gradient", layout: "custom" }),
+        GlobalStateJson: JSON.stringify({ theme: "gradient", layout: "custom", layoutRepairRevision: 1 }),
         LegacyImported: true, Themes: []
     };
 

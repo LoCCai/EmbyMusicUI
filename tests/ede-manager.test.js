@@ -2,6 +2,7 @@
 
 const assert = require("assert");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
@@ -64,7 +65,8 @@ function unrelatedFour() { if (window.ede.danmaku) { window.ede.danmaku.resize()
 `;
 
 const shell = findShell();
-const temporaryRoot = fs.mkdtempSync(path.join(root, ".elyric-ede-test-"));
+const temporaryParent = process.env.ELYRIC_TEST_TMPDIR || os.tmpdir();
+const temporaryRoot = fs.mkdtempSync(path.join(temporaryParent, "elyric-ede-test-"));
 
 try {
     const target = path.join(temporaryRoot, "ede.user.js");
@@ -74,6 +76,8 @@ try {
         return spawnSync(shell, [posixPath(manager), action], {
             cwd: root,
             encoding: "utf8",
+            timeout: 20000,
+            killSignal: "SIGKILL",
             env: {
                 ...process.env,
                 EDE_TARGET: posixPath(target),
@@ -84,6 +88,7 @@ try {
     }
 
     function expectSuccess(result, label) {
+        assert(!result.error, `${label} failed to start or timed out: ${result.error && result.error.message}`);
         assert.strictEqual(
             result.status,
             0,

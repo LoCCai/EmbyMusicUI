@@ -17,6 +17,11 @@ assert(!js.includes("LyricsRenderer.prototype"), "the visible player must not ho
 assert(js.includes('control.className = "elyric-player-root elyric-player-shell elyric-theme-picker"'));
 assert(js.includes('renderer.itemsContainer = lyricViewport'));
 assert(js.includes("createPlaybackBridge"));
+assert(js.includes("findOwnedLyricIndex") && js.includes("windowRadius = 18"),
+    "long lyrics must use a binary-seeked current-line render window");
+assert(js.includes("requestPlayerOverlayOpen") && js.includes("requestPlayerOverlayClose")
+    && js.includes("anchorElement") && js.includes("preferredPlacement"),
+    "all overlay entry points must use the shared manager with their real trigger anchor");
 [
     'call("seek"', 'call("playPause"', 'call("getPlaylist"', 'call("setCurrentPlaylistItem"',
     'call("removeFromPlaylist"', 'call("movePlaylistItem"'
@@ -28,8 +33,8 @@ assert(js.includes("createPlaybackBridge"));
 assert(js.includes("elyric=off"), "the native OSD escape hatch must remain available");
 assert(js.includes("hideNativeOsd") && js.includes("restoreNativeOsd"));
 assert(css.includes(".elyric-player-root") && css.includes(".elyric-player-lyric-viewport"));
-assert(css.includes(".elyric-player-queue-panel { z-index: 2147483000 !important; }"),
-    "the owned queue must render above the shared overlay scrim");
+assert(css.includes("--elyric-layer-overlay") && css.includes("--elyric-layer-scrim"),
+    "the owned queue must render through the shared root overlay layer tokens");
 assert(manager.includes('ANCHOR="_exports.default=VideoOsd"'));
 ["videoosd.js", "videoosd.css", "lyrics.js", "lyrics.css"].forEach((name) => {
     assert(manager.includes(name), `four-file manager is missing ${name}`);

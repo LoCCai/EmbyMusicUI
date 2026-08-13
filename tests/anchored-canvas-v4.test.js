@@ -28,6 +28,10 @@ assert(adapter.includes('"data-preview-label"') && adapter.includes('"data-simul
     "the non-current orientation should render in a labeled centered preview canvas");
 assert(adapter.includes("var grab = 44"),
     "partially off-stage layers should retain the required 44 CSS-pixel grab region");
+assert(adapter.includes("playerThemeV5LayoutIsSafe") && adapter.includes("repairPlayerThemeV5State"),
+    "playback must use a shared safe-layout solver while the designer retains grab geometry");
+assert(adapter.includes("layoutRepairRevision") && adapter.includes("backupPlayerThemeV5Repair"),
+    "unsafe account drafts must migrate once with a read-only rollback backup");
 assert(!adapter.includes("rect.left / window.innerWidth * 100"),
     "V4 must not infer saved geometry from the rendered viewport");
 
@@ -36,7 +40,7 @@ function metrics(viewportWidth, viewportHeight, profile, transform = {}) {
     const availableHeight = viewportHeight;
     const baseWidth = profile === "portrait" ? 1080 : 1920;
     const baseHeight = profile === "portrait" ? 1920 : 1080;
-    const baseScale = Math.min(availableWidth / baseWidth, availableHeight / baseHeight);
+    const baseScale = Math.min(4 / 3, availableWidth / baseWidth, availableHeight / baseHeight);
     const designWidth = baseWidth;
     const designHeight = baseHeight;
     const scale = baseScale * (transform.scale || 1);
@@ -73,6 +77,7 @@ viewports.forEach(([width, height, profile]) => {
 
 const standard = metrics(1920, 1080, "landscape");
 const ultrawide = metrics(3440, 1440, "landscape");
+const uhd = metrics(3840, 2160, "landscape");
 assert.strictEqual(standard.designWidth, 1920);
 assert.strictEqual(standard.designHeight, 1080);
 assert.strictEqual(standard.scale, 1,
@@ -83,6 +88,8 @@ assert.strictEqual(ultrawide.designHeight, 1080,
 const ultrawideCanvasWidth = ultrawide.designWidth * ultrawide.scale;
 assert(ultrawide.originX > 0 && ultrawideCanvasWidth < 3440,
     "ultrawide screens should center the contained canvas and leave both sides blank");
+assert.strictEqual(uhd.designWidth * uhd.scale, 2560,
+    "4K playback should center the specified 2560px maximum design canvas");
 const portrait = metrics(1080, 1920, "portrait");
 assert.strictEqual(portrait.designWidth, 1080);
 assert.strictEqual(portrait.designHeight, 1920,
@@ -100,4 +107,9 @@ const css = fs.readFileSync(
 );
 assert(!css.includes("calc(44px / var(--elyric-control-stage-scale"),
     "control-dock buttons must not be inverse-scaled inside already sized rendered geometry");
+assert(css.includes(".elyric-player-settings-body") && css.includes("--elyric-layer-overlay"),
+    "settings and themed popovers must share the compact root-owned overlay system");
+assert(adapter.includes("playerThemeV5CompactLandscape")
+    && css.includes('data-elyric-short-landscape="true"'),
+    "short landscape phones must keep the landscape theme while hiding secondary controls");
 console.log("anchored canvas V5 geometry matrix and control dock: ok");
