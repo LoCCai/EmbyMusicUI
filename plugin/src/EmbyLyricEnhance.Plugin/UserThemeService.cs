@@ -66,6 +66,25 @@ public sealed class PutUserTheme : IReturn<RevisionWriteResult<StoredThemeRecord
 }
 
 [Authenticated]
+[Route("/EmbyLyricEnhance/ThemeCommit", "PUT", Summary = "Atomically saves a theme and its active workspace draft")]
+public sealed class PutThemeCommit : IReturn<ThemeCommitResult>
+{
+    public int ExpectedWorkspaceRevision { get; set; }
+
+    public string ThemeId { get; set; } = "";
+
+    public int ExpectedThemeRevision { get; set; }
+
+    public string Name { get; set; } = "";
+
+    public string ThemeJson { get; set; } = "{}";
+
+    public string GlobalStateJson { get; set; } = "{}";
+
+    public bool LegacyImported { get; set; }
+}
+
+[Authenticated]
 [Route("/EmbyLyricEnhance/Themes/{Id}", "DELETE", Summary = "Deletes one lyric player theme owned by the authenticated user")]
 public sealed class DeleteUserTheme : IReturn<MutationResult>
 {
@@ -164,6 +183,22 @@ public sealed class UserThemeService : IService, IRequiresRequest
             ExpectedRevision = request.ExpectedRevision,
             Name = request.Name,
             ThemeJson = request.ThemeJson
+        });
+        MarkConflict(result.Conflict);
+        return result;
+    }
+
+    public object Put(PutThemeCommit request)
+    {
+        var result = Store.CommitTheme(CurrentUserId(), new ThemeCommitRequest
+        {
+            ExpectedWorkspaceRevision = request.ExpectedWorkspaceRevision,
+            ThemeId = request.ThemeId,
+            ExpectedThemeRevision = request.ExpectedThemeRevision,
+            Name = request.Name,
+            ThemeJson = request.ThemeJson,
+            GlobalStateJson = request.GlobalStateJson,
+            LegacyImported = request.LegacyImported
         });
         MarkConflict(result.Conflict);
         return result;

@@ -2,7 +2,6 @@
 
 const assert = require("assert");
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
@@ -65,7 +64,8 @@ function unrelatedFour() { if (window.ede.danmaku) { window.ede.danmaku.resize()
 `;
 
 const shell = findShell();
-const temporaryParent = process.env.ELYRIC_TEST_TMPDIR || os.tmpdir();
+const temporaryParent = process.env.ELYRIC_TEST_TMPDIR || path.join(root, ".test-tmp");
+fs.mkdirSync(temporaryParent, { recursive: true });
 const temporaryRoot = fs.mkdtempSync(path.join(temporaryParent, "elyric-ede-test-"));
 
 try {

@@ -150,6 +150,13 @@ public static class PlayerThemeV2Validator
         return candidate;
     }
 
+    public static string NormalizeThemeJson(string? json, int maximumBytes)
+    {
+        var validated = ValidateThemeJson(json, maximumBytes);
+        using var document = JsonDocument.Parse(validated);
+        return JsonSerializer.Serialize(document.RootElement);
+    }
+
     public static string ValidateStateJson(string? json, int maximumBytes)
     {
         return ValidateThemeJson(json, maximumBytes);
@@ -376,10 +383,11 @@ public static class PlayerThemeV2Validator
             RequireObject(visualizer, "visualizer");
             var visualizerKeys = new List<string>
             {
-                "style", "frequencyLayout", "width", "height", "amplitude", "colorMode", "colors", "analysis"
+                "enabled", "style", "frequencyLayout", "width", "height", "amplitude", "colorMode", "colors", "analysis"
             };
             if (version == PlayerThemeV2Schema.V3Version) { visualizerKeys.AddRange(new[] { "x", "y", "rotation", "opacity" }); }
             RejectUnknownProperties(visualizer, "visualizer", visualizerKeys.ToArray());
+            ValidateOptionalBoolean(visualizer, "enabled");
             ValidateOptionalEnum(visualizer, "style",
                 "spectrum", "mirror", "waveform", "fall", "curve", "line", "chroma", "balls", "pulse");
             ValidateOptionalEnum(visualizer, "frequencyLayout", "centerOut", "lowToHigh", "radial");
@@ -805,7 +813,8 @@ public static class PlayerThemeV2Validator
         if (TryGetPropertyIgnoreCase(v2, "visualizer", out var visualizer))
         {
             RequireObject(visualizer, "visualizer");
-            RejectUnknownProperties(visualizer, "visualizer", "frequencyLayout", "analysis");
+            RejectUnknownProperties(visualizer, "visualizer", "enabled", "frequencyLayout", "analysis");
+            ValidateOptionalBoolean(visualizer, "enabled");
             ValidateOptionalEnum(visualizer, "frequencyLayout", "centerOut", "lowToHigh", "radial");
             if (TryGetPropertyIgnoreCase(visualizer, "analysis", out var analysis))
             {

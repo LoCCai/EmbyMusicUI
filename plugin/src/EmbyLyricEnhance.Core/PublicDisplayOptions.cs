@@ -17,6 +17,9 @@ public sealed class PublicDisplayOptions
     [DataMember(Name = "themeSchemaVersion", Order = 16)]
     public int ThemeSchemaVersion { get; init; } = PlayerThemeV2Schema.Version;
 
+    [DataMember(Name = "themeCommitVersion", Order = 17)]
+    public string ThemeCommitVersion { get; init; } = "v1";
+
     [DataMember(Name = "fontSizePercent", Order = 4)]
     public int FontSizePercent { get; init; }
 

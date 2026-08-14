@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("assert");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
@@ -75,6 +76,8 @@ class Node {
         if (/^\.[a-z0-9_-]+$/i.test(selector)) return this.classList.contains(selector.slice(1));
         let match = selector.match(/^\.([a-z0-9_-]+)\[([a-z0-9_-]+)\]$/i);
         if (match) return this.classList.contains(match[1]) && this.hasAttribute(match[2]);
+        match = selector.match(/^([a-z][a-z0-9-]*)\[([a-z0-9_-]+)=["']([^"']+)["']\]$/i);
+        if (match) return this.tagName === match[1].toLowerCase() && this.getAttribute(match[2]) === match[3];
         if (selector === "[data-elyric-start][data-elyric-end]") return this.hasAttribute("data-elyric-start") && this.hasAttribute("data-elyric-end");
         match = selector.match(/^\[([a-z0-9_-]+)\]$/i);
         return !!match && this.hasAttribute(match[1]);
@@ -96,9 +99,27 @@ const document = {
     createElementNS(namespace, tag) { return new Node(String(tag).toLowerCase()); },
     createTextNode(text) { return new Node(null, String(text)); },
     querySelector(selector) { return this.body.matches(selector) ? this.body : this.body.querySelector(selector); },
+    querySelectorAll(selector) { return this.body.querySelectorAll(selector); },
     elementFromPoint() { return this.body; }, execCommand() { return true; }
 };
 document.documentElement.clientHeight = 900;
+Node.prototype.attachShadow = function () {
+    const shadow = new Node("shadow-root");
+    shadow.host = this;
+    shadow.parentNode = this;
+    const append = shadow.appendChild.bind(shadow);
+    shadow.appendChild = function (child) {
+        const result = append(child);
+        if (child.tagName === "link") setImmediate(() => child.onload && child.onload());
+        return result;
+    };
+    this.shadowRoot = shadow;
+    return shadow;
+};
+const ownedStylesheet = document.createElement("link");
+ownedStylesheet.setAttribute("rel", "stylesheet");
+ownedStylesheet.setAttribute("href", "/web/videoosd/videoosd.css?v=test");
+document.body.appendChild(ownedStylesheet);
 
 const window = {
     innerWidth: 1440, innerHeight: 900, devicePixelRatio: 1, listeners: {},
@@ -192,20 +213,78 @@ let forceWorkspaceConflict = false;
 let forceWorkspaceBadRequest = false;
 let failThemeList = false;
 let workspacePayload = null;
+let themeCommitVersion = "v1";
+let forceThemeCommitConflict = false;
+let forceThemeCommitChecksumMismatch = false;
+let corruptNextThemeReadback = false;
+const remoteThemes = new Map();
+const themeCommitBodies = [];
 let resolveInitialWorkspace;
 const initialWorkspace = new Promise((resolve) => { resolveInitialWorkspace = resolve; });
 const workspaceWrites = [];
 const ApiClient = {
     getUrl(value) { requestedUrls.push(value); return `/${value}`; },
     ajax(request) {
+        if (request.url.endsWith("/EmbyLyricEnhance/ThemeCommit") && request.type === "PUT") {
+            const body = JSON.parse(request.data);
+            themeCommitBodies.push(body);
+            const normalized = JSON.stringify(JSON.parse(body.ThemeJson));
+            const checksum = crypto.createHash("sha256").update(normalized).digest("hex");
+            const existing = remoteThemes.get(body.ThemeId) || null;
+            if (forceThemeCommitConflict) {
+                forceThemeCommitConflict = false;
+                const conflictCopy = {
+                    Id: `${body.ThemeId}-conflict`, Name: `${body.Name}（冲突副本）`, Revision: 1,
+                    ThemeJson: normalized
+                };
+                remoteThemes.set(conflictCopy.Id, conflictCopy);
+                return Promise.resolve({
+                    Workspace: workspacePayload, Theme: existing || conflictCopy,
+                    NormalizedThemeJson: normalized, Checksum: checksum,
+                    Conflict: true, ConflictCopy: conflictCopy
+                });
+            }
+            const themeRecord = {
+                Id: body.ThemeId, Name: body.Name,
+                Revision: Number(existing && existing.Revision || 0) + 1,
+                ThemeJson: normalized
+            };
+            remoteThemes.set(body.ThemeId, themeRecord);
+            workspacePayload = {
+                Revision: Number(workspacePayload && workspacePayload.Revision || 0) + 1,
+                DraftJson: normalized, GlobalStateJson: body.GlobalStateJson,
+                ActiveThemeId: body.ThemeId, LegacyImported: true,
+                Themes: [...remoteThemes.values()].map((theme) => ({
+                    Id: theme.Id, Name: theme.Name, Revision: theme.Revision
+                }))
+            };
+            const responseChecksum = forceThemeCommitChecksumMismatch ? "0".repeat(64) : checksum;
+            forceThemeCommitChecksumMismatch = false;
+            return Promise.resolve({
+                Workspace: workspacePayload, Theme: themeRecord,
+                NormalizedThemeJson: normalized, Checksum: responseChecksum,
+                Conflict: false
+            });
+        }
         if (request.url.includes("UserWorkspace") && request.type === "GET") {
             return workspacePayload ? Promise.resolve(workspacePayload) : initialWorkspace;
+        }
+        const themeReadMatch = request.url.match(/\/EmbyLyricEnhance\/Themes\/([^/?]+)$/);
+        if (themeReadMatch && request.type === "GET") {
+            const record = remoteThemes.get(decodeURIComponent(themeReadMatch[1]));
+            if (corruptNextThemeReadback && record) {
+                corruptNextThemeReadback = false;
+                return Promise.resolve(Object.assign({}, record, { ThemeJson: JSON.stringify({ schemaVersion: 6 }) }));
+            }
+            return Promise.resolve(record || {});
         }
         if (request.url.endsWith("/EmbyLyricEnhance/Themes") && request.type === "GET" && failThemeList) {
             return Promise.reject(Object.assign(new Error("theme list unavailable"), { status: 500 }));
         }
         if (request.url.endsWith("/EmbyLyricEnhance/Themes") && request.type === "GET") {
-            return Promise.resolve([]);
+            return Promise.resolve([...remoteThemes.values()].map((theme) => ({
+                Id: theme.Id, Name: theme.Name, Revision: theme.Revision
+            })));
         }
         if (request.url.includes("UserWorkspace") && request.type === "PUT") {
             const body = JSON.parse(request.data);
@@ -240,7 +319,8 @@ const ApiClient = {
     },
     getJSON(url) {
         if (url.includes("PublicConfiguration")) return Promise.resolve({
-            defaultTheme: "apple", allowUserThemeOverride: true, themeSchemaVersion: 6
+            defaultTheme: "apple", allowUserThemeOverride: true, themeSchemaVersion: 6,
+            themeCommitVersion
         });
         if (url.includes("UserWorkspace")) return Promise.resolve({});
         if (url.endsWith("/EmbyLyricEnhance/Themes")) return Promise.resolve([]);
@@ -313,6 +393,10 @@ function createPage() {
     native.style.visibility = "visible"; native.style.pointerEvents = "auto"; page.appendChild(native); document.body.appendChild(page);
     return { page, native };
 }
+function mountedRoot() {
+    const host = document.body.querySelector(".elyric-player-host");
+    return host && host.shadowRoot && host.shadowRoot.querySelector(".elyric-player-root");
+}
 function deferLyrics(id) {
     let resolve; const promise = new Promise((done) => { resolve = done; });
     pendingLyrics.set(id, { promise, resolve }); return pendingLyrics.get(id);
@@ -321,8 +405,11 @@ function deferLyrics(id) {
 (async () => {
     const first = createPage(); const osd = new VideoOsd(first.page);
     assert.strictEqual(osd.onResume(), "resume"); await settle();
-    const root = first.page.querySelector(".elyric-player-root");
+    const root = mountedRoot();
     assert(root, "onResume should mount the custom root");
+    assert.strictEqual(document.body.classList.contains("elyric-player-active-page"), false,
+        "player state classes must stay on the Shadow host instead of polluting Emby body");
+    assert.strictEqual(document.body.getAttribute("data-elyric-theme-v2"), null);
     assert.strictEqual(root.getAttribute("data-elyric-workspace-ready"), "false",
         "the editable stage must remain gated until UserWorkspace resolves");
     assert.strictEqual(root.querySelector(".elyric-player-stage").getAttribute("aria-busy"), "true");
@@ -332,6 +419,14 @@ function deferLyrics(id) {
     await wait(550);
     assert.strictEqual(workspaceWrites.length, 0, "initialization must block debounced Workspace writes");
     assert.strictEqual(displayPreferenceWrites, 0, "daily persistence must never write DisplayPreferences");
+    const pendingDraftKey = [...stored.keys()].find((key) => key.includes("theme-v6.pending-draft"));
+    assert(pendingDraftKey, "a user edit made during loading should immediately enter the account-scoped local journal");
+    const designKey = [...stored.keys()].find((key) => key.includes("player-theme-design") && key.endsWith("server-a.runtime-user"));
+    const localDocument = JSON.parse(stored.get(designKey));
+    assert.strictEqual(localDocument.schemaVersion, 6);
+    assert.strictEqual(localDocument.v2, undefined,
+        "account-scoped local persistence must store only portable ThemeDocumentV6, never an internal v2 wrapper");
+    stored.delete(pendingDraftKey);
 
     const serverDraft = JSON.parse(JSON.stringify(window.__elyricPlayerThemeV6Fixtures[0]));
     assert.strictEqual(window.__elyricPlayerThemeV6Fixtures.length, 9,
@@ -360,7 +455,7 @@ function deferLyrics(id) {
     serverDraft.controls.profiles.portrait.groups.transport.gap = 27;
     workspacePayload = {
         Revision: 7, DraftJson: JSON.stringify(serverDraft),
-        GlobalStateJson: JSON.stringify({ theme: "gradient", layout: "album", layoutRepairRevision: 0 }),
+        GlobalStateJson: JSON.stringify({ theme: "gradient", layout: "album" }),
         LegacyImported: true, Themes: []
     };
     resolveInitialWorkspace(workspacePayload); await settle();
@@ -375,28 +470,33 @@ function deferLyrics(id) {
     assert(fixedStage.style.getPropertyValue("transform").includes("scale(0.75)"),
         "1440x900 should transform the complete 1920x1080 stage once at 0.75");
     assert.strictEqual(root.querySelector(".elyric-player-metadata").style.getPropertyValue("position"), "absolute");
-    assert.strictEqual(root.querySelector(".elyric-player-metadata").style.getPropertyValue("left"), "96px",
-        "stage children must retain V6 design-space geometry rather than viewport pixels");
+    assert.strictEqual(root.querySelector(".elyric-player-metadata").style.getPropertyValue("left"), "-1800px",
+        "playback must preserve the user's V6 geometry without a silent safety rewrite");
     assert.strictEqual(osd.__elyricRenderer.__elyricPlayerLayout, "album");
-    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x, 96);
-    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.portrait.metadata.x, 96);
+    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x, -1800);
+    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.portrait.metadata.x, -1800);
     assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.controls.profiles.landscape.groups.transport.gap, 19);
     assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.controls.profiles.portrait.groups.transport.gap, 27,
         "one account draft must retain independent landscape and portrait control profiles");
+    assert.strictEqual(osd.__elyricRenderer.__elyricThemeRuntimeRecord.document.schemaVersion, 6);
+    assert.strictEqual(osd.__elyricRenderer.__elyricThemeRuntimeRecord.document.layouts.landscape.metadata.x, -1800,
+        "the runtime record must retain the exact portable V6 document applied to the stage");
     await wait(10); await settle();
-    assert.strictEqual(workspaceWrites.length, 1,
-        "an unsafe unmarked V6 draft should create one repaired Workspace revision after preserving its backup");
-    assert([...stored.keys()].some((key) => key.includes("layout-repair-backups")),
-        "the original unsafe draft must remain available as an account-scoped read-only backup");
-    assert(root.querySelector(".elyric-theme-restore-repair"),
-        "the theme library must expose the requested rollback entry for a preserved repair backup");
+    assert.strictEqual(workspaceWrites.length, 0,
+        "loading an overlapping or partially off-canvas V6 draft must not silently rewrite Workspace");
+    assert(![...stored.keys()].some((key) => key.includes("layout-repair")),
+        "V6 runtime must not create legacy layout-repair markers or replacement drafts");
+    assert(!root.querySelector(".elyric-theme-restore-repair"),
+        "V6 must remove the legacy silent-repair rollback control");
     root.querySelectorAll(".elyric-theme-choice")[4].click();
     await wait(550); await settle();
-    assert.strictEqual(workspaceWrites.length, 2, "post-repair edits should debounce into one further Workspace PUT");
-    assert.strictEqual(workspaceWrites[1].ExpectedRevision, 8);
-    assert.strictEqual(JSON.parse(workspaceWrites[1].DraftJson).schemaVersion, 6);
-    assert.strictEqual(JSON.parse(workspaceWrites[1].DraftJson).layoutModel, "fixed-canvas-v1");
-    assert.strictEqual(root.getAttribute("data-elyric-workspace-revision"), "9",
+    assert.strictEqual(workspaceWrites.length, 1, "a post-load edit should debounce into one Workspace PUT");
+    assert.strictEqual(workspaceWrites[0].ExpectedRevision, 7);
+    assert.strictEqual(JSON.parse(workspaceWrites[0].DraftJson).schemaVersion, 6);
+    assert.strictEqual(JSON.parse(workspaceWrites[0].DraftJson).layoutModel, "fixed-canvas-v1");
+    assert.deepStrictEqual(JSON.parse(workspaceWrites[0].GlobalStateJson), { version: 6 },
+        "GlobalStateJson must not duplicate fields owned by ThemeDocumentV6");
+    assert.strictEqual(root.getAttribute("data-elyric-workspace-revision"), "8",
         "the visible sync revision must update only after the server acknowledges the PUT");
     assert.strictEqual(displayPreferenceWrites, 0);
     const confirmedCacheKeys = [...stored.keys()].filter((key) => key.includes("workspace-cache"));
@@ -429,6 +529,69 @@ function deferLyrics(id) {
         ".elyric-player-settings-panel", ".elyric-player-media-panel"].forEach((selector) => {
         const element = root.querySelector(selector); assert(element && root.contains(element), `${selector} must live inside the root`);
     });
+    const themeNameInput = root.querySelector(".elyric-player-theme-name-input");
+    const newThemeButton = root.querySelector(".elyric-theme-new");
+    const saveThemeButton = root.querySelector(".elyric-theme-save");
+    assert.strictEqual(newThemeButton.disabled, false, "themeCommitV1 must enable named-theme creation");
+    themeNameInput.value = "原子往返主题";
+    newThemeButton.click(); await osd.__elyricRenderer.__elyricThemeCommitChain; await settle();
+    assert.strictEqual(themeCommitBodies.length, 1, "creating a named theme must use one ThemeCommit request");
+    const committedThemeId = themeCommitBodies[0].ThemeId;
+    assert.deepStrictEqual(JSON.parse(themeCommitBodies[0].GlobalStateJson), { version: 6 });
+    assert(committedThemeId && remoteThemes.has(committedThemeId));
+    assert.strictEqual(
+        JSON.stringify(JSON.parse(remoteThemes.get(committedThemeId).ThemeJson)),
+        JSON.stringify(JSON.parse(workspacePayload.DraftJson)),
+        "the named theme and Workspace draft must contain the same normalized V6 document"
+    );
+    assert.strictEqual(workspacePayload.ActiveThemeId, committedThemeId);
+    assert.strictEqual(osd.__elyricRenderer.__elyricThemeRuntimeRecord.id, committedThemeId);
+    assert.strictEqual(osd.__elyricRenderer.__elyricThemeRuntimeRecord.revision, 1);
+    assert(root.querySelector(".elyric-player-theme-library-status").textContent.includes("原子保存并回读确认"));
+
+    root.querySelector(".elyric-player-button-visualizer").click();
+    osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.artwork.z = 27;
+    osd.__elyricRenderer.__elyricThemeV2.layouts.portrait.lyrics.x = -31;
+    osd.__elyricRenderer.__elyricThemeV2.console.material = "rainbow";
+    saveThemeButton.click(); await osd.__elyricRenderer.__elyricThemeCommitChain; await settle();
+    assert.strictEqual(themeCommitBodies.length, 2);
+    const secondCommitDocument = JSON.parse(themeCommitBodies[1].ThemeJson);
+    assert.strictEqual(secondCommitDocument.visualizer.enabled, false);
+    assert.strictEqual(secondCommitDocument.layouts.landscape.artwork.z, 27);
+    assert.strictEqual(secondCommitDocument.layouts.portrait.lyrics.x, -31);
+    assert.strictEqual(secondCommitDocument.console.material, "rainbow",
+        "console material must round-trip from the V6 document rather than a legacy choices cache");
+
+    const validDockX = osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.controlDock.x;
+    osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.controlDock.x = -5000;
+    saveThemeButton.click(); await settle();
+    assert.strictEqual(themeCommitBodies.length, 2,
+        "a completely unreachable ControlDock must block save without mutating the draft");
+    assert(root.querySelector(".elyric-player-theme-library-status").textContent.includes("44×44"));
+    osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.controlDock.x = validDockX;
+    osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.artwork.x = -20;
+    osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x = -20;
+    saveThemeButton.click(); await osd.__elyricRenderer.__elyricThemeCommitChain; await settle();
+    assert.strictEqual(themeCommitBodies.length, 3,
+        "ordinary overlap and partial overflow must remain user-owned and save unchanged");
+    const overlapDocument = JSON.parse(themeCommitBodies[2].ThemeJson);
+    assert.strictEqual(overlapDocument.layouts.landscape.artwork.x, -20);
+    assert.strictEqual(overlapDocument.layouts.landscape.metadata.x, -20);
+
+    const revisionBeforeConflict = workspacePayload.Revision;
+    forceThemeCommitConflict = true;
+    saveThemeButton.click(); await osd.__elyricRenderer.__elyricThemeCommitChain; await settle();
+    assert.strictEqual(workspacePayload.Revision, revisionBeforeConflict,
+        "a ThemeCommit revision conflict must not modify the active Workspace");
+    assert(osd.__elyricRenderer.__elyricUserPlayerThemes.some((theme) => /-conflict$/.test(theme.id)));
+
+    forceThemeCommitChecksumMismatch = true;
+    saveThemeButton.click(); await osd.__elyricRenderer.__elyricThemeCommitChain; await settle();
+    assert(root.querySelector(".elyric-player-theme-library-status").textContent.includes("本地待同步日志"),
+        "checksum failures must stay visible and enter the persistent retry path");
+    const retryQueueKey = [...stored.keys()].find((key) => key.includes("offline-queue") && key.endsWith("server-a.runtime-user"));
+    assert(retryQueueKey && JSON.parse(stored.get(retryQueueKey)).some((entry) => entry.path === "EmbyLyricEnhance/ThemeCommit"));
+
     const settingsPanel = root.querySelector(".elyric-player-settings-panel");
     const settingsBody = settingsPanel.querySelector(".elyric-player-settings-body");
     assert(settingsBody && settingsPanel.contains(settingsBody), "settings content must scroll independently below its fixed header");
@@ -471,8 +634,8 @@ function deferLyrics(id) {
     assert.strictEqual(fixedStage.style.getPropertyValue("height"), "1920px");
     assert(fixedStage.style.getPropertyValue("transform").includes("scale(0.3611111111111111)"),
         "390x844 should change only the shared portrait-stage transform");
-    assert.strictEqual(root.querySelector(".elyric-player-metadata").style.getPropertyValue("left"), "96px",
-        "orientation changes must select the portrait fixture without viewport-relative component reflow");
+    assert.strictEqual(root.querySelector(".elyric-player-metadata").style.getPropertyValue("left"), "-1800px",
+        "orientation changes must preserve the independent portrait geometry without runtime repair");
     const muteButton = root.querySelector(".elyric-player-button-mute");
     assert.strictEqual(muteButton.getAttribute("data-elyric-volume"), "64");
     muteButton.click();
@@ -489,7 +652,7 @@ function deferLyrics(id) {
     assert.strictEqual(first.native.style.visibility, "hidden");
 
     const lyrics = root.querySelector(".elyric-player-lyric-viewport");
-    const lyricRows = lyrics.querySelectorAll(".lyricsItem[data-index]");
+    const lyricRows = lyrics.querySelectorAll(".elyric-lyric-row[data-index]");
     assert.strictEqual(lyricRows.length, 1); assert(lyricRows[0].textContent.includes("translation"));
     assert(requestedUrls.some((url) => url.includes("Items/song-a/source-song-a/Subtitles/2/Stream.js")),
         "an explicitly named non-default Lyrics text stream must be selected");
@@ -539,23 +702,23 @@ function deferLyrics(id) {
         PlayState: Object.assign({}, state.PlayState, { PositionTicks: 750000000 })
     });
     trigger(player, "timeupdate"); await settle();
-    const virtualRows = lyrics.querySelectorAll(".lyricsItem[data-index]");
+    const virtualRows = lyrics.querySelectorAll(".elyric-lyric-row[data-index]");
     assert(virtualRows.length <= 37 && virtualRows.some((row) => row.getAttribute("data-index") === "75"),
         "long lyrics must keep only the current binary-seeked window in the DOM");
 
     window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
     assert.strictEqual(osd.onPause(), undefined,
         "an Emby pause emitted during a viewport transition must not stop or unmount audio playback");
-    assert(first.page.querySelector(".elyric-player-root"));
+    assert(mountedRoot());
     location.hash = "#!/item?id=song-c";
     window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
     assert.strictEqual(osd.onPause(), "pause",
         "the viewport grace period must not suppress a real pause after leaving the VideoOsd route");
-    assert(!first.page.querySelector(".elyric-player-root"));
+    assert(!mountedRoot());
     location.hash = "#!/videoosd/videoosd.html";
     osd.onResume(); await settle();
     osd.__elyricRenderer.__elyricViewportTransitionUntil = 0;
-    assert.strictEqual(osd.onPause(), "pause"); assert(!first.page.querySelector(".elyric-player-root"));
+    assert.strictEqual(osd.onPause(), "pause"); assert(!mountedRoot());
     assert.strictEqual(first.native.getAttribute("aria-hidden"), "false"); assert(!first.native.hasAttribute("inert"));
     assert.strictEqual(first.native.style.visibility, "visible"); assert.strictEqual(bindings.length, 0); assert.strictEqual(frames.size, 0);
     assert.strictEqual(osd.destroy(), "destroy"); first.page.remove();
@@ -565,12 +728,12 @@ function deferLyrics(id) {
     secondAccountDraft.layouts.landscape.metadata.x = 333;
     workspacePayload = {
         Revision: 3, DraftJson: JSON.stringify(secondAccountDraft),
-        GlobalStateJson: JSON.stringify({ theme: "apple", layout: "custom", layoutRepairRevision: 0 }),
+        GlobalStateJson: JSON.stringify({ theme: "apple", layout: "custom" }),
         LegacyImported: true, Themes: []
     };
     const scoped = createPage(); const scopedOsd = new VideoOsd(scoped.page);
     scopedOsd.onResume(); await settle();
-    const scopedRoot = scoped.page.querySelector(".elyric-player-root");
+    const scopedRoot = mountedRoot();
     assert.strictEqual(scopedRoot.getAttribute("data-elyric-account-scope"), "server-b.other-user");
     assert.strictEqual(scopedOsd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x, 333,
         "a second server/user pair must preserve geometry that already passes the V6 safety solver");
@@ -579,35 +742,114 @@ function deferLyrics(id) {
         && scopedCacheKeys.some((key) => key.endsWith("server-b.other-user")),
     "confirmed browser caches must be isolated across both server and user identity");
     scopedOsd.onPause(); scoped.page.remove();
+
+    themeCommitVersion = "";
+    const legacyDll = createPage();
+    const legacyDllOsd = new VideoOsd(legacyDll.page); legacyDllOsd.onResume(); await settle();
+    const legacyDllRoot = mountedRoot();
+    assert(legacyDllRoot, "an old DLL must not prevent local playback and preview");
+    assert.strictEqual(legacyDllRoot.querySelector(".elyric-theme-new").disabled, true);
+    assert.strictEqual(legacyDllRoot.querySelector(".elyric-theme-duplicate").disabled, true);
+    assert.strictEqual(legacyDllRoot.querySelector(".elyric-theme-save").disabled, true);
+    assert.strictEqual(legacyDllRoot.querySelector(".elyric-theme-copy-json").disabled, false,
+        "an old DLL must leave local JSON export available while server saves are disabled");
+    assert(legacyDllRoot.querySelector(".elyric-theme-new").getAttribute("title").includes("更新"));
+    legacyDllOsd.onPause(); legacyDll.page.remove();
+    themeCommitVersion = "v1";
+
     currentUserId = "runtime-user"; currentServerId = "server-a";
     workspacePayload = {
         Revision: 99, DraftJson: JSON.stringify(serverDraft),
-        GlobalStateJson: JSON.stringify({ theme: "gradient", layout: "custom", layoutRepairRevision: 1 }),
+        GlobalStateJson: JSON.stringify({ theme: "gradient", layout: "custom" }),
         LegacyImported: true, Themes: []
     };
 
     const limited = createPage(); const next = manager.nextTrack; manager.nextTrack = null;
     currentItem = item("song-a", "歌曲 A"); state = Object.assign({}, state, { NowPlayingItem: currentItem });
     const limitedOsd = new VideoOsd(limited.page); limitedOsd.onResume(); await settle();
-    assert.strictEqual(limited.page.querySelector(".elyric-player-button-next").disabled, true);
+    assert.strictEqual(mountedRoot().querySelector(".elyric-player-button-next").disabled, true);
     limitedOsd.onPause(); manager.nextTrack = next; limited.page.remove();
 
     const failed = createPage(); const getState = manager.getPlayerState; manager.getPlayerState = null;
     const failedOsd = new VideoOsd(failed.page); const oldError = console.error; console.error = function () {};
     failedOsd.onResume(); await settle(); console.error = oldError;
-    assert(!failed.page.querySelector(".elyric-player-root")); assert.strictEqual(failed.native.style.visibility, "visible");
+    assert(!mountedRoot()); assert.strictEqual(failed.native.style.visibility, "visible");
     manager.getPlayerState = getState; failedOsd.onPause(); failed.page.remove();
 
     const video = createPage(); currentItem = item("video-a", "视频 A", "Video"); state = Object.assign({}, state, { NowPlayingItem: currentItem });
     const videoOsd = new VideoOsd(video.page); videoOsd.onResume(); await settle();
-    assert(!video.page.querySelector(".elyric-player-root")); videoOsd.onPause(); video.page.remove();
+    assert(!mountedRoot()); videoOsd.onPause(); video.page.remove();
 
     const rapid = createPage(); currentItem = item("song-a", "歌曲 A"); state = Object.assign({}, state, { NowPlayingItem: currentItem });
     const rapidOsd = new VideoOsd(rapid.page); rapidOsd.onResume(); rapidOsd.onPause(); await settle();
-    assert(!rapid.page.querySelector(".elyric-player-root"), "an onPause before the resume microtask must cancel mounting");
+    assert(!mountedRoot(), "an onPause before the resume microtask must cancel mounting");
     assert.strictEqual(rapid.native.style.visibility, "visible"); rapid.page.remove();
 
-    assert(resumes >= 5 && pauses >= 5 && destroys === 1);
+    const outerStyle = document.createElement("style");
+    outerStyle.textContent = "button,input,*{all:unset!important}.lyricsItem{position:fixed!important}";
+    document.body.appendChild(outerStyle);
+    const stylesheet = document.createElement("link");
+    stylesheet.setAttribute("rel", "stylesheet");
+    stylesheet.setAttribute("href", "/web/videoosd/videoosd.css?v=test");
+    document.body.appendChild(stylesheet);
+    document.querySelectorAll = (selector) => document.body.querySelectorAll(selector);
+    Node.prototype.attachShadow = function () {
+        const shadow = new Node("shadow-root");
+        shadow.host = this;
+        shadow.parentNode = this;
+        const append = shadow.appendChild.bind(shadow);
+        shadow.appendChild = function (child) {
+            const result = append(child);
+            if (child.tagName === "link") setImmediate(() => child.onload && child.onload());
+            return result;
+        };
+        this.shadowRoot = shadow;
+        return shadow;
+    };
+    currentItem = item("song-shadow", "Shadow song");
+    state = Object.assign({}, state, { NowPlayingItem: currentItem });
+    workspacePayload = {
+        Revision: 120, DraftJson: JSON.stringify(serverDraft),
+        GlobalStateJson: JSON.stringify({ theme: "gradient", layout: "custom" }),
+        LegacyImported: true, Themes: []
+    };
+    const shadowPage = createPage();
+    const shadowOsd = new VideoOsd(shadowPage.page);
+    shadowOsd.onResume(); await settle();
+    const shadowHost = document.body.querySelector(".elyric-player-host");
+    const shadowRoot = shadowHost && shadowHost.shadowRoot;
+    const shadowPlayer = shadowRoot && shadowRoot.querySelector(".elyric-player-root");
+    assert(shadowHost && shadowRoot && shadowPlayer,
+        "real-capability mounts must create exactly one open Shadow Root player under body");
+    assert.strictEqual(shadowRoot.querySelectorAll(".elyric-player-root").length, 1);
+    assert.strictEqual(shadowPage.page.querySelector(".elyric-player-root"), null,
+        "the Emby VideoOsd page must contain lifecycle nodes only, never visible custom player descendants");
+    assert(shadowPlayer.querySelector(".elyric-player-button-back")
+        && shadowPlayer.querySelector(".elyric-player-button-cast"));
+    assert.strictEqual(shadowPlayer.scrollTop, 0);
+    assert.strictEqual(shadowHost.scrollTop, 0);
+    assert.strictEqual(shadowRoot.querySelectorAll(".lyricsItem").length, 0,
+        "hostile outer Emby class rules must have no matching class inside the Shadow player");
+    assert.strictEqual(shadowPage.native.style.visibility, "hidden",
+        "native OSD may be hidden only after the Shadow stylesheet reports ready");
+    shadowOsd.destroy(); await settle();
+    assert.strictEqual(document.body.querySelector(".elyric-player-host"), null);
+    assert.strictEqual(shadowPage.native.style.visibility, "visible");
+    shadowPage.page.remove(); outerStyle.remove(); stylesheet.remove();
+
+    const attachShadow = Node.prototype.attachShadow;
+    delete Node.prototype.attachShadow;
+    const unsupported = createPage();
+    const unsupportedOsd = new VideoOsd(unsupported.page);
+    const unsupportedError = console.error; console.error = function () {};
+    unsupportedOsd.onResume(); await settle(); console.error = unsupportedError;
+    assert.strictEqual(document.body.querySelector(".elyric-player-host"), null,
+        "missing Shadow DOM support must fail closed without mounting into the Emby page");
+    assert.strictEqual(unsupported.native.style.visibility, "visible");
+    unsupportedOsd.onPause(); unsupported.page.remove();
+    Node.prototype.attachShadow = attachShadow;
+
+    assert(resumes >= 5 && pauses >= 5 && destroys === 2);
     assert(requestedUrls.some((url) => url.includes("Items/song-a/source-song-a/Subtitles/2/Stream.js")));
     console.log("VideoOsd runtime single-root, bridge, lyrics, queue and rollback: ok");
 })().catch((error) => { console.error(error); process.exitCode = 1; });

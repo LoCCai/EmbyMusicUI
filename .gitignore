@@ -2,6 +2,8 @@
 **/obj/
 .packages/
 .dotnet-home/
+.appdata/
+.test-tmp/
 plugin/artifacts/*
 !plugin/artifacts/package/
 plugin/artifacts/package/*

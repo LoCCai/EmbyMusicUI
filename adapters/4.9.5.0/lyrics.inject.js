@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.14-theme-v6-dual-canvas-r2 */
+/* ELYRIC_BUILD:2026.08.15-theme-v6-shadow-persistence-r1 */
 ;(function () {
     "use strict";
 
@@ -36,7 +36,7 @@
     var PLAYER_PREFERENCES_KEY = "emby-lyric-enhance.player-preferences.v2";
     var PLAYER_THEME_LIBRARY_STORAGE_KEY = "emby-lyric-enhance.player-themes.v1";
     var PLAYER_THEME_DESIGN_STORAGE_KEY = "emby-lyric-enhance.player-theme-design.v1";
-    var PLAYER_BUILD_ID = "2026.08.14-theme-v6-dual-canvas-r2";
+    var PLAYER_BUILD_ID = "2026.08.15-theme-v6-shadow-persistence-r1";
     var PLAYER_PREFERENCES_VERSION = 6;
     var PLAYER_THEME_SCHEMA_VERSION = 6;
     var PLAYER_THEME_DOCUMENT_FORMAT = "emby-lyric-theme";
@@ -54,12 +54,12 @@
     var PLAYER_PREFERENCES_SAVE_DELAY = 500;
     var PLAYER_WORKSPACE_PATH = "EmbyLyricEnhance/UserWorkspace";
     var PLAYER_THEMES_PATH = "EmbyLyricEnhance/Themes";
+    var PLAYER_THEME_COMMIT_PATH = "EmbyLyricEnhance/ThemeCommit";
     var PLAYER_ASSETS_PATH = "EmbyLyricEnhance/Assets";
     var PLAYER_THEME_V2_OFFLINE_QUEUE_KEY = "emby-lyric-enhance.theme-v5.offline-queue";
     var PLAYER_THEME_V2_WORKSPACE_CACHE_KEY = "emby-lyric-enhance.theme-v5.workspace-cache";
+    var PLAYER_THEME_V6_PENDING_DRAFT_KEY = "emby-lyric-enhance.theme-v6.pending-draft";
     var PLAYER_THEME_V2_LEGACY_ARCHIVE_KEY = "emby-lyric-enhance.theme-v5.legacy-archive";
-    var PLAYER_THEME_V5_REPAIR_BACKUP_KEY = "emby-lyric-enhance.theme-v5.layout-repair-backups";
-    var PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION = 2;
     var PLAYER_THEME_LAYER_Z = {
         artwork: 20, metadata: 20, lyrics: 20, visualizer: 30, controlDock: 40
     };
@@ -749,7 +749,8 @@
                 VISUALIZER_FREQUENCY_LAYOUTS.map(function (item) { return item.id; }),
                 "centerOut"
             );
-        }, "player-enum"]
+        }, "player-enum"],
+        ["visualizer.enabled", true, "toggle", "visualizer-enabled", normalizePlayerThemeV2Boolean, "boolean"]
     ].forEach(function (item) {
         registerPlayerThemeV2Parameter({
             id: item[0], defaultValue: item[1],
@@ -1121,7 +1122,6 @@
         return {
             schemaVersion: PLAYER_THEME_SCHEMA_VERSION,
             layoutModel: PLAYER_THEME_LAYOUT_MODEL,
-            layoutRepairRevision: 0,
             viewport: { fit: "contain", alignX: "center", alignY: "end" },
             layouts: defaultPlayerThemeV2Layouts(),
             artwork: {
@@ -1130,7 +1130,7 @@
             },
             typography: defaultPlayerThemeV2Typography(),
             lyrics: { showSecondLine: true, showThirdAndLaterLines: true, followDelayMs: LYRIC_FOLLOW_IDLE_MS },
-            visualizer: { frequencyLayout: "centerOut", analysis: analysis },
+            visualizer: { enabled: true, frequencyLayout: "centerOut", analysis: analysis },
             metadata: {
                 summaryFields: ["title", "artist", "album", "container", "codec", "sampleRate", "bitDepth", "channels", "bitrate"]
             },
@@ -1222,14 +1222,15 @@
     }
 
     function rememberPlayerThemeV6MigrationBackup(source) {
-        if (!source || Number(source.schemaVersion) >= PLAYER_THEME_SCHEMA_VERSION
+        var sourceVersion = Number(source && source.v2 && source.v2.schemaVersion || source && source.schemaVersion) || 0;
+        if (!source || sourceVersion >= PLAYER_THEME_SCHEMA_VERSION
             || "undefined" === typeof localStorage) { return; }
         try {
             var backups = JSON.parse(localStorage.getItem(PLAYER_THEME_V6_MIGRATION_BACKUP_KEY) || "[]");
             if (!Array.isArray(backups)) { backups = []; }
             var serialized = JSON.stringify(source);
             if (!backups.some(function (entry) { return entry && entry.json === serialized; })) {
-                backups.push({ migratedAt: Date.now(), schemaVersion: Number(source.schemaVersion) || 0, json: serialized });
+                backups.push({ migratedAt: Date.now(), schemaVersion: sourceVersion, readOnly: true, json: serialized });
                 localStorage.setItem(PLAYER_THEME_V6_MIGRATION_BACKUP_KEY, JSON.stringify(backups.slice(-24)));
             }
         } catch (error) {
@@ -1451,13 +1452,6 @@
         });
         sanitizedRoot.v2.schemaVersion = PLAYER_THEME_SCHEMA_VERSION;
         sanitizedRoot.v2.layoutModel = PLAYER_THEME_LAYOUT_MODEL;
-        sanitizedRoot.v2.layoutRepairRevision = Math.max(
-            0,
-            Math.min(
-                PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION,
-                Math.round(Number(state.layoutRepairRevision) || 0)
-            )
-        );
         sanitizedRoot.v2.controls = normalizePlayerControlDock(state.controls);
         var v6Defaults = defaultPlayerThemeV2State();
         sanitizedRoot.v2.viewport = { fit: "contain", alignX: "center", alignY: "end" };
@@ -1468,9 +1462,6 @@
         sanitizedRoot.v2.volume = normalizePlayerThemeV6Volume(state.volume, v6Defaults.volume);
         PLAYER_THEME_V2_PROFILE_IDS.forEach(function (profileId) {
             sanitizedRoot.v2.layouts[profileId].canvas = clonePlayerThemeV2Value(PLAYER_THEME_CANVAS_SIZES[profileId]);
-            PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
-                sanitizedRoot.v2.layouts[profileId][layerId].z = PLAYER_THEME_LAYER_Z[layerId];
-            });
         });
         return sanitizedRoot.v2;
     }
@@ -1485,7 +1476,10 @@
             Number("undefined" !== typeof window && window.innerHeight) || 0,
             Number(document.documentElement && document.documentElement.clientHeight) || 0
         );
-        var active = document && document.activeElement;
+        var activeHost = document && document.querySelector
+            ? document.querySelector(".elyric-player-host") : null;
+        var active = activeHost && activeHost.shadowRoot && activeHost.shadowRoot.activeElement
+            || document && document.activeElement;
         var editingText = active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName || "");
         var keyboardReducedViewport = editingText && viewport && layoutHeight > 0
             && Number(viewport.height) < layoutHeight * .78;
@@ -1660,112 +1654,21 @@
         };
     }
 
-    function playerThemeV5RectanglesOverlap(first, second, gap) {
-        if (!first || !second) { return false; }
-        gap = Math.max(0, Number(gap) || 0);
-        return first.left < second.left + second.width + gap
-            && first.left + first.width + gap > second.left
-            && first.top < second.top + second.height + gap
-            && first.top + first.height + gap > second.top;
-    }
-
-    function playerThemeV5SafeLayout(profileId) {
-        return clonePlayerThemeV2Value(defaultPlayerThemeV2Layouts()[profileId]);
-    }
-
     function playerThemeV5LayoutIsSafe(layout, profileId) {
-        if (!layout) { return false; }
+        if (!layout || !layout.controlDock) { return false; }
         var canvas = PLAYER_THEME_CANVAS_SIZES[profileId];
-        var gap = "portrait" === profileId ? 20 : 0;
-        var epsilon = .1;
-        var rects = {};
-        var metrics = {
-            designWidth: canvas.width,
-            designHeight: canvas.height
-        };
-        var safeMargin = "portrait" === profileId ? 20 : 24;
-        var valid = PLAYER_THEME_V2_LAYER_IDS.every(function (layerId) {
-            var layer = layout[layerId];
-            if (!layer) { return false; }
-            var rect = playerThemeV2LayerDesignRect(layer, metrics);
-            rects[layerId] = rect;
-            return rect.width + epsilon >= 44 && rect.height + epsilon >= 44
-                && rect.left + epsilon >= safeMargin && rect.top + epsilon >= safeMargin
-                && rect.left + rect.width <= canvas.width - safeMargin + epsilon
-                && rect.top + rect.height <= canvas.height - safeMargin + epsilon;
-        });
-        if (!valid) { return false; }
-        var radialVisualizer = rects.visualizer.left <= rects.artwork.left
-            && rects.visualizer.top <= rects.artwork.top
-            && rects.visualizer.left + rects.visualizer.width >= rects.artwork.left + rects.artwork.width
-            && rects.visualizer.top + rects.visualizer.height >= rects.artwork.top + rects.artwork.height;
-        if ("portrait" === profileId) {
-            var order = radialVisualizer
-                ? ["artwork", "metadata", "lyrics", "controlDock"]
-                : ["artwork", "metadata", "lyrics", "visualizer", "controlDock"];
-            for (var index = 1; index < order.length; index++) {
-                var previous = rects[order[index - 1]];
-                var current = rects[order[index]];
-                if (!previous || !current
-                    || previous.top + previous.height + gap > current.top + epsilon) { return false; }
-            }
-            return true;
-        }
-        return !playerThemeV5RectanglesOverlap(rects.artwork, rects.metadata, gap)
-            && !playerThemeV5RectanglesOverlap(rects.artwork, rects.lyrics, gap)
-            && !playerThemeV5RectanglesOverlap(rects.metadata, rects.lyrics, gap)
-            && (radialVisualizer || !playerThemeV5RectanglesOverlap(rects.lyrics, rects.visualizer, gap))
-            && !playerThemeV5RectanglesOverlap(rects.visualizer, rects.controlDock, gap);
-    }
-
-    function repairPlayerThemeV5Layout(layout, profileId) {
-        var repaired = clonePlayerThemeV2Value(layout || {});
-        var safe = playerThemeV5SafeLayout(profileId);
-        var canvas = PLAYER_THEME_CANVAS_SIZES[profileId];
-        PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
-            if (!repaired[layerId] || "object" !== typeof repaired[layerId]) {
-                repaired[layerId] = clonePlayerThemeV2Value(safe[layerId]);
-                return;
-            }
-            var layer = repaired[layerId];
-            var fallback = safe[layerId];
-            layer.width = Math.min(canvas.width - 40, Math.max(44, Number(layer.width) || fallback.width));
-            layer.height = Math.min(canvas.height - 40, Math.max(44, Number(layer.height) || fallback.height));
-            layer.hidden = "controlDock" === layerId ? false : !!layer.hidden;
-        });
-        if (!playerThemeV5LayoutIsSafe(repaired, profileId)) {
-            // Keep the complete visual styling while replacing only unsafe geometry.
-            PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
-                var visual = repaired[layerId];
-                var geometry = safe[layerId];
-                ["anchorX", "anchorY", "x", "y", "width", "height"].forEach(function (key) {
-                    visual[key] = geometry[key];
-                });
-                visual.hidden = "controlDock" === layerId ? false : !!visual.hidden;
-            });
-        }
-        return repaired;
-    }
-
-    function repairPlayerThemeV5State(source) {
-        var state = normalizePlayerThemeV2State(source);
-        var changed = false;
-        PLAYER_THEME_V2_PROFILE_IDS.forEach(function (profileId) {
-            if (!playerThemeV5LayoutIsSafe(state.layouts[profileId], profileId)) {
-                state.layouts[profileId] = repairPlayerThemeV5Layout(state.layouts[profileId], profileId);
-                changed = true;
-            }
-        });
-        if (changed && Number(state.layoutRepairRevision) < PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION) {
-            state.layoutRepairRevision = PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION;
-        }
-        return { state: state, changed: changed };
+        var dock = layout.controlDock;
+        var x = Number(dock.x), y = Number(dock.y);
+        var width = Number(dock.width), height = Number(dock.height);
+        if (![x, y, width, height].every(isFinite) || width < 148 || height < 44) { return false; }
+        var visibleWidth = Math.max(0, Math.min(canvas.width, x + width) - Math.max(0, x));
+        var visibleHeight = Math.max(0, Math.min(canvas.height, y + height) - Math.max(0, y));
+        return visibleWidth >= 44 && visibleHeight >= 44;
     }
 
     function playerThemeV5PlaybackState(renderer, source) {
         var state = normalizePlayerThemeV2State(source, renderer && renderer.__elyricThemeBaseLayout);
-        if (renderer && renderer.__elyricThemeV2DesignerOpen) { return state; }
-        return repairPlayerThemeV5State(state).state;
+        return state;
     }
 
     function playerThemeV2RenderedRect(layer, metrics) {
@@ -1834,7 +1737,7 @@
         element.style.setProperty("--elyric-v4-layer-height", rect.height + "px");
         element.style.setProperty("--elyric-v4-layer-rotation", displayedLayer.rotation + "deg");
         element.style.setProperty("transform-origin", "center", "important");
-        element.style.setProperty("z-index", String(PLAYER_THEME_LAYER_Z[layerId]), "important");
+        element.style.setProperty("z-index", String(displayedLayer.z), "important");
         element.style.setProperty("opacity", String(displayedLayer.opacity), "important");
         if (displayedLayer.hidden && "controlDock" !== layerId) { element.style.setProperty("display", "none", "important"); }
         else { element.style.removeProperty("display"); }
@@ -1864,7 +1767,6 @@
         var safeArea = Math.min(180, Math.max(44, Number(state.controls.safeArea) || 64));
         var hosts = [renderer.__elyricThemeControl, renderer.__elyricMediaPanel, renderer.__elyricSettingsPanel,
             renderer.__elyricQueuePanel, renderer.__elyricCastPanel, renderer.__elyricVolumePanel];
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) { hosts.push(document.body); }
         hosts.forEach(function (host) {
             if (!host || !host.style) { return; }
             setDisplayStyle(host, "--elyric-v2-popup-opacity", popupOpacity + "%");
@@ -1989,17 +1891,12 @@
         removeAttributeIfPresent(renderer.__elyricThemeControl, "data-elyric-theme-v2-profile");
         removeAttributeIfPresent(renderer.itemsContainer, "data-elyric-theme-v2");
         removeAttributeIfPresent(renderer.itemsContainer, "data-elyric-theme-v2-profile");
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
-            removeAttributeIfPresent(document.body, "data-elyric-theme-v2");
-            removeAttributeIfPresent(document.body, "data-elyric-theme-v2-profile");
-        }
         removePlayerThemeV2DesignerBoxes(renderer);
     }
 
     function applyPlayerThemeV2Typography(renderer) {
         if (!renderer.__elyricThemeV2 || !renderer.__elyricThemeControl) { return; }
         var styleHosts = [renderer.__elyricThemeControl, renderer.itemsContainer];
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) { styleHosts.push(document.body); }
         ["primary", "secondary", "tertiary"].forEach(function (lineId) {
             var style = renderer.__elyricThemeV2.typography[lineId];
             var prefix = "--elyric-v2-" + lineId + "-";
@@ -2093,6 +1990,7 @@
                 ? Number(renderer[definition.property]) : definition.fallback;
         });
         state.visualizer.frequencyLayout = renderer.__elyricVisualizerFrequencyLayout || "centerOut";
+        state.visualizer.enabled = false !== renderer.__elyricVisualizerEnabled;
         return clonePlayerThemeV2Value(state);
     }
 
@@ -2102,9 +2000,7 @@
         renderer.__elyricThemeV2Profile = PLAYER_THEME_V2_PROFILE_IDS.indexOf(profileOverride) >= 0
             ? profileOverride
             : currentPlayerThemeV2Profile();
-        var renderedState = renderer.__elyricThemeV2DesignerOpen
-            ? renderer.__elyricThemeV2
-            : repairPlayerThemeV5State(renderer.__elyricThemeV2).state;
+        var renderedState = renderer.__elyricThemeV2;
         var profile = clonePlayerThemeV2Value(renderedState.layouts[renderer.__elyricThemeV2Profile]);
         PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
             applyPlayerThemeV2Layer(renderer, layerId, profile[layerId]);
@@ -2124,6 +2020,13 @@
             renderer.__elyricThemeV2.visualizer.frequencyLayout,
             false
         );
+        renderer.__elyricVisualizerEnabled = false !== renderer.__elyricThemeV2.visualizer.enabled;
+        if (renderer.__elyricVisualizerToggleButton) {
+            setAttributeIfChanged(renderer.__elyricVisualizerToggleButton, "aria-pressed",
+                renderer.__elyricVisualizerEnabled ? "true" : "false");
+            setAttributeIfChanged(renderer.__elyricVisualizerToggleButton, "data-elyric-active",
+                renderer.__elyricVisualizerEnabled ? "true" : "false");
+        }
         applyPlayerThemeV2Typography(renderer);
         ["primary", "secondary", "tertiary"].forEach(function (lineId) {
             var typography = renderer.__elyricThemeV2.typography[lineId];
@@ -2139,10 +2042,6 @@
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-theme-v2-profile", renderer.__elyricThemeV2Profile);
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-theme-v2", "true");
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-theme-v2-profile", renderer.__elyricThemeV2Profile);
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
-            setAttributeIfChanged(document.body, "data-elyric-theme-v2", "true");
-            setAttributeIfChanged(document.body, "data-elyric-theme-v2-profile", renderer.__elyricThemeV2Profile);
-        }
         syncPlayerThemeV2Designer(renderer);
     }
 
@@ -2593,6 +2492,7 @@
     var DEFAULT_DISPLAY_CONFIGURATION = {
         defaultTheme: "classic",
         themeSchemaVersion: 0,
+        themeCommitVersion: "",
         allowUserThemeOverride: true,
         fontSizePercent: 100,
         lineHeight: 1.25,
@@ -2850,6 +2750,9 @@
                 PLAYER_THEME_SCHEMA_VERSION,
                 DEFAULT_DISPLAY_CONFIGURATION.themeSchemaVersion
             ),
+            themeCommitVersion: "v1" === String(
+                configValue(source, "themeCommitVersion", "ThemeCommitVersion") || ""
+            ) ? "v1" : "",
             allowUserThemeOverride: booleanValue(
                 configValue(source, "allowUserThemeOverride", "AllowUserThemeOverride"),
                 DEFAULT_DISPLAY_CONFIGURATION.allowUserThemeOverride
@@ -3314,6 +3217,10 @@
         if (!source || "object" !== typeof source) {
             return null;
         }
+        var internalDocument = !!source.v2;
+        if (internalDocument && Number(source.v2 && source.v2.schemaVersion) < PLAYER_THEME_SCHEMA_VERSION) {
+            rememberPlayerThemeV6MigrationBackup(source);
+        }
         if (PLAYER_THEME_DOCUMENT_FORMAT === source.format
             && [3, 4, 5, 6].indexOf(Number(source.schemaVersion)) >= 0
             && !source.v2) {
@@ -3346,6 +3253,14 @@
                 : 0,
             updatedAt: isFinite(Number(source.updatedAt)) ? Number(source.updatedAt) : Date.now()
         };
+        if (theme.v2 && internalDocument && source.choices && source.choices.controlMaterial) {
+            theme.v2.console.material = knownChoice(
+                PLAYER_CONTROL_MATERIALS,
+                source.choices.controlMaterial,
+                theme.v2.console.material
+            );
+            theme.choices.controlMaterial = theme.v2.console.material;
+        }
         return theme.v2 ? normalizeRegisteredPlayerThemeV2Snapshot(theme) : theme;
     }
 
@@ -3472,6 +3387,7 @@
             followDelayMs: lyrics.followDelayMs || LYRIC_FOLLOW_IDLE_MS
         };
         migratedState.visualizer = {
+            enabled: false !== visualizer.enabled,
             frequencyLayout: visualizer.frequencyLayout || "centerOut",
             analysis: visualizer.analysis || {}
         };
@@ -3581,6 +3497,7 @@
                 typography: typography
             },
             visualizer: {
+                enabled: false !== state.visualizer.enabled,
                 style: player.visualizerStyle || "spectrum",
                 frequencyLayout: state.visualizer.frequencyLayout || "centerOut",
                 width: player.visualizerWidth || 62, height: player.visualizerHeight || 8,
@@ -3702,6 +3619,11 @@
                 ? Number(renderer.__elyricPlayerTuning[definition.id])
                 : definition.fallback;
         });
+        var state = collectPlayerThemeV2State(renderer);
+        var choices = clonePlayerThemeV2Value(renderer.__elyricPlayerThemeChoices);
+        // The live V6 document is authoritative. Legacy choices.controlMaterial
+        // is consulted only while importing an old internal record.
+        choices.controlMaterial = state.console.material;
         return normalizeSavedPlayerTheme({
             id: id || "draft",
             name: name || "未命名主题",
@@ -3709,7 +3631,7 @@
                 ? renderer.__elyricThemeBaseLayout || "album"
                 : renderer.__elyricPlayerLayout || "album",
             tuning: tuning,
-            choices: renderer.__elyricPlayerThemeChoices,
+            choices: choices,
             colors: renderer.__elyricPlayerThemeColors,
             mediaFields: renderer.__elyricMediaFields,
             player: {
@@ -3725,7 +3647,7 @@
                 lyricScale: renderer.__elyricLyricScale || 100,
                 artworkRotation: false !== renderer.__elyricArtworkRotation
             },
-            v2: collectPlayerThemeV2State(renderer),
+            v2: state,
             updatedAt: Date.now()
         }, 0);
     }
@@ -3736,9 +3658,25 @@
         }
         try {
             if ("undefined" !== typeof localStorage) {
+                var currentTheme = collectCurrentPlayerTheme(renderer, "当前设计", "draft");
+                var documentValue = portablePlayerThemeV5(currentTheme, true);
+                renderer.__elyricThemeRuntimeRecord = {
+                    id: renderer.__elyricActiveUserPlayerThemeId || "draft",
+                    revision: Number(activeUserPlayerTheme(renderer) && activeUserPlayerTheme(renderer).revision || 0),
+                    document: clonePlayerThemeV2Value(documentValue)
+                };
                 localStorage.setItem(
                     playerThemeV2ScopedKey(PLAYER_THEME_DESIGN_STORAGE_KEY, renderer),
-                    JSON.stringify(collectCurrentPlayerTheme(renderer, "当前设计", "draft"))
+                    JSON.stringify(documentValue)
+                );
+                localStorage.setItem(
+                    playerThemeV2ScopedKey(PLAYER_THEME_V6_PENDING_DRAFT_KEY, renderer),
+                    JSON.stringify({
+                        expectedWorkspaceRevision: Number(renderer.__elyricWorkspaceRevision || 0),
+                        activeThemeId: renderer.__elyricActiveUserPlayerThemeId || null,
+                        updatedAt: Date.now(),
+                        themeJson: JSON.stringify(documentValue)
+                    })
                 );
             }
         } catch (error) {
@@ -3778,6 +3716,10 @@
         }
         value = knownChoice(definitions[choiceId], value, choices[choiceId]);
         renderer.__elyricPlayerThemeChoices[choiceId] = value;
+        if ("controlMaterial" === choiceId) {
+            ensurePlayerThemeV2State(renderer);
+            renderer.__elyricThemeV2.console.material = value;
+        }
         var attributeNames = {
             artworkMode: "data-elyric-artwork-mode",
             artworkMaterial: "data-elyric-artwork-material",
@@ -3792,9 +3734,6 @@
             renderer.__elyricMediaPanel].forEach(function (element) {
             setAttributeIfChanged(element, attributeNames[choiceId], value);
         });
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
-            setAttributeIfChanged(document.body, attributeNames[choiceId], value);
-        }
         if ("metadataAnchor" === choiceId) {
             setDisplayStyle(
                 renderer.__elyricThemeControl,
@@ -3836,9 +3775,6 @@
         };
         var targets = [renderer.__elyricThemeControl, renderer.itemsContainer,
             renderer.__elyricSettingsPanel, renderer.__elyricMediaPanel];
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
-            targets.push(document.body);
-        }
         targets.forEach(function (element) {
             Object.keys(values).forEach(function (property) { setDisplayStyle(element, property, values[property]); });
         });
@@ -3856,9 +3792,6 @@
             renderer.__elyricMediaPanel].forEach(function (element) {
             setDisplayStyle(element, definition.cssProperty, value);
         });
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
-            setDisplayStyle(document.body, definition.cssProperty, value);
-        }
         var input = renderer.__elyricPlayerThemeColorInputs
             && renderer.__elyricPlayerThemeColorInputs[colorId];
         if (input) {
@@ -3954,6 +3887,93 @@
         }
     }
 
+    function clearPendingPlayerThemeDraft(renderer) {
+        try {
+            if ("undefined" !== typeof localStorage) {
+                localStorage.removeItem(playerThemeV2ScopedKey(PLAYER_THEME_V6_PENDING_DRAFT_KEY, renderer));
+            }
+        } catch (error) {}
+    }
+
+    function loadPendingPlayerThemeDraft(renderer) {
+        try {
+            if ("undefined" === typeof localStorage) { return null; }
+            var raw = localStorage.getItem(playerThemeV2ScopedKey(PLAYER_THEME_V6_PENDING_DRAFT_KEY, renderer));
+            var pending = raw ? JSON.parse(raw) : null;
+            if (!pending || !pending.themeJson) { return null; }
+            var documentValue = JSON.parse(pending.themeJson);
+            var theme = normalizeSavedPlayerTheme(documentValue, 0);
+            return theme ? { record: pending, theme: theme } : null;
+        } catch (error) { return null; }
+    }
+
+    function applyPendingPlayerThemeDraft(renderer) {
+        var pending = loadPendingPlayerThemeDraft(renderer);
+        if (!pending || !pending.theme) { return false; }
+        renderer.__elyricActiveUserPlayerThemeId = pending.record.activeThemeId || null;
+        renderer.__elyricPlayerLayout = "custom";
+        renderer.__elyricThemeBaseLayout = pending.theme.baseLayout || "album";
+        applyPlayerLayout(renderer, "custom", false);
+        applyPlayerThemeDefinition(renderer, pending.theme);
+        renderer.__elyricPendingDraftRestored = true;
+        updatePreferenceStatus(renderer, "pending", "已恢复上次退出前未完成同步的本地修改");
+        return true;
+    }
+
+    function stablePlayerThemeV6Value(value) {
+        if (Array.isArray(value)) { return value.map(stablePlayerThemeV6Value); }
+        if (!value || "object" !== typeof value) { return value; }
+        var result = {};
+        Object.keys(value).sort().forEach(function (key) {
+            result[key] = stablePlayerThemeV6Value(value[key]);
+        });
+        return result;
+    }
+
+    function semanticPlayerThemeV6Json(value) {
+        if ("string" === typeof value) { value = JSON.parse(value); }
+        return JSON.stringify(stablePlayerThemeV6Value(value));
+    }
+
+    function playerThemeV6Sha256(value) {
+        var cryptoObject = "undefined" !== typeof crypto ? crypto : null;
+        if (!cryptoObject || !cryptoObject.subtle || "undefined" === typeof TextEncoder) {
+            return Promise.reject(new Error("当前浏览器缺少主题回读校验所需的 SHA-256 能力"));
+        }
+        return cryptoObject.subtle.digest("SHA-256", new TextEncoder().encode(String(value))).then(function (buffer) {
+            return Array.prototype.map.call(new Uint8Array(buffer), function (byte) {
+                return byte.toString(16).padStart(2, "0");
+            }).join("");
+        });
+    }
+
+    function playerThemeV6ControlDockError(theme) {
+        var documentValue;
+        try { documentValue = portablePlayerThemeV5(theme, true); }
+        catch (error) { return "主题参数无法序列化"; }
+        var profiles = documentValue.layouts || {};
+        for (var i = 0; i < PLAYER_THEME_V2_PROFILE_IDS.length; i++) {
+            var profileId = PLAYER_THEME_V2_PROFILE_IDS[i];
+            var profile = profiles[profileId] || {};
+            var canvas = profile.canvas || PLAYER_THEME_CANVAS_SIZES[profileId];
+            var dock = profile.controlDock || {};
+            var x = Number(dock.x), y = Number(dock.y);
+            var width = Number(dock.width), height = Number(dock.height);
+            if (![x, y, width, height].every(isFinite)) {
+                return ("portrait" === profileId ? "竖屏" : "横屏") + "控制台几何无效";
+            }
+            var visibleWidth = Math.max(0, Math.min(Number(canvas.width), x + width) - Math.max(0, x));
+            var visibleHeight = Math.max(0, Math.min(Number(canvas.height), y + height) - Math.max(0, y));
+            if (visibleWidth < 44 || visibleHeight < 44) {
+                return ("portrait" === profileId ? "竖屏" : "横屏") + "控制台在画布内不足 44×44，可操作区域已失联";
+            }
+            if (width < 148 || height < 44) {
+                return ("portrait" === profileId ? "竖屏" : "横屏") + "控制台无法容纳上一曲、播放和下一曲核心按钮";
+            }
+        }
+        return "";
+    }
+
     function commitPlayerThemeV6Section(renderer, sectionId, patch, persist) {
         ensurePlayerThemeV2State(renderer);
         if (!renderer.__elyricThemeV2[sectionId] || "object" !== typeof renderer.__elyricThemeV2[sectionId]) {
@@ -4042,9 +4062,6 @@
         renderer.__elyricThemeBaseLayout = theme.baseLayout || renderer.__elyricThemeBaseLayout || "album";
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-parametric", "true");
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-parametric", "true");
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
-            setAttributeIfChanged(document.body, "data-elyric-parametric", "true");
-        }
         PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
             setPlayerTuning(renderer, definition.id, theme.tuning[definition.id], false);
         });
@@ -4087,6 +4104,11 @@
         }
         renderer.__elyricStoredTheme = renderer.__elyricTheme;
         renderer.__elyricThemeBaseLayout = theme.baseLayout;
+        renderer.__elyricThemeRuntimeRecord = {
+            id: theme.id || renderer.__elyricActiveUserPlayerThemeId || "draft",
+            revision: Number(theme.revision || 0),
+            document: portablePlayerThemeV5(theme, true)
+        };
         syncPlayerThemeLibraryControls(renderer);
     }
 
@@ -4138,13 +4160,6 @@
             return null;
         }
         var preferences = { version: PLAYER_PREFERENCES_VERSION, tuning: {} };
-        preferences.layoutRepairRevision = Math.max(
-            0,
-            Math.min(
-                PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION,
-                Math.round(Number(source.layoutRepairRevision) || 0)
-            )
-        );
         if (isKnownTheme(source.theme)) {
             preferences.theme = source.theme;
         }
@@ -4231,7 +4246,6 @@
         });
         var preferences = {
             version: PLAYER_PREFERENCES_VERSION,
-            layoutRepairRevision: Number(renderer.__elyricLayoutRepairRevision || PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION),
             theme: renderer.__elyricTheme || "classic",
             layout: renderer.__elyricPlayerLayout || "album",
             artworkRotation: false !== renderer.__elyricArtworkRotation,
@@ -4329,87 +4343,6 @@
                 confirmedAt: Date.now(), workspace: workspace || {}, summaries: summaries || []
             }));
         } catch (error) {}
-    }
-
-    function backupPlayerThemeV5Repair(renderer, theme, workspaceRevision) {
-        if (!theme || "undefined" === typeof localStorage) { return; }
-        try {
-            var key = playerThemeV2ScopedKey(PLAYER_THEME_V5_REPAIR_BACKUP_KEY, renderer);
-            var backups = JSON.parse(localStorage.getItem(key) || "[]");
-            if (!Array.isArray(backups)) { backups = []; }
-            var serialized = JSON.stringify(theme);
-            if (!backups.some(function (entry) { return entry && entry.json === serialized; })) {
-                backups.push({
-                    repairedAt: Date.now(),
-                    workspaceRevision: Number(workspaceRevision || 0),
-                    readOnly: true,
-                    json: serialized
-                });
-                localStorage.setItem(key, JSON.stringify(backups.slice(-12)));
-            }
-        } catch (error) {}
-    }
-
-    function loadPlayerThemeV5RepairBackups(renderer) {
-        if ("undefined" === typeof localStorage) { return []; }
-        try {
-            var key = playerThemeV2ScopedKey(PLAYER_THEME_V5_REPAIR_BACKUP_KEY, renderer);
-            var backups = JSON.parse(localStorage.getItem(key) || "[]");
-            return Array.isArray(backups) ? backups.filter(function (entry) {
-                return entry && entry.readOnly && "string" === typeof entry.json;
-            }) : [];
-        } catch (error) { return []; }
-    }
-
-    function restoreLatestPlayerThemeV5RepairBackup(renderer) {
-        var backups = loadPlayerThemeV5RepairBackups(renderer);
-        var entry = backups[backups.length - 1];
-        var original = null;
-        try { original = entry ? normalizeSavedPlayerTheme(JSON.parse(entry.json), 0) : null; }
-        catch (error) { original = null; }
-        if (!original || !original.v2) {
-            updatePlayerThemeLibraryStatus(renderer, "当前账号没有可回退的布局修复备份", "error");
-            syncPlayerThemeLibraryControls(renderer);
-            return false;
-        }
-        renderer.__elyricActiveUserPlayerThemeId = null;
-        renderer.__elyricThemeBaseLayout = original.baseLayout;
-        renderer.__elyricPlayerLayout = "custom";
-        renderer.__elyricLayoutRepairRevision = PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION;
-        applyPlayerLayout(renderer, "custom", false);
-        applyPlayerThemeDefinition(renderer, original);
-        storeCurrentPlayerThemeDesign(renderer);
-        scheduleUserPlayerPreferencesSave(renderer);
-        syncPlayerThemeLibraryControls(renderer);
-        updatePlayerThemeLibraryStatus(
-            renderer,
-            "已回退到修复前只读备份；播放态仍会应用最低安全约束，可在画布编辑中继续调整",
-            "synced"
-        );
-        return true;
-    }
-
-    function repairPlayerThemeV5PreferenceDraft(renderer, preferences, workspaceRevision) {
-        var theme = preferences && preferences.playerThemeDesign;
-        if (!theme || !theme.v2
-            || Number(preferences.layoutRepairRevision) >= PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION) {
-            return false;
-        }
-        var repaired = repairPlayerThemeV5State(theme.v2);
-        if (!repaired.changed) { return false; }
-        backupPlayerThemeV5Repair(renderer, theme, workspaceRevision);
-        var repairCopy = clonePlayerThemeV2Value(theme);
-        repairCopy.id = "layout-repair-" + Date.now().toString(36);
-        repairCopy.name = normalizePlayerThemeName(theme.name + "（安全修复）", "布局安全修复");
-        repairCopy.v2 = repaired.state;
-        repairCopy.revision = 0;
-        repairCopy.updatedAt = Date.now();
-        repairCopy.repairSourceId = theme.id || "draft";
-        preferences.playerThemeDesign = repairCopy;
-        preferences.layoutRepairRevision = PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION;
-        renderer.__elyricLayoutRepairRevision = PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION;
-        renderer.__elyricPendingLayoutRepair = true;
-        return true;
     }
 
     function loadConfirmedPlayerThemeV2Workspace(renderer) {
@@ -4631,20 +4564,6 @@
                 // edited it must restore independently of its original preset.
             }
         } catch (error) {}
-        repairPlayerThemeV5PreferenceDraft(
-            renderer,
-            preferences,
-            playerThemeV2ResponseValue(workspace, "revision", "Revision", 0)
-        );
-        if (Number(preferences.layoutRepairRevision) >= PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION
-            && Array.isArray(preferences.playerThemes)) {
-            preferences.playerThemes = preferences.playerThemes.map(function (theme) {
-                if (!theme || !theme.v2) { return theme; }
-                var repairedTheme = clonePlayerThemeV2Value(theme);
-                repairedTheme.v2 = repairPlayerThemeV5State(repairedTheme.v2).state;
-                return repairedTheme;
-            });
-        }
         preferences.activePlayerThemeId = renderer.__elyricActiveUserPlayerThemeId || null;
         return preferences;
     }
@@ -4699,12 +4618,20 @@
     }
 
     function flushPlayerThemeV2OfflineQueue(renderer) {
+        if (!renderer.__elyricThemeCommitAvailable) { return Promise.resolve(); }
         var queue = [];
         var key = playerThemeV2ScopedKey(PLAYER_THEME_V2_OFFLINE_QUEUE_KEY, renderer);
         try { queue = JSON.parse(localStorage.getItem(key) || "[]"); } catch (error) {}
         if (!Array.isArray(queue) || !queue.length) { return Promise.resolve(); }
         var scope = playerThemeV2AccountScope(renderer);
-        queue = queue.filter(function (operation) { return operation.scope === scope.key; });
+        queue = queue.filter(function (operation) {
+            return operation.scope === scope.key
+                && (operation.path === PLAYER_WORKSPACE_PATH || operation.path === PLAYER_THEME_COMMIT_PATH);
+        });
+        if (!queue.length) {
+            try { localStorage.removeItem(key); } catch (error) {}
+            return Promise.resolve();
+        }
         var hadConflict = false;
         var chain = requestPlayerThemeV2Workspace(renderer).then(function () {});
         queue.forEach(function (operation) {
@@ -4733,10 +4660,14 @@
     }
 
     function persistPlayerThemeV2Workspace(renderer) {
+        if (!renderer.__elyricThemeCommitAvailable) {
+            renderer.__elyricWorkspaceWriteBlocked = true;
+            updatePreferenceStatus(renderer, "local", "当前 DLL 不支持 themeCommitV1；服务器保存已禁用，请更新 DLL");
+            return Promise.resolve(false);
+        }
         renderer.__elyricLastWorkspaceConflict = false;
-        var preferences = collectUserPlayerPreferences(renderer);
-        delete preferences.playerThemes;
-        delete preferences.playerThemeDesign;
+        // ThemeDocumentV6 is the only source for visual/editable state.
+        var globalState = { version: PLAYER_PREFERENCES_VERSION };
         var body = {
             ExpectedRevision: Number(renderer.__elyricWorkspaceRevision || 0),
             ActiveThemeId: renderer.__elyricActiveUserPlayerThemeId || null,
@@ -4744,7 +4675,7 @@
                 collectCurrentPlayerTheme(renderer, "当前设计", "draft"),
                 true
             )),
-            GlobalStateJson: JSON.stringify(preferences),
+            GlobalStateJson: JSON.stringify(globalState),
             LegacyImported: true
         };
         return playerThemeV2ApiRequest(renderer, "PUT", PLAYER_WORKSPACE_PATH, body).then(function (result) {
@@ -4772,6 +4703,7 @@
             if (conflictCopy) {
                 var theme = normalizeRemotePlayerTheme(conflictCopy);
                 if (theme) { renderer.__elyricUserPlayerThemes.push(theme); storePlayerThemeLibrary(renderer); }
+                clearPendingPlayerThemeDraft(renderer);
                 updatePlayerThemeLibraryStatus(renderer, "检测到跨设备修改，已保留为冲突副本", "error");
             }
             if (conflict) {
@@ -4792,6 +4724,7 @@
                 window.__elyricPlayerDiagnostics.workspaceRevision = Number(renderer.__elyricWorkspaceRevision || 0);
                 window.__elyricPlayerDiagnostics.syncSource = conflict ? "conflict" : "server";
             }
+            if (!conflict) { clearPendingPlayerThemeDraft(renderer); }
             return !conflict;
         }).catch(function (error) {
             var status = Number(error && (error.status || error.statusCode) || 0);
@@ -4814,58 +4747,147 @@
         });
     }
 
-    function syncNamedPlayerThemeV2(renderer, theme, create) {
+    function commitNamedPlayerThemeV6(renderer, theme) {
         if (!theme) { return Promise.resolve(null); }
-        var path = create ? PLAYER_THEMES_PATH : PLAYER_THEMES_PATH + "/" + encodeURIComponent(theme.id);
-        var method = create ? "POST" : "PUT";
-        var body = {
-            Id: theme.id,
-            ExpectedRevision: Number(theme.revision || 0),
-            Name: theme.name,
-            ThemeJson: JSON.stringify(portablePlayerThemeV5(theme, true))
-        };
-        return playerThemeV2ApiRequest(renderer, method, path, body).then(function (record) {
-            var resultRecord = playerThemeV2ResponseValue(record, "value", "Value", record);
-            var synced = normalizeRemotePlayerTheme(resultRecord);
-            if (!synced || !(synced.revision > 0)) {
-                var invalidResponse = new Error("服务器主题接口未返回有效 revision");
-                invalidResponse.status = 502;
-                throw invalidResponse;
-            }
-            if (synced) {
-                var index = renderer.__elyricUserPlayerThemes.findIndex(function (item) { return item.id === synced.id; });
-                if (index >= 0) { renderer.__elyricUserPlayerThemes[index] = synced; }
-                else { renderer.__elyricUserPlayerThemes.push(synced); }
-            }
-            removeQueuedPlayerThemeV2Operations(theme.id, renderer);
-            var conflictCopy = playerThemeV2ResponseValue(record, "conflictCopy", "ConflictCopy", null);
-            if (conflictCopy) {
-                var copy = normalizeRemotePlayerTheme(conflictCopy);
-                if (copy) { renderer.__elyricUserPlayerThemes.push(copy); }
-            }
-            storePlayerThemeLibrary(renderer);
-            syncPlayerThemeLibraryControls(renderer);
-            if (playerThemeV2ResponseValue(record, "conflict", "Conflict", false)) {
-                updatePlayerThemeLibraryStatus(renderer, "检测到跨设备修改；当前版本已重新读取，你的修改已保留为冲突副本", "error");
-            } else {
-                updatePlayerThemeLibraryStatus(renderer, "主题“" + synced.name + "”已同步到服务器（revision " + synced.revision + "）", "synced");
-            }
-            return synced;
-        }).catch(function (error) {
-            queuePlayerThemeV2Operation(renderer, {
-                kind: create ? "theme-create" : "theme-update",
-                themeId: theme.id,
-                method: method,
-                path: path,
-                body: body
-            });
+        if (!renderer.__elyricThemeCommitAvailable) {
             updatePlayerThemeLibraryStatus(
                 renderer,
-                playerThemeV2FailureMessage(error, "主题已保存在本地待同步"),
+                "当前 DLL 不支持 themeCommitV1；主题保留在本地，可预览或导出，请更新 DLL 后再保存",
+                "error"
+            );
+            return Promise.resolve(null);
+        }
+        var dockError = playerThemeV6ControlDockError(theme);
+        if (dockError) {
+            updatePlayerThemeLibraryStatus(renderer, "无法保存：" + dockError, "error");
+            return Promise.resolve(null);
+        }
+        var globalState = { version: PLAYER_PREFERENCES_VERSION };
+        var documentValue = portablePlayerThemeV5(theme, true);
+        var themeJson = JSON.stringify(documentValue);
+        var body = {
+            ExpectedWorkspaceRevision: Number(renderer.__elyricWorkspaceRevision || 0),
+            ThemeId: theme.id,
+            ExpectedThemeRevision: Number(theme.revision || 0),
+            Name: theme.name,
+            ThemeJson: themeJson,
+            GlobalStateJson: JSON.stringify(globalState),
+            LegacyImported: true
+        };
+        updatePlayerThemeLibraryStatus(renderer, "正在原子保存主题与当前草稿…", "saving");
+        return playerThemeV2ApiRequest(renderer, "PUT", PLAYER_THEME_COMMIT_PATH, body).then(function (result) {
+            var conflict = !!playerThemeV2ResponseValue(result, "conflict", "Conflict", false);
+            var conflictCopy = playerThemeV2ResponseValue(result, "conflictCopy", "ConflictCopy", null);
+            if (conflict) {
+                if (conflictCopy) {
+                    var copy = normalizeRemotePlayerTheme(conflictCopy);
+                    if (copy) { renderer.__elyricUserPlayerThemes.push(copy); }
+                    clearPendingPlayerThemeDraft(renderer);
+                }
+                storePlayerThemeLibrary(renderer);
+                syncPlayerThemeLibraryControls(renderer);
+                updatePlayerThemeLibraryStatus(
+                    renderer,
+                    "检测到跨设备 revision 冲突；原主题和 Workspace 未改写，本地内容已保存为未激活冲突副本",
+                    "error"
+                );
+                return null;
+            }
+            var committedWorkspace = playerThemeV2ResponseValue(result, "workspace", "Workspace", null);
+            var committedThemeRecord = playerThemeV2ResponseValue(result, "theme", "Theme", null);
+            var normalizedThemeJson = String(playerThemeV2ResponseValue(
+                result, "normalizedThemeJson", "NormalizedThemeJson", ""
+            ));
+            var checksum = String(playerThemeV2ResponseValue(result, "checksum", "Checksum", "")).toLowerCase();
+            var committedTheme = normalizeRemotePlayerTheme(committedThemeRecord);
+            var committedWorkspaceRevision = Number(playerThemeV2ResponseValue(
+                committedWorkspace, "revision", "Revision", 0
+            ));
+            if (!committedTheme || committedTheme.id !== theme.id || !(committedTheme.revision > Number(theme.revision || 0))
+                || !(committedWorkspaceRevision > Number(body.ExpectedWorkspaceRevision))
+                || !/^[0-9a-f]{64}$/.test(checksum)) {
+                var invalidCommit = new Error("ThemeCommit 未返回有效 revision 或 checksum");
+                invalidCommit.status = 502;
+                throw invalidCommit;
+            }
+            return playerThemeV6Sha256(normalizedThemeJson).then(function (calculatedChecksum) {
+                if (calculatedChecksum !== checksum
+                    || semanticPlayerThemeV6Json(normalizedThemeJson) !== semanticPlayerThemeV6Json(themeJson)) {
+                    var checksumError = new Error("ThemeCommit 返回内容与本地 ThemeDocumentV6 不一致");
+                    checksumError.status = 502;
+                    throw checksumError;
+                }
+                return Promise.all([
+                    playerThemeV2ApiRequest(renderer, "GET", PLAYER_WORKSPACE_PATH),
+                    playerThemeV2ApiRequest(renderer, "GET", PLAYER_THEMES_PATH + "/" + encodeURIComponent(theme.id))
+                ]).then(function (readback) {
+                    var workspace = readback[0] || {};
+                    var themeRecord = readback[1] || {};
+                    var workspaceRevision = Number(playerThemeV2ResponseValue(workspace, "revision", "Revision", 0));
+                    var themeRevision = Number(playerThemeV2ResponseValue(themeRecord, "revision", "Revision", 0));
+                    var activeThemeId = String(playerThemeV2ResponseValue(workspace, "activeThemeId", "ActiveThemeId", ""));
+                    var draftJson = String(playerThemeV2ResponseValue(workspace, "draftJson", "DraftJson", "{}"));
+                    var storedThemeJson = String(playerThemeV2ResponseValue(themeRecord, "themeJson", "ThemeJson", "{}"));
+                    if (workspaceRevision !== committedWorkspaceRevision
+                        || themeRevision !== committedTheme.revision
+                        || activeThemeId !== theme.id
+                        || semanticPlayerThemeV6Json(draftJson) !== semanticPlayerThemeV6Json(normalizedThemeJson)
+                        || semanticPlayerThemeV6Json(storedThemeJson) !== semanticPlayerThemeV6Json(normalizedThemeJson)) {
+                        var readbackError = new Error("主题保存后的 Workspace/Theme 回读校验失败");
+                        readbackError.status = 502;
+                        throw readbackError;
+                    }
+                    var verified = normalizeRemotePlayerTheme(themeRecord);
+                    var index = renderer.__elyricUserPlayerThemes.findIndex(function (item) {
+                        return item.id === verified.id;
+                    });
+                    if (index >= 0) { renderer.__elyricUserPlayerThemes[index] = verified; }
+                    else { renderer.__elyricUserPlayerThemes.push(verified); }
+                    renderer.__elyricActiveUserPlayerThemeId = verified.id;
+                    renderer.__elyricWorkspaceRevision = workspaceRevision;
+                    renderer.__elyricWorkspaceLegacyImported = !!playerThemeV2ResponseValue(
+                        workspace, "legacyImported", "LegacyImported", true
+                    );
+                    renderer.__elyricThemeRuntimeRecord = {
+                        id: verified.id,
+                        revision: verified.revision,
+                        document: JSON.parse(normalizedThemeJson)
+                    };
+                    var summaries = playerThemeV2ResponseValue(workspace, "themes", "Themes", []);
+                    storeConfirmedPlayerThemeV2Workspace(renderer, workspace, summaries);
+                    removeQueuedPlayerThemeV2Operations(theme.id, renderer);
+                    clearPendingPlayerThemeDraft(renderer);
+                    storePlayerThemeLibrary(renderer);
+                    syncPlayerThemeLibraryControls(renderer);
+                    updatePlayerThemeLibraryStatus(
+                        renderer,
+                        "主题“" + verified.name + "”已原子保存并回读确认（revision " + verified.revision + "）",
+                        "synced"
+                    );
+                    return verified;
+                });
+            });
+        }).catch(function (error) {
+            var status = Number(error && (error.status || error.statusCode) || 0);
+            if (400 !== status && 413 !== status && 404 !== status) {
+                queuePlayerThemeV2Operation(renderer, {
+                    kind: "theme-commit", themeId: theme.id,
+                    method: "PUT", path: PLAYER_THEME_COMMIT_PATH, body: body
+                });
+            }
+            updatePlayerThemeLibraryStatus(
+                renderer,
+                playerThemeV2FailureMessage(error, "主题仍保存在账号隔离的本地待同步日志中"),
                 "error"
             );
             return null;
         });
+    }
+
+    function syncNamedPlayerThemeV2(renderer, theme) {
+        renderer.__elyricThemeCommitChain = (renderer.__elyricThemeCommitChain || Promise.resolve())
+            .then(function () { return commitNamedPlayerThemeV6(renderer, theme); });
+        return renderer.__elyricThemeCommitChain;
     }
 
     function uploadPlayerThemeV2Asset(renderer, file, kind, lineId) {
@@ -4902,7 +4924,9 @@
         var family = "ElyricUserFont-" + lineId + "-" + (style.fontAssetId || "url").replace(/[^a-z0-9_-]/gi, "");
         var styleElement = renderer.__elyricThemeV2FontStyle || document.createElement("style");
         renderer.__elyricThemeV2FontStyle = styleElement;
-        if (!styleElement.parentNode) { document.head.appendChild(styleElement); }
+        if (!styleElement.parentNode) {
+            (renderer.__elyricShadowRoot || document.head).appendChild(styleElement);
+        }
         var rules = renderer.__elyricThemeV2FontRules || {};
         rules[lineId] = "@font-face{font-family:'" + family + "';src:url('" + String(url).replace(/[\"'()\\]/g, "") + "') format('woff2');font-display:swap;}";
         renderer.__elyricThemeV2FontRules = rules;
@@ -5092,7 +5116,9 @@
                 workspaceRevision: Number(renderer.__elyricWorkspaceRevision || 0),
                 schemaVersion: PLAYER_THEME_SCHEMA_VERSION,
                 profile: renderer.__elyricThemeV2Profile || currentPlayerThemeV2Profile(),
-                rootCount: document.querySelectorAll ? document.querySelectorAll(".elyric-player-root").length : 1,
+                rootCount: renderer.__elyricShadowRoot && renderer.__elyricShadowRoot.querySelectorAll
+                    ? renderer.__elyricShadowRoot.querySelectorAll(".elyric-player-root").length
+                    : (document.querySelectorAll ? document.querySelectorAll(".elyric-player-root").length : 1),
                 syncSource: source,
                 workspaceErrorStatus: Number(renderer.__elyricWorkspaceLastErrorStatus || 0),
                 workspaceErrorMessage: renderer.__elyricWorkspaceLastErrorMessage || "",
@@ -5113,11 +5139,10 @@
                 }
             }, 0);
         }
-        if (renderer.__elyricPendingLayoutRepair && "server" === source) {
-            renderer.__elyricPendingLayoutRepair = false;
+        if (applyPendingPlayerThemeDraft(renderer)) {
             setTimeout(function () {
                 if (renderer.__elyricThemeControl && renderer.__elyricWorkspaceReady) {
-                    persistUserPlayerPreferences(renderer);
+                    scheduleUserPlayerPreferencesSave(renderer);
                 }
             }, 0);
         }
@@ -5223,6 +5248,10 @@
 
     function persistUserPlayerPreferences(renderer) {
         if (!renderer || !renderer.__elyricWorkspaceReady) { return Promise.resolve(false); }
+        if (!renderer.__elyricThemeCommitAvailable) {
+            updatePreferenceStatus(renderer, "local", "当前 DLL 不支持 themeCommitV1；修改保存在本地待同步日志中");
+            return Promise.resolve(false);
+        }
         if (renderer.__elyricWorkspaceWriteBlocked) {
             updatePreferenceStatus(renderer, "local", "服务器仍拒绝 Theme V6；当前修改仅保存在本地，请更新插件 DLL 后刷新重试");
             return Promise.resolve(false);
@@ -5242,6 +5271,7 @@
     function scheduleUserPlayerPreferencesSave(renderer) {
         if (!renderer || !renderer.__elyricThemeControl || !renderer.__elyricWorkspaceReady
             || renderer.__elyricApplyingUserPreferences) { return; }
+        storeCurrentPlayerThemeDesign(renderer);
         if (renderer.__elyricWorkspaceWriteBlocked) { return; }
         if (renderer.__elyricPreferenceSaveTimer) { clearTimeout(renderer.__elyricPreferenceSaveTimer); }
         updatePreferenceStatus(renderer, "pending", "修改待同步");
@@ -5256,9 +5286,6 @@
             return;
         }
         renderer.__elyricApplyingUserPreferences = true;
-        renderer.__elyricLayoutRepairRevision = Number(
-            preferences.layoutRepairRevision || renderer.__elyricLayoutRepairRevision || 0
-        );
         if (Array.isArray(preferences.playerThemes)) {
             renderer.__elyricUserPlayerThemes = preferences.playerThemes.slice(0, MAX_LEGACY_USER_PLAYER_THEMES);
             storePlayerThemeLibrary(renderer);
@@ -5697,9 +5724,6 @@
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-background-mode", modeId);
         setAttributeIfChanged(renderer.__elyricSettingsPanel, "data-elyric-background-mode", modeId);
         setAttributeIfChanged(renderer.__elyricMediaPanel, "data-elyric-background-mode", modeId);
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
-            setAttributeIfChanged(document.body, "data-elyric-background-mode", modeId);
-        }
         syncSegmentedButtons(renderer.__elyricBackgroundButtons, modeId);
         if (persist) {
             storeCurrentPlayerThemeDesign(renderer);
@@ -5766,9 +5790,6 @@
         renderer.__elyricLyricAlignment = alignmentId;
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-alignment", alignmentId);
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-alignment", alignmentId);
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
-            setAttributeIfChanged(document.body, "data-elyric-alignment", alignmentId);
-        }
         syncSegmentedButtons(renderer.__elyricAlignmentButtons, alignmentId);
         if (persist) {
             storeCurrentPlayerThemeDesign(renderer);
@@ -5808,9 +5829,6 @@
                 : value + (definition.cssUnit || "");
         setDisplayStyle(renderer.__elyricThemeControl, definition.cssProperty, cssValue);
         setDisplayStyle(renderer.itemsContainer, definition.cssProperty, cssValue);
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
-            setDisplayStyle(document.body, definition.cssProperty, cssValue);
-        }
         var input = renderer.__elyricPlayerTuningInputs
             && renderer.__elyricPlayerTuningInputs[settingId];
         if (input) {
@@ -5934,11 +5952,16 @@
         }
     }
 
+    function playerOverlayActiveElement(panel) {
+        var root = panel && panel.getRootNode ? panel.getRootNode() : null;
+        return root && root.activeElement || document.activeElement;
+    }
+
     function restorePlayerOverlayFocus(panel, button) {
         if (!button || !button.focus) {
             return;
         }
-        var activeElement = document.activeElement;
+        var activeElement = playerOverlayActiveElement(panel);
         if (!activeElement
             || activeElement === document.body
             || (panel && panel.contains && panel.contains(activeElement))) {
@@ -5956,7 +5979,7 @@
         }
         var first = focusable[0];
         var last = focusable[focusable.length - 1];
-        var activeElement = document.activeElement;
+        var activeElement = playerOverlayActiveElement(panel);
         var shouldWrapBackward = !!event.shiftKey
             && (activeElement === first || !(panel.contains && panel.contains(activeElement)));
         var shouldWrapForward = !event.shiftKey
@@ -5972,6 +5995,23 @@
         }
         (shouldWrapBackward ? last : first).focus();
         return true;
+    }
+
+    function setVisualizerEnabled(renderer, enabled, persist) {
+        ensurePlayerThemeV2State(renderer);
+        renderer.__elyricVisualizerEnabled = !!enabled;
+        renderer.__elyricThemeV2.visualizer.enabled = !!enabled;
+        var button = renderer.__elyricVisualizerToggleButton
+            || renderer.__elyricPlayerButtons && renderer.__elyricPlayerButtons.visualizerToggle;
+        if (button) {
+            setAttributeIfChanged(button, "aria-pressed", enabled ? "true" : "false");
+            setAttributeIfChanged(button, "data-elyric-active", enabled ? "true" : "false");
+        }
+        syncVisualizerAnimation(renderer);
+        if (persist) {
+            storeCurrentPlayerThemeDesign(renderer);
+            scheduleUserPlayerPreferencesSave(renderer);
+        }
     }
 
     var PLAYER_OVERLAY_LAYOUTS = {
@@ -6283,9 +6323,6 @@
             setAttributeIfChanged(renderer.__elyricSettingsButton, "aria-expanded", open ? "true" : "false");
             setAttributeIfChanged(renderer.__elyricSettingsButton, "data-elyric-active", open ? "true" : "false");
         }
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
-            setAttributeIfChanged(document.body, "data-elyric-settings-open", open ? "true" : "false");
-        }
         syncPlayerOverlayScrim(renderer);
         if (open && !wasOpen) {
             focusPlayerOverlay(renderer.__elyricSettingsPanel);
@@ -6341,9 +6378,6 @@
         if (renderer.__elyricMediaButton) {
             setAttributeIfChanged(renderer.__elyricMediaButton, "aria-expanded", open ? "true" : "false");
             setAttributeIfChanged(renderer.__elyricMediaButton, "data-elyric-active", open ? "true" : "false");
-        }
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
-            setAttributeIfChanged(document.body, "data-elyric-media-open", open ? "true" : "false");
         }
         if (open) {
             positionMediaPanelNearTrigger(renderer);
@@ -6460,50 +6494,41 @@
         else if (!renderer.__elyricLyricStatusState || "ready" === renderer.__elyricLyricStatusState) {
             setOwnedLyricStatus(renderer, "empty");
         }
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
-            setAttributeIfChanged(
-                document.body,
-                "data-elyric-has-lyrics",
-                hasLyrics ? "true" : "false"
-            );
-        }
     }
 
     function syncPlayerPageState(renderer, visible) {
-        var body = document.body;
-        if (!body || !body.classList) {
+        var host = renderer && renderer.__elyricShadowHost;
+        if (!host || !host.classList) {
             return;
         }
         if (visible) {
-            body.__elyricPlayerPageOwner = renderer;
-            if (!body.classList.contains("elyric-player-active-page")) {
-                body.classList.add("elyric-player-active-page");
+            if (!host.classList.contains("elyric-player-active-page")) {
+                host.classList.add("elyric-player-active-page");
             }
-            setAttributeIfChanged(body, "data-elyric-queue-open", renderer.__elyricQueueOpen ? "true" : "false");
-            setAttributeIfChanged(body, "data-elyric-background-mode", renderer.__elyricBackgroundMode || "blur");
-            setAttributeIfChanged(body, "data-elyric-alignment", renderer.__elyricLyricAlignment || "left");
-            setAttributeIfChanged(body, "data-elyric-settings-open", renderer.__elyricSettingsOpen ? "true" : "false");
-            setAttributeIfChanged(body, "data-elyric-media-open", renderer.__elyricMediaOpen ? "true" : "false");
-            setAttributeIfChanged(body, "data-elyric-parametric", "true");
+            setAttributeIfChanged(host, "data-elyric-queue-open", renderer.__elyricQueueOpen ? "true" : "false");
+            setAttributeIfChanged(host, "data-elyric-background-mode", renderer.__elyricBackgroundMode || "blur");
+            setAttributeIfChanged(host, "data-elyric-alignment", renderer.__elyricLyricAlignment || "left");
+            setAttributeIfChanged(host, "data-elyric-settings-open", renderer.__elyricSettingsOpen ? "true" : "false");
+            setAttributeIfChanged(host, "data-elyric-media-open", renderer.__elyricMediaOpen ? "true" : "false");
+            setAttributeIfChanged(host, "data-elyric-parametric", "true");
             setAttributeIfChanged(
-                body,
+                host,
                 "data-elyric-has-lyrics",
                 false === renderer.__elyricHasLyrics ? "false" : "true"
             );
-            syncPlayerThemePageStyles(renderer, body, true);
-        } else if (body.__elyricPlayerPageOwner === renderer) {
-            body.__elyricPlayerPageOwner = null;
-            if (body.classList.contains("elyric-player-active-page")) {
-                body.classList.remove("elyric-player-active-page");
+            syncPlayerThemePageStyles(renderer, host, true);
+        } else {
+            if (host.classList.contains("elyric-player-active-page")) {
+                host.classList.remove("elyric-player-active-page");
             }
-            removeAttributeIfPresent(body, "data-elyric-queue-open");
-            removeAttributeIfPresent(body, "data-elyric-background-mode");
-            removeAttributeIfPresent(body, "data-elyric-alignment");
-            removeAttributeIfPresent(body, "data-elyric-settings-open");
-            removeAttributeIfPresent(body, "data-elyric-media-open");
-            removeAttributeIfPresent(body, "data-elyric-has-lyrics");
-            removeAttributeIfPresent(body, "data-elyric-parametric");
-            syncPlayerThemePageStyles(renderer, body, false);
+            removeAttributeIfPresent(host, "data-elyric-queue-open");
+            removeAttributeIfPresent(host, "data-elyric-background-mode");
+            removeAttributeIfPresent(host, "data-elyric-alignment");
+            removeAttributeIfPresent(host, "data-elyric-settings-open");
+            removeAttributeIfPresent(host, "data-elyric-media-open");
+            removeAttributeIfPresent(host, "data-elyric-has-lyrics");
+            removeAttributeIfPresent(host, "data-elyric-parametric");
+            syncPlayerThemePageStyles(renderer, host, false);
         }
     }
 
@@ -6607,10 +6632,17 @@
         ensureThemeState(renderer);
         configuration = normalizeDisplayConfiguration(configuration);
         renderer.__elyricDisplayConfiguration = configuration;
+        renderer.__elyricThemeCommitAvailable = "v1" === configuration.themeCommitVersion;
+        if (renderer.__elyricThemeCommitAvailable) { renderer.__elyricWorkspaceWriteBlocked = false; }
         setAttributeIfChanged(
             renderer.__elyricThemeControl,
             "data-elyric-server-theme-schema",
             String(Math.round(Number(configuration.themeSchemaVersion) || 0))
+        );
+        setAttributeIfChanged(
+            renderer.__elyricThemeControl,
+            "data-elyric-theme-commit",
+            renderer.__elyricThemeCommitAvailable ? "v1" : "unavailable"
         );
 
         var container = renderer.itemsContainer;
@@ -6669,6 +6701,14 @@
         applyPlayerShellConfiguration(renderer, configuration);
         if (renderer.__elyricThemeControl && !renderer.__elyricWorkspaceReady) {
             setLyricScale(renderer, configuration.fontSizePercent, false);
+        }
+        syncPlayerThemeLibraryControls(renderer);
+        if (renderer.__elyricThemeControl && !renderer.__elyricThemeCommitAvailable) {
+            updatePlayerThemeLibraryStatus(
+                renderer,
+                "当前 DLL 未提供 themeCommitV1：播放器、预览和 JSON 导出可用，服务器保存已禁用",
+                "error"
+            );
         }
     }
 
@@ -7682,7 +7722,9 @@
     }
 
     function installQueueDismissHandler(renderer) {
-        var eventHost = document.addEventListener ? document : document.body;
+        var eventHost = renderer.__elyricShadowRoot && renderer.__elyricShadowRoot.addEventListener
+            ? renderer.__elyricShadowRoot
+            : (document.addEventListener ? document : document.body);
         if (!eventHost || !eventHost.addEventListener) {
             return;
         }
@@ -7746,10 +7788,8 @@
             return;
         }
         if ("visualizerToggle" === action) {
-            renderer.__elyricVisualizerEnabled = false === renderer.__elyricVisualizerEnabled;
-            setAttributeIfChanged(renderer.__elyricPlayerButtons.visualizerToggle, "aria-pressed",
-                renderer.__elyricVisualizerEnabled ? "true" : "false");
-            syncVisualizerAnimation(renderer); return;
+            setVisualizerEnabled(renderer, false === renderer.__elyricVisualizerEnabled, true);
+            return;
         }
         if ("secondaryLyrics" === action) {
             setSecondLineOverride(renderer, !renderer.__elyricLocalShowSecond, true); return;
@@ -8688,16 +8728,25 @@
             select.setAttribute("value", select.value);
         }
         var active = activeUserPlayerTheme(renderer);
+        var commitAvailable = !!renderer.__elyricThemeCommitAvailable;
+        var upgradeTitle = commitAvailable ? "" : "请先更新 EmbyLyricEnhance.dll，以启用 themeCommitV1 原子保存";
         if (renderer.__elyricPlayerThemeNameInput) {
             var activeName = active ? active.name : "";
             renderer.__elyricPlayerThemeNameInput.value = activeName;
             renderer.__elyricPlayerThemeNameInput.setAttribute("value", activeName);
         }
+        [renderer.__elyricPlayerThemeCreateButton, renderer.__elyricPlayerThemeDuplicateButton].forEach(function (button) {
+            if (!button) { return; }
+            button.disabled = !commitAvailable;
+            button.setAttribute("title", upgradeTitle);
+        });
         if (renderer.__elyricPlayerThemeSaveButton) {
-            renderer.__elyricPlayerThemeSaveButton.disabled = !active;
+            renderer.__elyricPlayerThemeSaveButton.disabled = !active || !commitAvailable;
+            renderer.__elyricPlayerThemeSaveButton.setAttribute("title", upgradeTitle);
         }
         if (renderer.__elyricPlayerThemeRenameButton) {
-            renderer.__elyricPlayerThemeRenameButton.disabled = !active;
+            renderer.__elyricPlayerThemeRenameButton.disabled = !active || !commitAvailable;
+            renderer.__elyricPlayerThemeRenameButton.setAttribute("title", upgradeTitle);
         }
         if (renderer.__elyricPlayerThemeDeleteButton) {
             renderer.__elyricPlayerThemeDeleteButton.disabled = !active;
@@ -8738,28 +8787,6 @@
             ).then(function (record) {
                 var loaded = normalizeRemotePlayerTheme(record);
                 if (!loaded) { return; }
-                if (loaded.v2) {
-                    var repaired = repairPlayerThemeV5State(loaded.v2);
-                    if (repaired.changed) {
-                        backupPlayerThemeV5Repair(renderer, loaded, renderer.__elyricWorkspaceRevision);
-                        var repairCopy = clonePlayerThemeV2Value(loaded);
-                        repairCopy.id = "layout-repair-" + Date.now().toString(36);
-                        repairCopy.name = normalizePlayerThemeName(loaded.name + "（安全修复）", "布局安全修复");
-                        repairCopy.v2 = repaired.state;
-                        repairCopy.revision = 0;
-                        repairCopy.updatedAt = Date.now();
-                        repairCopy.repairSourceId = loaded.id;
-                        renderer.__elyricUserPlayerThemes.push(repairCopy);
-                        renderer.__elyricActiveUserPlayerThemeId = repairCopy.id;
-                        storePlayerThemeLibrary(renderer);
-                        applyPlayerThemeDefinition(renderer, repairCopy);
-                        storeCurrentPlayerThemeDesign(renderer);
-                        syncNamedPlayerThemeV2(renderer, repairCopy, true).then(function () {
-                            return persistPlayerThemeV2Workspace(renderer);
-                        });
-                        return;
-                    }
-                }
                 var index = renderer.__elyricUserPlayerThemes.indexOf(theme);
                 renderer.__elyricUserPlayerThemes[index] = loaded;
                 selectPlayerThemeLibraryEntry(renderer, "user:" + loaded.id);
@@ -8798,6 +8825,10 @@
     }
 
     function createUserPlayerTheme(renderer, duplicate) {
+        if (!renderer.__elyricThemeCommitAvailable) {
+            updatePlayerThemeLibraryStatus(renderer, "当前 DLL 不支持 themeCommitV1；请更新 DLL，当前设计仍可导出", "error");
+            return;
+        }
         ensurePlayerThemeLibrary(renderer);
         var active = activeUserPlayerTheme(renderer);
         var fallbackName = duplicate && active ? active.name + " 副本" : "我的主题 " + (renderer.__elyricUserPlayerThemes.length + 1);
@@ -8806,6 +8837,11 @@
             ? fallbackName
             : playerThemeNameFromInput(renderer, fallbackName);
         var theme = collectCurrentPlayerTheme(renderer, name, id);
+        var dockError = playerThemeV6ControlDockError(theme);
+        if (dockError) {
+            updatePlayerThemeLibraryStatus(renderer, "无法保存：" + dockError, "error");
+            return;
+        }
         renderer.__elyricUserPlayerThemes.push(theme);
         renderer.__elyricActiveUserPlayerThemeId = id;
         renderer.__elyricPlayerLayout = "custom";
@@ -8820,6 +8856,10 @@
     }
 
     function saveActiveUserPlayerTheme(renderer) {
+        if (!renderer.__elyricThemeCommitAvailable) {
+            updatePlayerThemeLibraryStatus(renderer, "当前 DLL 不支持 themeCommitV1；请更新 DLL，当前设计仍可导出", "error");
+            return;
+        }
         var active = activeUserPlayerTheme(renderer);
         if (!active) {
             createUserPlayerTheme(renderer, false);
@@ -8830,6 +8870,11 @@
             playerThemeNameFromInput(renderer, active.name),
             active.id
         );
+        var dockError = playerThemeV6ControlDockError(saved);
+        if (dockError) {
+            updatePlayerThemeLibraryStatus(renderer, "无法保存：" + dockError, "error");
+            return;
+        }
         saved.revision = Number(active.revision || 0);
         var index = renderer.__elyricUserPlayerThemes.indexOf(active);
         renderer.__elyricUserPlayerThemes[index] = saved;
@@ -8848,6 +8893,10 @@
     }
 
     function renameActiveUserPlayerTheme(renderer) {
+        if (!renderer.__elyricThemeCommitAvailable) {
+            updatePlayerThemeLibraryStatus(renderer, "当前 DLL 不支持 themeCommitV1；请更新 DLL 后再重命名", "error");
+            return;
+        }
         var active = activeUserPlayerTheme(renderer);
         if (!active) {
             return;
@@ -9905,9 +9954,6 @@
         ensurePlayerThemeV2State(renderer);
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-designer-open", open ? "true" : "false");
         setAttributeIfChanged(renderer.__elyricSettingsPanel, "data-elyric-designer-open", open ? "true" : "false");
-        if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
-            setAttributeIfChanged(document.body, "data-elyric-designer-open", open ? "true" : "false");
-        }
         if (renderer.__elyricThemeV2DesignerToggle) {
             setAttributeIfChanged(renderer.__elyricThemeV2DesignerToggle, "aria-pressed", open ? "true" : "false");
         }
@@ -10693,22 +10739,27 @@
     }
 
     function scrollCurrentLyricIntoView(renderer, smooth) {
-        var container = renderer.itemsContainer;
+        var container = renderer.__elyricLyricViewport || renderer.itemsContainer;
         var current = container && container.querySelector
             ? container.querySelector(".elyric-line-current")
             : null;
-        if (!current || !current.scrollIntoView) {
+        if (!current || !container) {
             return false;
         }
-        try {
-            current.scrollIntoView({
-                block: "center",
-                inline: "nearest",
-                behavior: smooth ? "smooth" : "auto"
-            });
-        } catch (error) {
-            current.scrollIntoView();
+        var offsetTop = Number(current.offsetTop);
+        var rowHeight = Number(current.offsetHeight);
+        var viewportHeight = Number(container.clientHeight);
+        if (!isFinite(offsetTop)) { offsetTop = 0; }
+        if (!isFinite(rowHeight)) { rowHeight = 0; }
+        if (!isFinite(viewportHeight)) { viewportHeight = 0; }
+        var targetTop = Math.max(0, offsetTop - Math.max(0, viewportHeight - rowHeight) / 2);
+        if (container.scrollTo) {
+            try { container.scrollTo({ top: targetTop, left: 0, behavior: smooth ? "smooth" : "auto" }); }
+            catch (error) { container.scrollTo(0, targetTop); }
+        } else {
+            container.scrollTop = targetTop;
         }
+        resetOwnedPlayerScrollState(renderer);
         renderer.__elyricLastFollowedLineIndex = current.getAttribute
             ? current.getAttribute("data-index")
             : null;
@@ -10785,7 +10836,7 @@
     function createThemeControl(renderer) {
         ensurePlayerThemeLibrary(renderer);
         var control = document.createElement("div");
-        control.className = "elyric-player-root elyric-player-shell elyric-theme-picker";
+        control.className = "elyric-player-root elyric-player-shell elyric-theme-picker elyric-player-active-page";
         control.setAttribute("data-elyric-control", "player");
         control.setAttribute("data-elyric-build", PLAYER_BUILD_ID);
         control.setAttribute("data-elyric-schema", String(PLAYER_THEME_SCHEMA_VERSION));
@@ -10873,7 +10924,7 @@
         stage.appendChild(metadata);
 
         var lyricViewport = document.createElement("div");
-        lyricViewport.className = "elyric-player-lyric-viewport lyricsScroller";
+        lyricViewport.className = "elyric-player-lyric-viewport";
         lyricViewport.setAttribute("role", "list");
         lyricViewport.setAttribute("aria-label", "同步歌词");
         lyricViewport.setAttribute("tabindex", "0");
@@ -11002,10 +11053,7 @@
         setButtonIcon(visualizerButton, "visualizer");
         visualizerButton.addEventListener("click", function (event) {
             stopControlEvent(event);
-            renderer.__elyricVisualizerEnabled = false === renderer.__elyricVisualizerEnabled;
-            setAttributeIfChanged(visualizerButton, "aria-pressed", renderer.__elyricVisualizerEnabled ? "true" : "false");
-            setAttributeIfChanged(visualizerButton, "data-elyric-active", renderer.__elyricVisualizerEnabled ? "true" : "false");
-            syncVisualizerAnimation(renderer);
+            setVisualizerEnabled(renderer, false === renderer.__elyricVisualizerEnabled, true);
         });
         visualizerButton.addEventListener("pointerdown", stopControlEvent);
         tools.appendChild(visualizerButton);
@@ -11233,10 +11281,6 @@
         var deleteThemeButton = createSettingsActionButton(
             "删除", "delete", function () { deleteActiveUserPlayerTheme(renderer); }, "elyric-theme-delete"
         );
-        var restoreRepairBackupButton = createSettingsActionButton(
-            "回退布局修复", "undo", function () { restoreLatestPlayerThemeV5RepairBackup(renderer); },
-            "elyric-theme-restore-repair"
-        );
         var undoThemeResetButton = createSettingsActionButton(
             "撤销主题重置", "undo", function () { undoPlayerThemeReset(renderer); },
             "elyric-theme-undo-reset"
@@ -11266,7 +11310,7 @@
         );
         [
             newThemeButton, saveThemeButton, duplicateThemeButton, renameThemeButton,
-            deleteThemeButton, undoThemeResetButton, restoreRepairBackupButton, copyJsonButton, downloadJsonButton,
+            deleteThemeButton, undoThemeResetButton, copyJsonButton, downloadJsonButton,
             pasteJsonButton, importFileButton
         ]
             .forEach(function (button) { themeLibraryActions.appendChild(button); });
@@ -11916,6 +11960,8 @@
         renderer.__elyricPlayerThemeLibrarySelect = themeLibrarySelect;
         renderer.__elyricPlayerThemeNameInput = themeNameInput;
         renderer.__elyricPlayerThemeLibraryStatus = themeLibraryStatus;
+        renderer.__elyricPlayerThemeCreateButton = newThemeButton;
+        renderer.__elyricPlayerThemeDuplicateButton = duplicateThemeButton;
         renderer.__elyricPlayerThemeSaveButton = saveThemeButton;
         renderer.__elyricPlayerThemeRenameButton = renameThemeButton;
         renderer.__elyricPlayerThemeDeleteButton = deleteThemeButton;
@@ -11939,12 +11985,14 @@
                 }
                 scrollCurrentLyricIntoView(renderer, false);
             }
+            resetOwnedPlayerScrollState(renderer);
             if (renderer.__elyricMediaOpen) {
                 positionMediaPanelNearTrigger(renderer);
             }
             repositionPlayerOverlays(renderer);
             setTimeout(function () {
                 if (!renderer.__elyricDestroyed) {
+                    resetOwnedPlayerScrollState(renderer);
                     updateWordStates(renderer, renderer.__elyricLastPositionTicks || 0);
                     scrollCurrentLyricIntoView(renderer, false);
                     repositionPlayerOverlays(renderer);
@@ -11965,7 +12013,14 @@
             };
             window.addEventListener("online", renderer.__elyricThemeV2OnlineHandler);
             renderer.__elyricThemeV2VisibilityHandler = function () {
-                if ("visible" === document.visibilityState && renderer.__elyricWorkspaceReady) {
+                if ("hidden" === document.visibilityState) {
+                    storeCurrentPlayerThemeDesign(renderer);
+                    if (renderer.__elyricPreferenceSaveTimer) {
+                        clearTimeout(renderer.__elyricPreferenceSaveTimer);
+                        renderer.__elyricPreferenceSaveTimer = 0;
+                    }
+                    if (renderer.__elyricWorkspaceReady) { persistUserPlayerPreferences(renderer); }
+                } else if ("visible" === document.visibilityState && renderer.__elyricWorkspaceReady) {
                     renderer.__elyricUserPreferencesPromise = null;
                     requestUserPlayerPreferences(renderer, true);
                 }
@@ -12033,8 +12088,11 @@
                 );
             }
         };
-        if (document.addEventListener) {
-            document.addEventListener("keydown", overlayKeyHandler, true);
+        var keyEventHost = renderer.__elyricShadowRoot && renderer.__elyricShadowRoot.addEventListener
+            ? renderer.__elyricShadowRoot : document;
+        if (keyEventHost && keyEventHost.addEventListener) {
+            keyEventHost.addEventListener("keydown", overlayKeyHandler, true);
+            renderer.__elyricOverlayKeyHost = keyEventHost;
             renderer.__elyricOverlayKeyHandler = overlayKeyHandler;
         }
         installQueueDismissHandler(renderer);
@@ -12168,6 +12226,10 @@
                 && front !== container
                 && !container.contains(front)
                 && !(front.contains && front.contains(container))
+                && !(renderer.__elyricShadowHost
+                    && (front === renderer.__elyricShadowHost
+                        || renderer.__elyricShadowHost.contains
+                        && renderer.__elyricShadowHost.contains(front)))
                 && !(renderer.__elyricThemeControl
                     && renderer.__elyricThemeControl.contains
                     && renderer.__elyricThemeControl.contains(front))
@@ -12252,6 +12314,7 @@
     }
 
     function removeThemeControl(renderer) {
+        if (renderer.__elyricWorkspaceReady) { storeCurrentPlayerThemeDesign(renderer); }
         if (renderer.__elyricVisualizerFrameId) {
             cancelAnimationFrame(renderer.__elyricVisualizerFrameId);
             renderer.__elyricVisualizerFrameId = 0;
@@ -12259,6 +12322,7 @@
         if (renderer.__elyricPreferenceSaveTimer) {
             clearTimeout(renderer.__elyricPreferenceSaveTimer);
             renderer.__elyricPreferenceSaveTimer = 0;
+            if (renderer.__elyricWorkspaceReady) { persistUserPlayerPreferences(renderer); }
         }
         if (renderer.__elyricParametricViewportHandler
             && "undefined" !== typeof window && window.removeEventListener) {
@@ -12322,8 +12386,11 @@
         if (renderer.__elyricOverlayScrim && renderer.__elyricOverlayScrim.parentNode) {
             renderer.__elyricOverlayScrim.parentNode.removeChild(renderer.__elyricOverlayScrim);
         }
-        if (renderer.__elyricOverlayKeyHandler && document.removeEventListener) {
-            document.removeEventListener("keydown", renderer.__elyricOverlayKeyHandler, true);
+        if (renderer.__elyricOverlayKeyHandler && renderer.__elyricOverlayKeyHost
+            && renderer.__elyricOverlayKeyHost.removeEventListener) {
+            renderer.__elyricOverlayKeyHost.removeEventListener(
+                "keydown", renderer.__elyricOverlayKeyHandler, true
+            );
         }
         if (renderer.__elyricQueueDismissHost
             && renderer.__elyricQueueDismissHost.removeEventListener
@@ -12338,14 +12405,6 @@
             renderer.__elyricThemeContainer.removeAttribute("data-elyric-theme");
         }
         syncPlayerPageState(renderer, false);
-        if (document.body && document.body.style && document.body.style.removeProperty) {
-            PLAYER_THEME_TUNING_DEFINITIONS.forEach(function (definition) {
-                document.body.style.removeProperty(definition.cssProperty);
-            });
-            PLAYER_THEME_COLOR_DEFINITIONS.forEach(function (definition) {
-                document.body.style.removeProperty(definition.cssProperty);
-            });
-        }
         if (renderer.itemsContainer
             && renderer.itemsContainer.style
             && renderer.itemsContainer.style.removeProperty) {
@@ -12360,6 +12419,14 @@
             renderer.itemsContainer.removeAttribute("data-elyric-has-lyrics");
             renderer.itemsContainer.removeAttribute("data-elyric-parametric");
         }
+        if (renderer.__elyricShadowHost && renderer.__elyricShadowHost.parentNode) {
+            renderer.__elyricShadowHost.parentNode.removeChild(renderer.__elyricShadowHost);
+        }
+        renderer.__elyricShadowRoot = null;
+        renderer.__elyricShadowHost = null;
+        renderer.__elyricShadowStyle = null;
+        renderer.__elyricShadowStyleReady = null;
+        renderer.__elyricMountHost = null;
         renderer.__elyricThemeControl = null;
         renderer.__elyricRoot = null;
         renderer.__elyricPlayerStage = null;
@@ -12487,9 +12554,7 @@
         renderer.__elyricPlayerTuningInputs = null;
         renderer.__elyricPlayerTuningValues = null;
         renderer.__elyricDisplayPreferences = null;
-        renderer.__elyricPreferenceApiClient = null;
         renderer.__elyricActiveApiClient = null;
-        renderer.__elyricPreferenceUserId = null;
         renderer.__elyricUserPreferencesPromise = null;
         renderer.__elyricPreferenceState = null;
         renderer.__elyricApplyingUserPreferences = false;
@@ -12560,7 +12625,7 @@
             return;
         }
 
-        var body = element.querySelector(".listItemBodyText");
+        var body = element.querySelector(".elyric-lyric-text");
         if (!body) {
             return;
         }
@@ -12770,13 +12835,13 @@
         items.slice(windowStart, windowEnd).forEach(function (item, localIndex) {
             var index = windowStart + localIndex;
             var row = document.createElement("button");
-            row.className = "lyricsItem secondaryText";
+            row.className = "elyric-lyric-row";
             row.setAttribute("type", "button");
             row.setAttribute("role", "listitem");
             row.setAttribute("data-index", String(index));
             row.setAttribute("aria-label", String(item && item.Text || "歌词"));
             var body = document.createElement("span");
-            body.className = "listItemBodyText";
+            body.className = "elyric-lyric-text";
             row.appendChild(body);
             row.addEventListener("click", function (event) {
                 stopControlEvent(event);
@@ -12802,7 +12867,7 @@
         if (!container || !container.querySelectorAll) {
             return;
         }
-        var elements = container.querySelectorAll(".lyricsItem[data-index]");
+        var elements = container.querySelectorAll(".elyric-lyric-row[data-index]");
         for (var i = 0; i < elements.length; i++) {
             renderLyricElement(renderer, elements[i]);
         }
@@ -12876,7 +12941,7 @@
             || windowCenter >= Number(renderer.__elyricWindowEnd || 0))) {
             createOwnedLyricRows(renderer, windowCenter);
         }
-        var elements = container.querySelectorAll(".lyricsItem[data-index]");
+        var elements = container.querySelectorAll(".elyric-lyric-row[data-index]");
         var currentElement = null;
         for (var i = 0; i < elements.length; i++) {
             var element = elements[i];
@@ -13154,6 +13219,80 @@
         renderer.__elyricNativeNodes = [];
     }
 
+    function ownedPlayerStylesheetHref(page) {
+        var links = [];
+        if (document.querySelectorAll) {
+            links = Array.prototype.slice.call(document.querySelectorAll('link[rel="stylesheet"]'));
+        }
+        if (page && page.querySelectorAll) {
+            links = links.concat(Array.prototype.slice.call(page.querySelectorAll('link[rel="stylesheet"]')));
+        }
+        for (var i = 0; i < links.length; i++) {
+            var href = String(links[i].href || links[i].getAttribute && links[i].getAttribute("href") || "");
+            if (/videoosd(?:\.min)?\.css(?:[?#]|$)/i.test(href)) { return href; }
+        }
+        return "";
+    }
+
+    function createOwnedPlayerMountHost(renderer, page) {
+        renderer.__elyricMountHost = page;
+        if (!document.body || !document.createElement || !document.body.appendChild) {
+            throw new Error("Shadow player host cannot be created");
+        }
+        var host = document.createElement("div");
+        host.className = "elyric-player-host";
+        host.setAttribute("data-elyric-build", PLAYER_BUILD_ID);
+        host.setAttribute("aria-label", "歌词增强音乐播放器宿主");
+        host.style.cssText = "position:fixed!important;inset:0!important;width:100vw!important;"
+            + "height:100dvh!important;overflow:clip!important;z-index:2147479000!important;"
+            + "visibility:hidden!important;pointer-events:none!important;isolation:isolate!important";
+        var shadow = host.attachShadow ? host.attachShadow({ mode: "open" }) : null;
+        if (!shadow) { throw new Error("Open Shadow DOM is unavailable"); }
+        var href = ownedPlayerStylesheetHref(page);
+        if (!href) { throw new Error("Custom player stylesheet could not be located for Shadow DOM"); }
+        var link = document.createElement("link");
+        link.setAttribute("rel", "stylesheet");
+        link.setAttribute("href", href);
+        link.setAttribute("data-elyric-shadow-style", "true");
+        var styleReady = new Promise(function (resolve, reject) {
+            var settled = false;
+            var timeoutId = setTimeout(function () {
+                if (settled) { return; }
+                settled = true;
+                reject(new Error("Custom player Shadow DOM stylesheet timed out"));
+            }, 8000);
+            link.onload = function () {
+                if (settled) { return; }
+                settled = true;
+                clearTimeout(timeoutId);
+                resolve();
+            };
+            link.onerror = function () {
+                if (settled) { return; }
+                settled = true;
+                clearTimeout(timeoutId);
+                reject(new Error("Custom player Shadow DOM stylesheet failed to load"));
+            };
+        });
+        shadow.appendChild(link);
+        renderer.__elyricShadowStyle = link;
+        renderer.__elyricShadowStyleReady = styleReady;
+        document.body.appendChild(host);
+        renderer.__elyricShadowHost = host;
+        renderer.__elyricShadowRoot = shadow;
+        renderer.__elyricMountHost = shadow;
+        return styleReady;
+    }
+
+    function resetOwnedPlayerScrollState(renderer) {
+        [renderer && renderer.__elyricShadowHost, renderer && renderer.__elyricShadowRoot,
+            renderer && renderer.__elyricThemeControl,
+            renderer && renderer.__elyricPlayerStage].forEach(function (element) {
+            if (!element) { return; }
+            try { element.scrollTop = 0; element.scrollLeft = 0; } catch (error) {}
+        });
+    }
+
     function hideNativeOsd(renderer) {
         var page = renderer.__elyricPlayerPage;
         if (!page) { return; }
@@ -13197,22 +13336,7 @@
             __elyricDestroyed: false, __elyricPlayerPage: page, __elyricMountHost: page,
             currentItem: null, itemsContainer: document.createElement("div")
         };
-        try {
-            renderer.__elyricPlaybackBridge = createPlaybackBridge(videoOsd);
-            renderer.currentItem = renderer.__elyricPlaybackBridge.getSnapshot().item;
-            ensureDisplayConfiguration(renderer);
-            ensureThemeControl(renderer);
-            if (!renderer.__elyricThemeControl || !renderer.__elyricThemeControl.parentNode) {
-                throw new Error("Custom player root failed to mount");
-            }
-            hideNativeOsd(renderer);
-            renderer.__elyricBridgeUnsubscribe = renderer.__elyricPlaybackBridge.subscribe(function (snapshot) {
-                updateOwnedPlayer(renderer, snapshot);
-            });
-            loadOwnedLyrics(renderer, renderer.currentItem);
-            updateOwnedPlayer(renderer, renderer.__elyricPlaybackBridge.getSnapshot());
-            videoOsd.__elyricRenderer = renderer;
-        } catch (error) {
+        function failMount(error) {
             renderer.__elyricDestroyed = true;
             renderer.__elyricLyricRequestId = (renderer.__elyricLyricRequestId || 0) + 1;
             if (renderer.__elyricBridgeUnsubscribe) { renderer.__elyricBridgeUnsubscribe(); }
@@ -13221,7 +13345,40 @@
             restoreNativeOsd(renderer);
             removeDisplayConfiguration(renderer);
             if (renderer.__elyricThemeControl) { removeThemeControl(renderer); }
+            if (renderer.__elyricShadowHost && renderer.__elyricShadowHost.parentNode) {
+                renderer.__elyricShadowHost.parentNode.removeChild(renderer.__elyricShadowHost);
+            }
+            videoOsd.__elyricRenderer = null;
             console.error("Emby Lyric Enhance failed safely; native OSD restored", error);
+        }
+        function finishMount() {
+            if (renderer.__elyricDestroyed) { return; }
+            if (renderer.__elyricShadowHost && renderer.__elyricShadowHost.style) {
+                renderer.__elyricShadowHost.style.setProperty("visibility", "visible", "important");
+                renderer.__elyricShadowHost.style.setProperty("pointer-events", "auto", "important");
+            }
+            resetOwnedPlayerScrollState(renderer);
+            hideNativeOsd(renderer);
+            renderer.__elyricBridgeUnsubscribe = renderer.__elyricPlaybackBridge.subscribe(function (snapshot) {
+                updateOwnedPlayer(renderer, snapshot);
+            });
+            loadOwnedLyrics(renderer, renderer.currentItem);
+            updateOwnedPlayer(renderer, renderer.__elyricPlaybackBridge.getSnapshot());
+        }
+        try {
+            renderer.__elyricPlaybackBridge = createPlaybackBridge(videoOsd);
+            renderer.currentItem = renderer.__elyricPlaybackBridge.getSnapshot().item;
+            var styleReady = createOwnedPlayerMountHost(renderer, page);
+            ensureDisplayConfiguration(renderer);
+            ensureThemeControl(renderer);
+            if (!renderer.__elyricThemeControl || !renderer.__elyricThemeControl.parentNode) {
+                throw new Error("Custom player root failed to mount");
+            }
+            videoOsd.__elyricRenderer = renderer;
+            if (styleReady && styleReady.then) { styleReady.then(finishMount, failMount); }
+            else { finishMount(); }
+        } catch (error) {
+            failMount(error);
         }
     }
 

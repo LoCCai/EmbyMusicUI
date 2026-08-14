@@ -35,10 +35,10 @@ assert(adapter.includes('element.style.setProperty("position", "absolute", "impo
     "V6 layers must stay in unscaled design coordinates inside the transformed stage");
 assert(!adapter.includes('element.style.setProperty("--elyric-control-stage-scale"'),
     "the control dock must not apply a second component-level canvas scale");
-assert(adapter.includes("playerThemeV5LayoutIsSafe") && adapter.includes("repairPlayerThemeV5State"),
-    "playback must use a shared safe-layout solver while the designer retains grab geometry");
-assert(adapter.includes("layoutRepairRevision") && adapter.includes("backupPlayerThemeV5Repair"),
-    "unsafe account drafts must migrate once with a read-only rollback backup");
+assert(adapter.includes("playerThemeV5LayoutIsSafe") && adapter.includes("playerThemeV6ControlDockError"),
+    "V6 should validate only ControlDock operability before an explicit save");
+assert(!adapter.includes("repairPlayerThemeV5State") && !adapter.includes("layoutRepairRevision"),
+    "playback must never silently repair or revision user geometry");
 assert(!adapter.includes("rect.left / window.innerWidth * 100"),
     "V4 must not infer saved geometry from the rendered viewport");
 

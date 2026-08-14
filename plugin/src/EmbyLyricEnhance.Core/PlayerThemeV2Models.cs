@@ -186,6 +186,38 @@ public sealed class ThemeUpdateRequest
     public string ThemeJson { get; set; } = "{}";
 }
 
+public sealed class ThemeCommitRequest
+{
+    public int ExpectedWorkspaceRevision { get; set; }
+
+    public string ThemeId { get; set; } = "";
+
+    public int ExpectedThemeRevision { get; set; }
+
+    public string Name { get; set; } = "";
+
+    public string ThemeJson { get; set; } = "{}";
+
+    public string GlobalStateJson { get; set; } = "{}";
+
+    public bool LegacyImported { get; set; }
+}
+
+public sealed class ThemeCommitResult
+{
+    public UserWorkspaceRecord Workspace { get; set; } = new();
+
+    public StoredThemeRecord Theme { get; set; } = new();
+
+    public string NormalizedThemeJson { get; set; } = "{}";
+
+    public string Checksum { get; set; } = "";
+
+    public bool Conflict { get; set; }
+
+    public StoredThemeRecord? ConflictCopy { get; set; }
+}
+
 public sealed class RevisionWriteResult<T>
 {
     public T Value { get; set; } = default!;

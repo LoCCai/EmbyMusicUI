@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -10,6 +11,12 @@ namespace EmbyLyricEnhance.Core;
 
 public sealed class UserThemeStore
 {
+    private sealed class ThemeCommitJournal
+    {
+        public StoredThemeRecord Theme { get; set; } = new();
+
+        public UserWorkspaceRecord Workspace { get; set; } = new();
+    }
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -32,6 +39,7 @@ public sealed class UserThemeStore
     {
         lock (UserLock(userId))
         {
+            RecoverPendingCommitUnsafe(userId);
             var workspace = ReadRecoverable<UserWorkspaceRecord>(WorkspacePath(userId)) ?? NewWorkspace();
             workspace.Themes = GetThemesUnsafe(userId);
             return workspace;
@@ -43,6 +51,7 @@ public sealed class UserThemeStore
         ArgumentNullException.ThrowIfNull(request);
         lock (UserLock(userId))
         {
+            RecoverPendingCommitUnsafe(userId);
             var current = ReadRecoverable<UserWorkspaceRecord>(WorkspacePath(userId)) ?? NewWorkspace();
             var draftJson = PlayerThemeV2Validator.ValidateThemeJson(request.DraftJson, _options.MaxThemeJsonBytes);
             var globalStateJson = PlayerThemeV2Validator.ValidateStateJson(request.GlobalStateJson, _options.MaxThemeJsonBytes);
@@ -89,6 +98,7 @@ public sealed class UserThemeStore
     {
         lock (UserLock(userId))
         {
+            RecoverPendingCommitUnsafe(userId);
             return GetThemesUnsafe(userId);
         }
     }
@@ -98,7 +108,98 @@ public sealed class UserThemeStore
         id = PlayerThemeV2Validator.NormalizeId(id);
         lock (UserLock(userId))
         {
+            RecoverPendingCommitUnsafe(userId);
             return ReadRecoverable<StoredThemeRecord>(ThemePath(userId, id));
+        }
+    }
+
+    public ThemeCommitResult CommitTheme(long userId, ThemeCommitRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var themeId = PlayerThemeV2Validator.NormalizeId(request.ThemeId);
+        lock (UserLock(userId))
+        {
+            RecoverPendingCommitUnsafe(userId);
+            var normalizedThemeJson = PlayerThemeV2Validator.NormalizeThemeJson(
+                request.ThemeJson,
+                _options.MaxThemeJsonBytes);
+            var normalizedGlobalStateJson = PlayerThemeV2Validator.ValidateStateJson(
+                request.GlobalStateJson,
+                _options.MaxThemeJsonBytes);
+            var workspace = ReadRecoverable<UserWorkspaceRecord>(WorkspacePath(userId)) ?? NewWorkspace();
+            var currentTheme = ReadRecoverable<StoredThemeRecord>(ThemePath(userId, themeId));
+            var workspaceConflict = request.ExpectedWorkspaceRevision != workspace.Revision;
+            var themeConflict = currentTheme is null
+                ? request.ExpectedThemeRevision != 0
+                : request.ExpectedThemeRevision != currentTheme.Revision;
+            if (workspaceConflict || themeConflict)
+            {
+                var conflictCopy = CreateThemeUnsafe(userId, new ThemeCreateRequest
+                {
+                    Name = PlayerThemeV2Validator.NormalizeName(request.Name) + "（冲突副本）",
+                    ThemeJson = normalizedThemeJson
+                });
+                workspace.Themes = GetThemesUnsafe(userId);
+                return new ThemeCommitResult
+                {
+                    Workspace = workspace,
+                    Theme = currentTheme ?? conflictCopy,
+                    NormalizedThemeJson = normalizedThemeJson,
+                    Checksum = ThemeJsonChecksum(normalizedThemeJson),
+                    Conflict = true,
+                    ConflictCopy = conflictCopy
+                };
+            }
+
+            var now = DateTime.UtcNow;
+            var nextTheme = currentTheme is null
+                ? new StoredThemeRecord
+                {
+                    Id = themeId,
+                    Name = PlayerThemeV2Validator.NormalizeName(request.Name),
+                    Revision = 1,
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now,
+                    ThemeJson = normalizedThemeJson
+                }
+                : new StoredThemeRecord
+                {
+                    Id = currentTheme.Id,
+                    Name = PlayerThemeV2Validator.NormalizeName(request.Name),
+                    Revision = currentTheme.Revision + 1,
+                    CreatedAtUtc = currentTheme.CreatedAtUtc,
+                    UpdatedAtUtc = now,
+                    ThemeJson = normalizedThemeJson
+                };
+            var nextWorkspace = new UserWorkspaceRecord
+            {
+                SchemaVersion = PlayerThemeV2Schema.Version,
+                Revision = workspace.Revision + 1,
+                ActiveThemeId = themeId,
+                DraftJson = normalizedThemeJson,
+                GlobalStateJson = normalizedGlobalStateJson,
+                LegacyImported = request.LegacyImported || workspace.LegacyImported,
+                UpdatedAtUtc = now,
+                Themes = new List<ThemeSummary>()
+            };
+            var themePath = ThemePath(userId, themeId);
+            var workspacePath = WorkspacePath(userId);
+            EnsureAtomicJsonQuota(userId, themePath, JsonSerializer.SerializeToUtf8Bytes(nextTheme, JsonOptions).Length);
+            EnsureAtomicJsonQuota(userId, workspacePath, JsonSerializer.SerializeToUtf8Bytes(nextWorkspace, JsonOptions).Length);
+            AtomicWriteJson(CommitJournalPath(userId), new ThemeCommitJournal
+            {
+                Theme = nextTheme,
+                Workspace = nextWorkspace
+            });
+            RecoverPendingCommitUnsafe(userId);
+            nextWorkspace.Themes = GetThemesUnsafe(userId);
+            return new ThemeCommitResult
+            {
+                Workspace = nextWorkspace,
+                Theme = nextTheme,
+                NormalizedThemeJson = normalizedThemeJson,
+                Checksum = ThemeJsonChecksum(normalizedThemeJson)
+            };
         }
     }
 
@@ -107,6 +208,7 @@ public sealed class UserThemeStore
         ArgumentNullException.ThrowIfNull(request);
         lock (UserLock(userId))
         {
+            RecoverPendingCommitUnsafe(userId);
             return CreateThemeUnsafe(userId, request);
         }
     }
@@ -117,6 +219,7 @@ public sealed class UserThemeStore
         id = PlayerThemeV2Validator.NormalizeId(id);
         lock (UserLock(userId))
         {
+            RecoverPendingCommitUnsafe(userId);
             var path = ThemePath(userId, id);
             var current = ReadRecoverable<StoredThemeRecord>(path)
                 ?? throw new FileNotFoundException("Theme does not exist.", id);
@@ -151,6 +254,7 @@ public sealed class UserThemeStore
         id = PlayerThemeV2Validator.NormalizeId(id);
         lock (UserLock(userId))
         {
+            RecoverPendingCommitUnsafe(userId);
             var path = ThemePath(userId, id);
             var current = ReadRecoverable<StoredThemeRecord>(path);
             if (current is null)
@@ -185,6 +289,7 @@ public sealed class UserThemeStore
 
         lock (UserLock(userId))
         {
+            RecoverPendingCommitUnsafe(userId);
             var directory = AssetDirectory(userId);
             Directory.CreateDirectory(directory);
             var temp = Path.Combine(directory, "." + id + "." + Guid.NewGuid().ToString("N") + ".tmp");
@@ -258,6 +363,7 @@ public sealed class UserThemeStore
         id = PlayerThemeV2Validator.NormalizeId(id);
         lock (UserLock(userId))
         {
+            RecoverPendingCommitUnsafe(userId);
             var metadata = ReadRecoverable<AssetMetadata>(AssetMetadataPath(userId, id));
             var path = AssetDataPath(userId, id);
             return metadata is null || !File.Exists(path)
@@ -271,6 +377,7 @@ public sealed class UserThemeStore
         id = PlayerThemeV2Validator.NormalizeId(id);
         lock (UserLock(userId))
         {
+            RecoverPendingCommitUnsafe(userId);
             var existed = File.Exists(AssetDataPath(userId, id)) || File.Exists(AssetMetadataPath(userId, id));
             File.Delete(AssetDataPath(userId, id));
             File.Delete(AssetMetadataPath(userId, id));
@@ -303,6 +410,25 @@ public sealed class UserThemeStore
         EnsureAtomicJsonQuota(userId, path, JsonSerializer.SerializeToUtf8Bytes(record, JsonOptions).Length);
         AtomicWriteJson(path, record);
         return record;
+    }
+
+    private void RecoverPendingCommitUnsafe(long userId)
+    {
+        var journalPath = CommitJournalPath(userId);
+        var journal = ReadRecoverable<ThemeCommitJournal>(journalPath);
+        if (journal is null)
+        {
+            return;
+        }
+        AtomicWriteJson(ThemePath(userId, PlayerThemeV2Validator.NormalizeId(journal.Theme.Id)), journal.Theme);
+        AtomicWriteJson(WorkspacePath(userId), journal.Workspace);
+        File.Delete(journalPath);
+        File.Delete(journalPath + ".bak");
+    }
+
+    private static string ThemeJsonChecksum(string value)
+    {
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
     }
 
     private List<ThemeSummary> GetThemesUnsafe(long userId)
@@ -432,6 +558,8 @@ public sealed class UserThemeStore
     private string UserDirectory(long userId) => Path.Combine(_root, "users", "u-" + userId.ToString("x16"));
 
     private string WorkspacePath(long userId) => Path.Combine(UserDirectory(userId), "workspace.json");
+
+    private string CommitJournalPath(long userId) => Path.Combine(UserDirectory(userId), "theme-commit.json");
 
     private string ThemeDirectory(long userId) => Path.Combine(UserDirectory(userId), "themes");
 

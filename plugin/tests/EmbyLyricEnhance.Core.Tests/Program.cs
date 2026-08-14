@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using EmbyLyricEnhance.Core;
 
 var failures = new List<string>();
@@ -224,6 +226,7 @@ var validThemeV6Json = $$"""
     }
   },
   "console": { "material": "rainbow", "surfaceColor": "#111827", "textColor": "#ffffff", "accentColor": "#ff4081", "gradientA": "#ff4081", "gradientB": "#3366ff", "gradientAngle": 135, "radius": 28, "blur": 26, "opacity": 72, "borderWidth": 1, "shadow": 28 },
+  "visualizer": { "enabled": false, "style": "spectrum", "frequencyLayout": "centerOut", "width": 62, "height": 8, "amplitude": 70, "colorMode": "dual", "colors": ["#ffffff"], "analysis": { "sensitivity": 125, "response": 80, "smoothing": 25, "minFrequency": 30, "maxFrequency": 16000, "density": 56, "bassBoost": 100 } },
   "volume": { "landscapeMode": "expanded", "portraitMode": "iconPopover", "iconFill": true, "popoverWidth": 72, "popoverHeight": 240 },
   "controls": { "safeArea": 64, "profiles": { "landscape": {{dockProfileV6}}, "portrait": {{dockProfileV6}} } }
 }
@@ -236,27 +239,11 @@ Check(PlayerThemeV2Validator.ValidateThemeJson(frontendThemeV6Json, 512 * 1024) 
     "the real frontend-generated Theme V6 portable fixture should pass the server validator");
 var frontendGlobalStateJson = """
 {
-  "version": 5,
-  "layoutRepairRevision": 1,
-  "theme": "classic",
-  "layout": "album",
-  "artworkRotation": true,
-  "showSecondLine": true,
-  "backgroundMode": "blur",
-  "visualizerStyle": "spectrum",
-  "visualizerWidth": 62,
-  "visualizerHeight": 8,
-  "visualizerAmplitude": 70,
-  "visualizerColorMode": "dual",
-  "visualizerColors": ["#a8e063", "#56d6c9", "#8b9dff"],
-  "lyricAlignment": "left",
-  "lyricScale": 100,
-  "tuning": { "backgroundBlur": 44, "backgroundDim": 64 },
-  "activePlayerThemeId": null
+  "version": 6
 }
 """;
 Check(PlayerThemeV2Validator.ValidateStateJson(frontendGlobalStateJson, 512 * 1024) == frontendGlobalStateJson,
-    "the frontend-generated V6 Workspace GlobalStateJson should pass the server validator");
+    "V6 Workspace GlobalStateJson should remain a version-only envelope so ThemeDocumentV6 stays authoritative");
 foreach (var invalidV6 in new[]
 {
     validThemeV6Json.Replace("\"width\": 1920, \"height\": 1080", "\"width\": 1919, \"height\": 1080"),
@@ -556,6 +543,71 @@ try
     });
     Check(workspaceConflict.Conflict && workspaceConflict.ConflictCopy is not null,
         "concurrent workspace drafts should be preserved as conflict themes");
+
+    var atomicThemeJson = validThemeV6Json.Replace("V6 test", "Atomic V6");
+    var atomicCommit = store.CommitTheme(11, new ThemeCommitRequest
+    {
+        ExpectedWorkspaceRevision = workspace.Value.Revision,
+        ThemeId = created[0].Id,
+        ExpectedThemeRevision = updated.Value.Revision,
+        Name = "Atomic V6",
+        ThemeJson = atomicThemeJson,
+        GlobalStateJson = "{\"version\":6}",
+        LegacyImported = true
+    });
+    var expectedChecksum = Convert.ToHexString(
+        SHA256.HashData(Encoding.UTF8.GetBytes(atomicCommit.NormalizedThemeJson))).ToLowerInvariant();
+    var atomicWorkspace = store.GetWorkspace(11);
+    var atomicTheme = store.GetTheme(11, created[0].Id);
+    Check(!atomicCommit.Conflict
+        && atomicCommit.Theme.Revision == updated.Value.Revision + 1
+        && atomicCommit.Workspace.Revision == workspace.Value.Revision + 1,
+        "themeCommitV1 should advance the theme and Workspace revisions together");
+    Check(atomicTheme is not null
+        && atomicTheme.ThemeJson == atomicWorkspace.DraftJson
+        && atomicTheme.ThemeJson == atomicCommit.NormalizedThemeJson
+        && atomicCommit.Checksum == expectedChecksum
+        && atomicWorkspace.ActiveThemeId == atomicTheme.Id,
+        "themeCommitV1 should persist one normalized JSON into the named theme and active Workspace draft");
+
+    var atomicConflict = store.CommitTheme(11, new ThemeCommitRequest
+    {
+        ExpectedWorkspaceRevision = workspace.Value.Revision,
+        ThemeId = created[0].Id,
+        ExpectedThemeRevision = updated.Value.Revision,
+        Name = "Stale atomic edit",
+        ThemeJson = atomicThemeJson,
+        GlobalStateJson = "{}"
+    });
+    Check(atomicConflict.Conflict && atomicConflict.ConflictCopy is not null
+        && store.GetTheme(11, created[0].Id)?.Revision == atomicTheme?.Revision
+        && store.GetWorkspace(11).Revision == atomicWorkspace.Revision,
+        "a stale atomic commit should preserve the original records and create an inactive conflict copy");
+
+    var recoveryUser = 44L;
+    var recoveryUserDirectory = Path.Combine(storeRoot, "users", "u-" + recoveryUser.ToString("x16"));
+    Directory.CreateDirectory(recoveryUserDirectory);
+    var recoveredTheme = new StoredThemeRecord
+    {
+        Id = "journal-theme", Name = "Journal theme", Revision = 1,
+        CreatedAtUtc = DateTime.UtcNow, UpdatedAtUtc = DateTime.UtcNow,
+        ThemeJson = atomicCommit.NormalizedThemeJson
+    };
+    var recoveredWorkspace = new UserWorkspaceRecord
+    {
+        SchemaVersion = PlayerThemeV2Schema.Version, Revision = 1,
+        ActiveThemeId = recoveredTheme.Id, DraftJson = recoveredTheme.ThemeJson,
+        GlobalStateJson = "{}", LegacyImported = true, UpdatedAtUtc = DateTime.UtcNow
+    };
+    File.WriteAllText(
+        Path.Combine(recoveryUserDirectory, "theme-commit.json"),
+        JsonSerializer.Serialize(new { Theme = recoveredTheme, Workspace = recoveredWorkspace }),
+        Encoding.UTF8);
+    var recoveredRead = store.GetWorkspace(recoveryUser);
+    Check(recoveredRead.Revision == 1
+        && store.GetTheme(recoveryUser, recoveredTheme.Id)?.ThemeJson == recoveredRead.DraftJson
+        && !File.Exists(Path.Combine(recoveryUserDirectory, "theme-commit.json")),
+        "unfinished themeCommitV1 journals should recover both files before any later store access");
 
     var png = new byte[] { 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a };
     using (var stream = new MemoryStream(png))

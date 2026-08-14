@@ -14,7 +14,11 @@ assert(js.includes("VideoOsd.prototype.onResume"));
 assert(js.includes("VideoOsd.prototype.onPause"));
 assert(js.includes("VideoOsd.prototype.destroy"));
 assert(!js.includes("LyricsRenderer.prototype"), "the visible player must not hook the native lyric renderer");
-assert(js.includes('control.className = "elyric-player-root elyric-player-shell elyric-theme-picker"'));
+assert(js.includes('control.className = "elyric-player-root elyric-player-shell elyric-theme-picker elyric-player-active-page"'));
+assert(js.includes('host.className = "elyric-player-host"')
+    && js.includes('attachShadow({ mode: "open" })')
+    && js.includes("__elyricShadowStyleReady"),
+"the owned player must mount in an open Shadow Root and wait for isolated styles before hiding native OSD");
 assert(js.includes('renderer.itemsContainer = lyricViewport'));
 assert(js.includes("createPlaybackBridge"));
 assert(js.includes("findOwnedLyricIndex") && js.includes("windowRadius = 18"),
@@ -32,6 +36,10 @@ assert(js.includes("requestPlayerOverlayOpen") && js.includes("requestPlayerOver
 ].forEach((legacy) => assert(!js.includes(legacy) && !css.includes(legacy), `legacy DOM dependency remains: ${legacy}`));
 assert(js.includes("elyric=off"), "the native OSD escape hatch must remain available");
 assert(js.includes("hideNativeOsd") && js.includes("restoreNativeOsd"));
+assert(!/lyricsScroller|lyricsItem|secondaryText|listItemBodyText/.test(js + css),
+    "Shadow DOM content must not reuse native Emby lyric classes");
+assert(!js.includes("scrollIntoView("), "lyric following must scroll only its owned viewport");
+assert(js.includes("resetOwnedPlayerScrollState"), "the host and player root must be pinned to scrollTop zero");
 assert(css.includes(".elyric-player-root") && css.includes(".elyric-player-lyric-viewport"));
 assert(css.includes("--elyric-layer-overlay") && css.includes("--elyric-layer-scrim"),
     "the owned queue must render through the shared root overlay layer tokens");
