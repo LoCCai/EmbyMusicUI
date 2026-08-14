@@ -643,7 +643,13 @@ function deferLyrics(id) {
     assert(!volumePanel.hasAttribute("hidden") && volumePanel.getAttribute("data-elyric-anchor-mode") === "button",
         "portrait volume must open a root-owned button-anchored vertical slider");
     assert(["above", "below", "left", "right"].includes(volumePanel.getAttribute("data-elyric-anchor-placement")));
-    muteButton.click();
+    const escapeEvent = {
+        key: "Escape", type: "keydown", defaultPrevented: false,
+        preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}
+    };
+    (document.listeners.keydown || []).slice().forEach((listener) => listener(escapeEvent));
+    assert(escapeEvent.defaultPrevented && volumePanel.hasAttribute("hidden"),
+        "Escape at the document boundary must close the volume overlay before Emby handles Back");
     window.innerWidth = 1440; window.innerHeight = 900;
     window.visualViewport.width = 1440; window.visualViewport.height = 900;
     document.documentElement.clientHeight = 900;
@@ -828,6 +834,8 @@ function deferLyrics(id) {
         && shadowPlayer.querySelector(".elyric-player-button-cast"));
     assert.strictEqual(shadowPlayer.scrollTop, 0);
     assert.strictEqual(shadowHost.scrollTop, 0);
+    assert.strictEqual(shadowPlayer.querySelector(".elyric-player-title").hidden, false,
+        "late V6 workspace application must refresh metadata field visibility for the current item");
     assert.strictEqual(shadowRoot.querySelectorAll(".lyricsItem").length, 0,
         "hostile outer Emby class rules must have no matching class inside the Shadow player");
     assert.strictEqual(shadowPage.native.style.visibility, "hidden",

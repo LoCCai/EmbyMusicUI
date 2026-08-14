@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.15-theme-v6-shadow-persistence-r1 */
+/* ELYRIC_BUILD:2026.08.15-theme-v6-shadow-persistence-r2 */
 ;(function () {
     "use strict";
 
@@ -36,7 +36,7 @@
     var PLAYER_PREFERENCES_KEY = "emby-lyric-enhance.player-preferences.v2";
     var PLAYER_THEME_LIBRARY_STORAGE_KEY = "emby-lyric-enhance.player-themes.v1";
     var PLAYER_THEME_DESIGN_STORAGE_KEY = "emby-lyric-enhance.player-theme-design.v1";
-    var PLAYER_BUILD_ID = "2026.08.15-theme-v6-shadow-persistence-r1";
+    var PLAYER_BUILD_ID = "2026.08.15-theme-v6-shadow-persistence-r2";
     var PLAYER_PREFERENCES_VERSION = 6;
     var PLAYER_THEME_SCHEMA_VERSION = 6;
     var PLAYER_THEME_DOCUMENT_FORMAT = "emby-lyric-theme";
@@ -8325,7 +8325,8 @@
         var metadataState = renderer.__elyricThemeV2 && renderer.__elyricThemeV2.metadata || {};
         var summaryFields = Array.isArray(metadataState.summaryFields) ? metadataState.summaryFields : [];
         var signature = item
-            ? [item.Id, item.Name, playerArtistText(item), item.Album, item.ImageTags && item.ImageTags.Primary].join("|")
+            ? [item.Id, item.Name, playerArtistText(item), item.Album,
+                item.ImageTags && item.ImageTags.Primary, summaryFields.join(",")].join("|")
             : "";
         if (renderer.__elyricPlayerItemSignature === signature) {
             return;
@@ -12088,8 +12089,11 @@
                 );
             }
         };
-        var keyEventHost = renderer.__elyricShadowRoot && renderer.__elyricShadowRoot.addEventListener
-            ? renderer.__elyricShadowRoot : document;
+        // Listen at the document boundary so Escape still closes a root-owned
+        // overlay when focus has moved to the host or browser chrome. Keyboard
+        // events originating inside the open Shadow Root are composed and are
+        // observed here without relying on Emby's native OSD handlers.
+        var keyEventHost = document;
         if (keyEventHost && keyEventHost.addEventListener) {
             keyEventHost.addEventListener("keydown", overlayKeyHandler, true);
             renderer.__elyricOverlayKeyHost = keyEventHost;

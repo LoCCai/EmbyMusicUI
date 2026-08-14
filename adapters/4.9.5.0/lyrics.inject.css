@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.15-theme-v6-shadow-persistence-r1 */
+/* ELYRIC_BUILD:2026.08.15-theme-v6-shadow-persistence-r2 */
 .elyric-player-host {
     position: fixed !important;
     inset: 0 !important;
@@ -5563,7 +5563,12 @@
     overflow: hidden auto !important;
     padding: var(--elyric-design-lyrics-padding, 22px) !important;
     font-size: 24px;
-    scrollbar-width: thin;
+    scrollbar-width: none;
+}
+
+.elyric-player-root[data-elyric-layout-model="fixed-canvas-v1"] .elyric-player-lyric-viewport::-webkit-scrollbar {
+    width: 0;
+    height: 0;
 }
 
 .elyric-player-root[data-elyric-layout-model="fixed-canvas-v1"]
@@ -5588,6 +5593,10 @@
 .elyric-player-root[data-elyric-layout-model="fixed-canvas-v1"] .elyric-player-lyric-viewport .elyric-lyric-row {
     box-sizing: border-box;
     width: 100%;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible hidden !important;
     padding: .72em .35em !important;
     font-size: 1em !important;
 }

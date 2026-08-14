@@ -147,6 +147,10 @@ assert(!/(?:lyricsScroller|lyricsItem|secondaryText|listItemBodyText)/.test(adap
     "the Shadow player must not use native Emby lyric classes");
 assert(/attachShadow\s*\(\s*\{\s*mode:\s*["']open["']\s*\}/.test(adapter));
 assert(/\.elyric-player-host\s*\{[\s\S]*?position:\s*fixed/.test(css));
+assert(/fixed-canvas-v1[\s\S]*?\.elyric-player-lyric-viewport \.elyric-lyric-row\s*\{[\s\S]*?height:\s*auto\s*!important/.test(css),
+    "V6 lyric rows must size to their own content instead of inheriting the viewport height");
+assert(/\.elyric-player-lyric-viewport::-webkit-scrollbar\s*\{[\s\S]*?width:\s*0/.test(css),
+    "the owned lyric viewport must keep scrolling without exposing an unthemed native scrollbar");
 assert(!/layoutRepairRevision|repairPlayerThemeV5State/.test(adapter),
     "runtime layout repair markers and mutators must be removed");
 
