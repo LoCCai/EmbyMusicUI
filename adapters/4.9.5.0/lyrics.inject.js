@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.15-theme-v6-shadow-persistence-r2 */
+/* ELYRIC_BUILD:2026.08.15-theme-v6-shadow-persistence-r3 */
 ;(function () {
     "use strict";
 
@@ -36,7 +36,7 @@
     var PLAYER_PREFERENCES_KEY = "emby-lyric-enhance.player-preferences.v2";
     var PLAYER_THEME_LIBRARY_STORAGE_KEY = "emby-lyric-enhance.player-themes.v1";
     var PLAYER_THEME_DESIGN_STORAGE_KEY = "emby-lyric-enhance.player-theme-design.v1";
-    var PLAYER_BUILD_ID = "2026.08.15-theme-v6-shadow-persistence-r2";
+    var PLAYER_BUILD_ID = "2026.08.15-theme-v6-shadow-persistence-r3";
     var PLAYER_PREFERENCES_VERSION = 6;
     var PLAYER_THEME_SCHEMA_VERSION = 6;
     var PLAYER_THEME_DOCUMENT_FORMAT = "emby-lyric-theme";
@@ -1468,26 +1468,26 @@
 
     function currentPlayerThemeV2Profile() {
         var viewport = "undefined" !== typeof window && window.visualViewport;
-        var layoutWidth = Math.max(
-            Number("undefined" !== typeof window && window.innerWidth) || 0,
-            Number(document.documentElement && document.documentElement.clientWidth) || 0
-        );
-        var layoutHeight = Math.max(
-            Number("undefined" !== typeof window && window.innerHeight) || 0,
-            Number(document.documentElement && document.documentElement.clientHeight) || 0
-        );
+        var visualWidth = Number(viewport && viewport.width) || 0;
+        var visualHeight = Number(viewport && viewport.height) || 0;
+        var windowWidth = Number("undefined" !== typeof window && window.innerWidth) || 0;
+        var windowHeight = Number("undefined" !== typeof window && window.innerHeight) || 0;
+        var documentWidth = Number(document.documentElement && document.documentElement.clientWidth) || 0;
+        var documentHeight = Number(document.documentElement && document.documentElement.clientHeight) || 0;
+        var layoutWidth = windowWidth || documentWidth;
+        var layoutHeight = windowHeight || documentHeight;
         var activeHost = document && document.querySelector
             ? document.querySelector(".elyric-player-host") : null;
         var active = activeHost && activeHost.shadowRoot && activeHost.shadowRoot.activeElement
             || document && document.activeElement;
         var editingText = active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName || "");
-        var keyboardReducedViewport = editingText && viewport && layoutHeight > 0
-            && Number(viewport.height) < layoutHeight * .78;
+        var keyboardReducedViewport = editingText && visualHeight > 0 && layoutHeight > 0
+            && visualHeight < layoutHeight * .78;
         if (keyboardReducedViewport && playerThemeV2ActiveProfile) {
             return playerThemeV2ActiveProfile;
         }
-        var width = layoutWidth || Number(viewport && viewport.width) || 1366;
-        var height = layoutHeight || Number(viewport && viewport.height) || 768;
+        var width = visualWidth || layoutWidth || 1366;
+        var height = visualHeight || layoutHeight || 768;
         playerThemeV2ActiveProfile = width >= height ? "landscape" : "portrait";
         return playerThemeV2ActiveProfile;
     }
@@ -6149,8 +6149,10 @@
         panel.style.setProperty("height", "auto", "important");
         panel.style.setProperty("max-height", Math.round(finalHeight) + "px", "important");
         var renderedRect = panel.getBoundingClientRect();
-        var renderedWidth = Math.min(desiredWidth, Math.max(1, Number(renderedRect.width) || desiredWidth));
-        var renderedHeight = Math.min(finalHeight, Math.max(1, Number(renderedRect.height) || finalHeight));
+        var renderedWidth = Math.min(desiredWidth, Math.max(1,
+            Number(panel.offsetWidth) || Number(panel.clientWidth) || Number(renderedRect.width) || desiredWidth));
+        var renderedHeight = Math.min(finalHeight, Math.max(1,
+            Number(panel.offsetHeight) || Number(panel.clientHeight) || Number(renderedRect.height) || finalHeight));
         left = verticalPlacement
             ? Math.min(viewport.left + viewport.width - renderedWidth - margin,
                 Math.max(viewport.left + margin, center - renderedWidth / 2))
@@ -6163,22 +6165,111 @@
                 Math.max(viewport.top + margin, centerY - renderedHeight / 2));
         var anchorX = Math.min(renderedWidth - 18, Math.max(18, center - left));
         var anchorY = Math.min(renderedHeight - 18, Math.max(18, centerY - top));
-        panel.style.setProperty("left", Math.round(left) + "px", "important");
-        panel.style.setProperty("top", Math.round(top) + "px", "important");
-        panel.style.setProperty("--elyric-overlay-anchor-tip-x", Math.round(anchorX) + "px");
-        panel.style.setProperty("--elyric-overlay-anchor-tip-y", Math.round(anchorY) + "px");
-        panel.style.setProperty("--elyric-media-anchor-tip-x", Math.round(anchorX) + "px");
+        panel.style.setProperty("left", left + "px", "important");
+        panel.style.setProperty("top", top + "px", "important");
+        panel.style.setProperty("--elyric-overlay-anchor-tip-x", anchorX + "px");
+        panel.style.setProperty("--elyric-overlay-anchor-tip-y", anchorY + "px");
+        panel.style.setProperty("--elyric-media-anchor-tip-x", anchorX + "px");
         setAttributeIfChanged(panel, "data-elyric-overlay-kind", kind);
         setAttributeIfChanged(panel, "data-elyric-anchor-mode", "button");
         setAttributeIfChanged(panel, "data-elyric-anchor-placement", placement);
     }
 
+    function isPlayerOverlayOpen(renderer, kind) {
+        var flags = {
+            settings: "__elyricSettingsOpen",
+            media: "__elyricMediaOpen",
+            queue: "__elyricQueueOpen",
+            cast: "__elyricCastOpen",
+            volume: "__elyricVolumeOpen"
+        };
+        return !!(renderer && flags[kind] && renderer[flags[kind]]);
+    }
+
+    function cancelPlayerOverlayReposition(renderer, kind) {
+        var frames = renderer && renderer.__elyricOverlayRepositionFrames;
+        var scheduled = frames && frames[kind];
+        if (!scheduled) { return; }
+        if (scheduled.animationFrame && "undefined" !== typeof cancelAnimationFrame) {
+            cancelAnimationFrame(scheduled.id);
+        } else if ("undefined" !== typeof clearTimeout) {
+            clearTimeout(scheduled.id);
+        }
+        delete frames[kind];
+    }
+
+    function schedulePlayerOverlayReposition(renderer, kind) {
+        if (!renderer || !isPlayerOverlayOpen(renderer, kind)) { return; }
+        var frames = renderer.__elyricOverlayRepositionFrames
+            || (renderer.__elyricOverlayRepositionFrames = {});
+        if (frames[kind]) { return; }
+        var callback = function () {
+            if (renderer.__elyricOverlayRepositionFrames) {
+                delete renderer.__elyricOverlayRepositionFrames[kind];
+            }
+            if (!renderer.__elyricDestroyed && isPlayerOverlayOpen(renderer, kind)) {
+                positionPlayerOverlay(renderer, kind);
+            }
+        };
+        if ("undefined" !== typeof requestAnimationFrame) {
+            frames[kind] = { id: requestAnimationFrame(callback), animationFrame: true };
+        } else {
+            frames[kind] = { id: setTimeout(callback, 0), animationFrame: false };
+        }
+    }
+
+    function observePlayerOverlaySize(renderer, kind) {
+        if (!renderer || "undefined" === typeof ResizeObserver) { return; }
+        var panel = playerOverlayParts(renderer, kind).panel;
+        if (!panel) { return; }
+        var records = renderer.__elyricOverlayResizeObservers
+            || (renderer.__elyricOverlayResizeObservers = {});
+        if (records[kind] && records[kind].panel === panel) { return; }
+        if (records[kind] && records[kind].observer) { records[kind].observer.disconnect(); }
+        var record = { panel: panel, width: -1, height: -1, observer: null };
+        record.observer = new ResizeObserver(function (entries) {
+            if (!isPlayerOverlayOpen(renderer, kind)) { return; }
+            var entry = entries && entries[0];
+            var rect = entry && entry.contentRect || panel.getBoundingClientRect && panel.getBoundingClientRect();
+            var width = Number(rect && rect.width) || 0;
+            var height = Number(rect && rect.height) || 0;
+            if (Math.abs(width - record.width) < .5 && Math.abs(height - record.height) < .5) { return; }
+            record.width = width;
+            record.height = height;
+            schedulePlayerOverlayReposition(renderer, kind);
+        });
+        record.observer.observe(panel);
+        records[kind] = record;
+    }
+
+    function startPlayerOverlayTracking(renderer, kind) {
+        positionPlayerOverlay(renderer, kind);
+        observePlayerOverlaySize(renderer, kind);
+        schedulePlayerOverlayReposition(renderer, kind);
+    }
+
+    function stopPlayerOverlayTracking(renderer, kind) {
+        if (!renderer) { return; }
+        cancelPlayerOverlayReposition(renderer, kind);
+        var records = renderer.__elyricOverlayResizeObservers;
+        if (records && records[kind]) {
+            if (records[kind].observer) { records[kind].observer.disconnect(); }
+            delete records[kind];
+        }
+    }
+
+    function stopAllPlayerOverlayTracking(renderer) {
+        ["settings", "media", "queue", "cast", "volume"].forEach(function (kind) {
+            stopPlayerOverlayTracking(renderer, kind);
+        });
+    }
+
     function repositionPlayerOverlays(renderer) {
-        if (renderer.__elyricSettingsOpen) { positionPlayerOverlay(renderer, "settings"); }
-        if (renderer.__elyricMediaOpen) { positionPlayerOverlay(renderer, "media"); }
-        if (renderer.__elyricQueueOpen) { positionPlayerOverlay(renderer, "queue"); }
-        if (renderer.__elyricCastOpen) { positionPlayerOverlay(renderer, "cast"); }
-        if (renderer.__elyricVolumeOpen) { positionPlayerOverlay(renderer, "volume"); }
+        if (renderer.__elyricSettingsOpen) { startPlayerOverlayTracking(renderer, "settings"); }
+        if (renderer.__elyricMediaOpen) { startPlayerOverlayTracking(renderer, "media"); }
+        if (renderer.__elyricQueueOpen) { startPlayerOverlayTracking(renderer, "queue"); }
+        if (renderer.__elyricCastOpen) { startPlayerOverlayTracking(renderer, "cast"); }
+        if (renderer.__elyricVolumeOpen) { startPlayerOverlayTracking(renderer, "volume"); }
     }
 
     function createPlayerOverlayManager(renderer) {
@@ -6266,9 +6357,12 @@
         if (button) { setAttributeIfChanged(button, "aria-expanded", open ? "true" : "false"); }
         syncPlayerOverlayScrim(renderer);
         if (open) {
-            renderOwnedCastTargets(renderer); positionPlayerOverlay(renderer, "cast");
+            renderOwnedCastTargets(renderer); startPlayerOverlayTracking(renderer, "cast");
             if (!wasOpen) { focusPlayerOverlay(renderer.__elyricCastPanel); }
-        } else if (wasOpen) { restorePlayerOverlayFocus(renderer.__elyricCastPanel, button); }
+        } else {
+            stopPlayerOverlayTracking(renderer, "cast");
+            if (wasOpen) { restorePlayerOverlayFocus(renderer.__elyricCastPanel, button); }
+        }
     }
 
     function setVolumePanelOpen(renderer, open) {
@@ -6283,9 +6377,12 @@
         if (button) { setAttributeIfChanged(button, "aria-expanded", open ? "true" : "false"); }
         syncPlayerOverlayScrim(renderer);
         if (open) {
-            positionPlayerOverlay(renderer, "volume");
+            startPlayerOverlayTracking(renderer, "volume");
             if (!wasOpen) { focusPlayerOverlay(renderer.__elyricVolumePanel); }
-        } else if (wasOpen) { restorePlayerOverlayFocus(renderer.__elyricVolumePanel, button); }
+        } else {
+            stopPlayerOverlayTracking(renderer, "volume");
+            if (wasOpen) { restorePlayerOverlayFocus(renderer.__elyricVolumePanel, button); }
+        }
     }
 
     function setSettingsPanelOpen(renderer, open, preserveDesigner) {
@@ -6314,9 +6411,10 @@
                     if (renderer.__elyricSettingsBody) { renderer.__elyricSettingsBody.scrollTop = 0; }
                 }
                 removeAttributeIfPresent(renderer.__elyricSettingsPanel, "hidden");
-                positionPlayerOverlay(renderer, "settings");
+                startPlayerOverlayTracking(renderer, "settings");
             } else {
                 setAttributeIfChanged(renderer.__elyricSettingsPanel, "hidden", "hidden");
+                stopPlayerOverlayTracking(renderer, "settings");
             }
         }
         if (renderer.__elyricSettingsButton) {
@@ -6353,7 +6451,7 @@
     }
 
     function positionMediaPanelNearTrigger(renderer) {
-        positionPlayerOverlay(renderer, "media");
+        startPlayerOverlayTracking(renderer, "media");
     }
 
     function setMediaPanelOpen(renderer, open) {
@@ -6373,6 +6471,7 @@
                 removeAttributeIfPresent(renderer.__elyricMediaPanel, "hidden");
             } else {
                 setAttributeIfChanged(renderer.__elyricMediaPanel, "hidden", "hidden");
+                stopPlayerOverlayTracking(renderer, "media");
             }
         }
         if (renderer.__elyricMediaButton) {
@@ -7661,9 +7760,11 @@
                 body.appendChild(row);
             });
             panel.setAttribute("data-elyric-loading", "false");
+            schedulePlayerOverlayReposition(renderer, "queue");
         }, function () {
             if (renderer.__elyricQueuePanel) {
                 renderer.__elyricQueuePanel.setAttribute("data-elyric-loading", "error");
+                schedulePlayerOverlayReposition(renderer, "queue");
             }
         });
     }
@@ -7690,9 +7791,12 @@
         if (renderer.__elyricQueuePanel) {
             if (open) {
                 removeAttributeIfPresent(renderer.__elyricQueuePanel, "hidden");
-                positionPlayerOverlay(renderer, "queue");
+                startPlayerOverlayTracking(renderer, "queue");
             }
-            else { setAttributeIfChanged(renderer.__elyricQueuePanel, "hidden", "hidden"); }
+            else {
+                setAttributeIfChanged(renderer.__elyricQueuePanel, "hidden", "hidden");
+                stopPlayerOverlayTracking(renderer, "queue");
+            }
         }
         syncPlayerPageState(renderer, isThemeContextVisible(renderer));
         syncPlayerOverlayScrim(renderer);
@@ -11979,6 +12083,11 @@
             var v2Profile = currentPlayerThemeV2Profile();
             if (renderer.__elyricThemeV2) {
                 var profileChanged = v2Profile !== renderer.__elyricThemeV2Profile;
+                if (profileChanged && renderer.__elyricOverlayManager) {
+                    ["settings", "media", "queue", "cast", "volume"].forEach(function (kind) {
+                        renderer.__elyricOverlayManager.close(kind);
+                    });
+                }
                 renderer.__elyricThemeV2Profile = v2Profile;
                 applyPlayerThemeV2State(renderer, renderer.__elyricThemeV2);
                 if (profileChanged || renderer.__elyricThemeV2DesignerOpen) {
@@ -12319,6 +12428,7 @@
 
     function removeThemeControl(renderer) {
         if (renderer.__elyricWorkspaceReady) { storeCurrentPlayerThemeDesign(renderer); }
+        stopAllPlayerOverlayTracking(renderer);
         if (renderer.__elyricVisualizerFrameId) {
             cancelAnimationFrame(renderer.__elyricVisualizerFrameId);
             renderer.__elyricVisualizerFrameId = 0;
@@ -12493,6 +12603,8 @@
         renderer.__elyricSettingsPanel = null;
         renderer.__elyricSettingsBody = null;
         renderer.__elyricOverlayManager = null;
+        renderer.__elyricOverlayRepositionFrames = null;
+        renderer.__elyricOverlayResizeObservers = null;
         renderer.__elyricCastTargetsUnsubscribe = null;
         renderer.__elyricOverlayScrim = null;
         renderer.__elyricOverlayKeyHandler = null;
@@ -12802,6 +12914,7 @@
                 error.appendChild(document.createTextNode(renderer.__elyricCastStatus));
                 body.appendChild(error); renderer.__elyricCastStatus = "";
             }
+            schedulePlayerOverlayReposition(renderer, "cast");
         }, function () {
             replaceElementText(status, "未能读取播放设备。");
             var retry = document.createElement("button");
@@ -12812,6 +12925,7 @@
                 stopControlEvent(event); renderOwnedCastTargets(renderer);
             });
             body.appendChild(retry);
+            schedulePlayerOverlayReposition(renderer, "cast");
         });
     }
 

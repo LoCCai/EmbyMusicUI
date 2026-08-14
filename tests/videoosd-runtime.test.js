@@ -131,6 +131,16 @@ const window = {
     confirm() { return true; }
 };
 class MutationObserver { observe() {} disconnect() {} }
+const resizeObservers = [];
+class ResizeObserver {
+    constructor(callback) { this.callback = callback; this.targets = []; this.disconnected = false; resizeObservers.push(this); }
+    observe(target) { if (!this.targets.includes(target)) this.targets.push(target); }
+    disconnect() { this.targets = []; this.disconnected = true; }
+}
+function notifyResize(target, width, height) {
+    resizeObservers.filter((observer) => !observer.disconnected && observer.targets.includes(target))
+        .forEach((observer) => observer.callback([{ target, contentRect: { width, height } }]));
+}
 const stored = new Map();
 const localStorage = {
     getItem(key) { return stored.has(key) ? stored.get(key) : null; },
@@ -146,6 +156,12 @@ let frameId = 1;
 const frames = new Map();
 function requestAnimationFrame(callback) { const id = frameId++; frames.set(id, callback); return id; }
 function cancelAnimationFrame(id) { frames.delete(id); }
+function flushFrame(id) {
+    const callback = frames.get(id);
+    if (!callback) return;
+    frames.delete(id);
+    callback(Date.now());
+}
 
 const bindings = [];
 const events = { default: {
@@ -347,6 +363,7 @@ const router = { default: { back() { calls.push(["back"]); return Promise.resolv
 global.document = document; global.window = window;
 global.location = { search: "", hash: "#!/videoosd/videoosd.html", pathname: "/web/index.html" };
 global.MutationObserver = MutationObserver;
+global.ResizeObserver = ResizeObserver;
 global.Emby = { importModule() { return Promise.resolve({ show(anchor) { calls.push(["cast", anchor]); } }); } };
 
 function VideoOsd(view) { this.view = view; this.currentPlayer = player; }
@@ -597,10 +614,11 @@ function deferLyrics(id) {
     assert(settingsBody && settingsPanel.contains(settingsBody), "settings content must scroll independently below its fixed header");
     const settingsButton = root.querySelector(".elyric-player-button-settings");
     settingsButton.getBoundingClientRect = () => ({ left: 520, top: 700, right: 564, bottom: 744, width: 44, height: 44 });
+    let settingsPanelHeight = 180;
     settingsPanel.getBoundingClientRect = () => {
         const left = Number.parseFloat(settingsPanel.style.getPropertyValue("left")) || 0;
         const top = Number.parseFloat(settingsPanel.style.getPropertyValue("top")) || 0;
-        return { left, top, right: left + 480, bottom: top + 180, width: 480, height: 180 };
+        return { left, top, right: left + 480, bottom: top + settingsPanelHeight, width: 480, height: settingsPanelHeight };
     };
     root.querySelector(".elyric-player-button-settings").click();
     assert.strictEqual(settingsPanel.getAttribute("data-elyric-anchor-mode"), "button");
@@ -608,7 +626,19 @@ function deferLyrics(id) {
     assert(Number.parseFloat(settingsPanel.style.getPropertyValue("max-height")) <= window.innerHeight * .78);
     assert.strictEqual(700 - (Number.parseFloat(settingsPanel.style.getPropertyValue("top")) + 180), 12,
         "an above overlay must use its rendered height and remain exactly 12px from the button");
-    root.querySelector(".elyric-player-settings-close").click();
+    settingsPanelHeight = 320;
+    notifyResize(settingsPanel, 480, settingsPanelHeight);
+    flushFrame(osd.__elyricRenderer.__elyricOverlayRepositionFrames.settings.id);
+    assert.strictEqual(700 - (Number.parseFloat(settingsPanel.style.getPropertyValue("top")) + settingsPanelHeight), 12,
+        "an asynchronously growing overlay must be remeasured and remain exactly 12px from its button");
+    settingsPanelHeight = 120;
+    notifyResize(settingsPanel, 480, settingsPanelHeight);
+    flushFrame(osd.__elyricRenderer.__elyricOverlayRepositionFrames.settings.id);
+    assert.strictEqual(700 - (Number.parseFloat(settingsPanel.style.getPropertyValue("top")) + settingsPanelHeight), 12,
+        "an asynchronously shrinking overlay must be remeasured and remain exactly 12px from its button");
+    settingsPanel.querySelector(".elyric-player-settings-close").click();
+    assert(!osd.__elyricRenderer.__elyricOverlayResizeObservers.settings,
+        "closing an overlay must disconnect its ResizeObserver");
     root.querySelector(".elyric-player-button-queue").click(); await settle();
     const queuePanel = root.querySelector(".elyric-player-queue-panel");
     assert.strictEqual(queuePanel.getAttribute("data-elyric-anchor-mode"), "button");
@@ -626,16 +656,27 @@ function deferLyrics(id) {
     assert(calls.some((call) => call[0] === "castTarget" && call[1] === "Emby Theater"),
         "selecting a target must use playbackmanager.trySetActivePlayer instead of a native dialog");
     castButton.click();
+    const stopsBeforeResize = calls.filter((call) => call[0] === "stop").length;
+    const lyricTextBeforeResize = root.querySelector(".elyric-player-lyric-viewport").textContent;
+    document.documentElement.clientWidth = 1440;
+    document.documentElement.clientHeight = 900;
     window.innerWidth = 390; window.innerHeight = 844;
     window.visualViewport.width = 390; window.visualViewport.height = 844;
-    document.documentElement.clientHeight = 844;
     window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
+    assert.strictEqual(root.getAttribute("data-elyric-theme-v2-profile"), "portrait",
+        "visualViewport must win over a stale landscape-sized Emby documentElement");
     assert.strictEqual(fixedStage.style.getPropertyValue("width"), "1080px");
     assert.strictEqual(fixedStage.style.getPropertyValue("height"), "1920px");
     assert(fixedStage.style.getPropertyValue("transform").includes("scale(0.3611111111111111)"),
         "390x844 should change only the shared portrait-stage transform");
     assert.strictEqual(root.querySelector(".elyric-player-metadata").style.getPropertyValue("left"), "-1800px",
         "orientation changes must preserve the independent portrait geometry without runtime repair");
+    assert.strictEqual(document.body.querySelectorAll(".elyric-player-host").length, 1);
+    assert.strictEqual(calls.filter((call) => call[0] === "stop").length, stopsBeforeResize,
+        "profile changes must never stop the active Emby playback session");
+    assert.strictEqual(root.querySelector(".elyric-player-lyric-viewport").textContent, lyricTextBeforeResize,
+        "profile changes must preserve the current lyric window");
+    assert.strictEqual(root.scrollTop, 0); assert.strictEqual(fixedStage.scrollTop, 0);
     const muteButton = root.querySelector(".elyric-player-button-mute");
     assert.strictEqual(muteButton.getAttribute("data-elyric-volume"), "64");
     muteButton.click();
@@ -652,8 +693,12 @@ function deferLyrics(id) {
         "Escape at the document boundary must close the volume overlay before Emby handles Back");
     window.innerWidth = 1440; window.innerHeight = 900;
     window.visualViewport.width = 1440; window.visualViewport.height = 900;
-    document.documentElement.clientHeight = 900;
     window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
+    assert.strictEqual(root.getAttribute("data-elyric-theme-v2-profile"), "landscape");
+    assert.strictEqual(fixedStage.style.getPropertyValue("width"), "1920px");
+    assert.strictEqual(fixedStage.style.getPropertyValue("height"), "1080px");
+    assert.strictEqual(document.body.querySelectorAll(".elyric-player-host").length, 1);
+    assert.strictEqual(calls.filter((call) => call[0] === "stop").length, stopsBeforeResize);
     assert.strictEqual(first.native.getAttribute("aria-hidden"), "true"); assert(first.native.hasAttribute("inert"));
     assert.strictEqual(first.native.style.visibility, "hidden");
 

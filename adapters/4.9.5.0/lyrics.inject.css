@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.15-theme-v6-shadow-persistence-r2 */
+/* ELYRIC_BUILD:2026.08.15-theme-v6-shadow-persistence-r3 */
 .elyric-player-host {
     position: fixed !important;
     inset: 0 !important;
@@ -5617,12 +5617,26 @@
     padding: 12px !important;
 }
 
+.elyric-player-root[data-elyric-layout-model="fixed-canvas-v1"]
+    .elyric-player-control-dock .elyric-player-control-group {
+    position: static !important;
+    inset: auto !important;
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    transform: none !important;
+}
+
 .elyric-player-root[data-elyric-layout-model="fixed-canvas-v1"] .elyric-player-control-dock .elyric-player-progress {
+    flex: 1 1 100% !important;
     width: 100% !important;
     max-width: none !important;
 }
 
 .elyric-player-root[data-elyric-layout-model="fixed-canvas-v1"] .elyric-player-control-row {
+    width: 100%;
+    min-width: 0;
     flex-wrap: nowrap;
 }
 
@@ -5650,12 +5664,6 @@
     .elyric-player-control-dock {
     gap: 8px !important;
     padding: 14px !important;
-}
-
-.elyric-player-root[data-elyric-layout-model="fixed-canvas-v1"][data-elyric-theme-v2-profile="portrait"]
-    .elyric-player-control-dock .elyric-player-volume {
-    width: 44px !important;
-    min-width: 44px !important;
 }
 
 /* ELYRIC_ENHANCE_END:4.9.5.0 */

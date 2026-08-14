@@ -162,6 +162,16 @@ assert(adapter.includes("function portablePlayerThemeV5") && adapter.includes("_
 assert(css.includes('[data-elyric-theme-v2="true"] .elyric-player-v2-layer')
     && css.includes("inset: auto !important") && css.includes("max-width: none !important"),
 "V4 geometry ownership must override every legacy theme-specific rectangle while V3 stays compatible");
+assert(/fixed-canvas-v1[\s\S]*?\.elyric-player-control-dock \.elyric-player-control-group\s*\{[^}]*position:\s*static\s*!important[^}]*inset:\s*auto\s*!important[^}]*flex:\s*0 0 auto\s*!important[^}]*width:\s*auto\s*!important[^}]*min-width:\s*0\s*!important[^}]*max-width:\s*none\s*!important[^}]*transform:\s*none\s*!important/s.test(css),
+    "every V6 ControlDock group must clear legacy geometry so portrait auxiliary and volume controls cannot overlap");
+const profileResolver = adapter.slice(adapter.indexOf("function currentPlayerThemeV2Profile"),
+    adapter.indexOf("function resolvedPlayerThemeV2Layout"));
+assert(profileResolver.includes("visualWidth || layoutWidth") && !profileResolver.includes("Math.max("),
+    "orientation must prefer the real visualViewport instead of expanding to Emby's stale document dimensions");
+assert(adapter.includes("function schedulePlayerOverlayReposition")
+    && adapter.includes("function observePlayerOverlaySize")
+    && adapter.includes("new ResizeObserver"),
+"button-anchored overlays must perform a deferred final measurement and observe asynchronous content size changes");
 
 function cssMediaBlocks(source) {
     const blocks = [];
