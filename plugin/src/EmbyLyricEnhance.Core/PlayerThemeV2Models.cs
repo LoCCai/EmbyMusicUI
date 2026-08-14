@@ -6,7 +6,9 @@ namespace EmbyLyricEnhance.Core;
 
 public static class PlayerThemeV2Schema
 {
-    public const int Version = 5;
+    public const int Version = 6;
+
+    public const int V5Version = 5;
 
     public const int PreviousVersion = 4;
 
@@ -57,7 +59,7 @@ public static class PlayerThemeV2Schema
         "choices",
         "player",
         "layouts",
-        "viewportTransforms",
+        "viewport",
         "artwork",
         "typography.primary",
         "typography.secondary",
@@ -66,7 +68,10 @@ public static class PlayerThemeV2Schema
         "lyrics.followDelayMs",
         "visualizer.analysis",
         "mediaFields",
-        "popupStyle",
+        "systemChrome",
+        "overlays",
+        "console",
+        "volume",
         "controls"
     };
 

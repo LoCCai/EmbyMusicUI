@@ -23,7 +23,8 @@ public static class PlayerThemeV2Validator
             ["progress"] = new(StringComparer.Ordinal),
             ["transport"] = new(new[] { "previous", "playPause", "next" }, StringComparer.Ordinal),
             ["volume"] = new(new[] { "mute", "slider", "value" }, StringComparer.Ordinal),
-            ["auxiliary"] = new(new[] { "shuffle", "repeat", "stop", "queue", "media", "secondaryLyrics", "artworkRotation" }, StringComparer.Ordinal)
+            ["auxiliary"] = new(new[] { "shuffle", "repeat", "stop", "queue", "media", "settings", "visualizerToggle",
+                "secondaryLyrics", "tertiaryLyrics", "artworkRotation" }, StringComparer.Ordinal)
         };
     private static readonly IReadOnlyDictionary<string, (double Minimum, double Maximum)> TuningRanges =
         new Dictionary<string, (double, double)>(StringComparer.Ordinal)
@@ -76,6 +77,11 @@ public static class PlayerThemeV2Validator
     {
         "overview", "file", "audio", "image", "lyrics"
     }, StringComparer.Ordinal);
+    private static readonly HashSet<string> MetadataSummaryFieldIds = new(new[]
+    {
+        "title", "artist", "album", "container", "codec", "sampleRate", "bitDepth", "channels", "bitrate"
+    }, StringComparer.Ordinal);
+    private static readonly string[] OverlayKinds = { "media", "queue", "settings", "cast", "volume" };
     private static readonly HashSet<string> LegacyGeometryTuningIds = new(new[]
     {
         "artworkSize", "artworkX", "artworkY", "metadataWidth", "metadataX", "metadataY",
@@ -176,8 +182,9 @@ public static class PlayerThemeV2Validator
     private static void ValidatePortableV3Document(JsonElement root)
     {
         RejectUnknownProperties(root, "document",
-            "format", "schemaVersion", "layoutModel", "name", "baseTheme", "layouts", "viewportTransforms", "background",
-            "artwork", "metadata", "lyrics", "visualizer", "console", "controls", "mediaCard", "mediaFields");
+            "format", "schemaVersion", "layoutModel", "name", "baseTheme", "layouts", "viewport", "viewportTransforms", "background",
+            "artwork", "metadata", "lyrics", "visualizer", "systemChrome", "console", "controls", "volume", "overlays",
+            "mediaCard", "mediaFields");
         if (!TryGetPropertyIgnoreCase(root, "format", out _)
             || !TryGetPropertyIgnoreCase(root, "schemaVersion", out _))
         {
@@ -192,14 +199,17 @@ public static class PlayerThemeV2Validator
             {
                 throw new ArgumentException("Theme V4 must declare its anchored canvas layout model.");
             }
-            ValidateOptionalEnum(root, "layoutModel", version == PlayerThemeV2Schema.Version
+            ValidateOptionalEnum(root, "layoutModel", version >= PlayerThemeV2Schema.V5Version
                 ? new[] { PlayerThemeV2Schema.LayoutModel, PlayerThemeV2Schema.LegacyV5LayoutModel }
                 : new[] { PlayerThemeV2Schema.PreviousLayoutModel });
-            if (!TryGetPropertyIgnoreCase(root, "viewportTransforms", out var viewportTransforms))
+            if (version < PlayerThemeV2Schema.Version)
             {
-                throw new ArgumentException("Theme V4 must contain both viewport transforms.");
+                if (!TryGetPropertyIgnoreCase(root, "viewportTransforms", out var viewportTransforms))
+                {
+                    throw new ArgumentException("Theme V4 must contain both viewport transforms.");
+                }
+                ValidateViewportTransforms(viewportTransforms);
             }
-            ValidateViewportTransforms(viewportTransforms);
         }
         ValidateOptionalString(root, "name", 80);
         ValidateOptionalEnum(root, "baseTheme",
@@ -209,14 +219,16 @@ public static class PlayerThemeV2Validator
             throw new ArgumentException("Theme V3 must contain responsive layouts.");
         }
         ValidateLayoutsValue(layouts, Profiles, requireAllProfiles: true, anchored: version >= PlayerThemeV2Schema.PreviousVersion,
-            allowedLayers: version == PlayerThemeV2Schema.Version ? Layers : (version == PlayerThemeV2Schema.PreviousVersion ? V4Layers : Layers));
-        if (version == PlayerThemeV2Schema.Version)
+            fixedCanvas: version == PlayerThemeV2Schema.Version,
+            allowedLayers: version >= PlayerThemeV2Schema.V5Version ? Layers : (version == PlayerThemeV2Schema.PreviousVersion ? V4Layers : Layers));
+        if (version == PlayerThemeV2Schema.Version) { ValidatePortableV6Sections(root); }
+        if (version >= PlayerThemeV2Schema.V5Version)
         {
             if (!TryGetPropertyIgnoreCase(root, "controls", out var controls))
             {
                 throw new ArgumentException("Theme V5 must contain control dock profiles.");
             }
-            ValidateControlDock(controls, requireProfiles: true);
+            ValidateControlDock(controls, requireProfiles: true, strictV6: version == PlayerThemeV2Schema.Version);
         }
 
         if (TryGetPropertyIgnoreCase(root, "background", out var background))
@@ -284,7 +296,7 @@ public static class PlayerThemeV2Validator
             var metadataKeys = new List<string>
             {
                 "anchor", "align", "surface", "titleSize", "artistSize", "albumSize",
-                "letterSpacing", "padding", "radius", "blur", "opacity", "textColor", "surfaceColor"
+                "letterSpacing", "padding", "radius", "blur", "opacity", "textColor", "surfaceColor", "summaryFields"
             };
             if (version == PlayerThemeV2Schema.V3Version) { metadataKeys.AddRange(new[] { "width", "x", "y" }); }
             RejectUnknownProperties(metadata, "metadata", metadataKeys.ToArray());
@@ -397,11 +409,13 @@ public static class PlayerThemeV2Validator
             {
                 "material", "progressHeight", "progressThumbSize", "volumeHeight",
                 "volumeThumbSize", "blur", "opacity", "progressActive", "progressTrack",
-                "volumeActive", "volumeTrack", "safeArea"
+                "volumeActive", "volumeTrack", "safeArea", "surfaceColor", "textColor", "accentColor",
+                "gradientA", "gradientB", "gradientAngle", "radius", "borderWidth", "shadow"
             };
             if (version == PlayerThemeV2Schema.V3Version) { consoleKeys.AddRange(new[] { "progressWidth", "volumeWidth" }); }
             RejectUnknownProperties(consoleStyle, "console", consoleKeys.ToArray());
-            ValidateOptionalEnum(consoleStyle, "material", "glass", "minimal", "neumorphic", "deck", "poster");
+            ValidateOptionalEnum(consoleStyle, "material", "glass", "minimal", "black", "white", "gradient", "rainbow",
+                "neumorphic", "deck", "poster");
             ValidateMappedNumbers(consoleStyle, new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["progressHeight"] = "progressTrackHeight", ["progressThumbSize"] = "progressThumbSize",
@@ -423,7 +437,8 @@ public static class PlayerThemeV2Validator
         }
         if (TryGetPropertyIgnoreCase(root, "controls", out var portableControls))
         {
-            ValidateControlDock(portableControls, requireProfiles: version == PlayerThemeV2Schema.Version);
+            ValidateControlDock(portableControls, requireProfiles: version >= PlayerThemeV2Schema.V5Version,
+                strictV6: version == PlayerThemeV2Schema.Version);
         }
 
         if (TryGetPropertyIgnoreCase(root, "mediaCard", out var mediaCard))
@@ -446,6 +461,20 @@ public static class PlayerThemeV2Validator
         ValidateBooleanObject(root, "mediaFields", MediaFieldIds);
     }
 
+    private static void ValidateThemeV6Sections(JsonElement root, int version)
+    {
+        if (version < PlayerThemeV2Schema.Version) { return; }
+        ValidateV6Viewport(RequireProperty(root, "viewport", "Theme V6 must define viewport fitting."));
+        var metadata = RequireProperty(root, "metadata", "Theme V6 must define metadata fields.");
+        RequireObject(metadata, "metadata");
+        RejectUnknownProperties(metadata, "metadata", "summaryFields");
+        ValidateMetadataSummaryFields(metadata, required: true);
+        ValidateSystemChrome(RequireProperty(root, "systemChrome", "Theme V6 must define systemChrome."));
+        ValidateOverlays(RequireProperty(root, "overlays", "Theme V6 must define overlays."));
+        ValidateV6Console(RequireProperty(root, "console", "Theme V6 must define console."), portable: false);
+        ValidateVolume(RequireProperty(root, "volume", "Theme V6 must define volume."));
+    }
+
     private static void ValidateLayouts(JsonElement root)
     {
         if (!TryGetPropertyIgnoreCase(root, "v2", out var v2))
@@ -456,7 +485,7 @@ public static class PlayerThemeV2Validator
 
         var version = GetOptionalInteger(v2, "schemaVersion", PlayerThemeV2Schema.LegacyVersion);
         if (version is not (PlayerThemeV2Schema.LegacyVersion or PlayerThemeV2Schema.V3Version
-            or PlayerThemeV2Schema.PreviousVersion or PlayerThemeV2Schema.Version))
+            or PlayerThemeV2Schema.PreviousVersion or PlayerThemeV2Schema.V5Version or PlayerThemeV2Schema.Version))
         {
             throw new ArgumentException("Theme schema version is unsupported.");
         }
@@ -474,7 +503,8 @@ public static class PlayerThemeV2Validator
             version >= PlayerThemeV2Schema.V3Version ? Profiles : LegacyProfiles,
             requireAllProfiles: version >= PlayerThemeV2Schema.PreviousVersion,
             anchored: version >= PlayerThemeV2Schema.PreviousVersion,
-            allowedLayers: version == PlayerThemeV2Schema.Version ? Layers
+            fixedCanvas: version == PlayerThemeV2Schema.Version,
+            allowedLayers: version >= PlayerThemeV2Schema.V5Version ? Layers
                 : (version == PlayerThemeV2Schema.PreviousVersion ? V4Layers : Layers));
     }
 
@@ -483,6 +513,7 @@ public static class PlayerThemeV2Validator
         HashSet<string> allowedProfiles,
         bool requireAllProfiles,
         bool anchored = false,
+        bool fixedCanvas = false,
         HashSet<string>? allowedLayers = null)
     {
         allowedLayers ??= Layers;
@@ -496,16 +527,42 @@ public static class PlayerThemeV2Validator
             }
             seenProfiles.Add(profile.Name);
             var seenLayers = new HashSet<string>(StringComparer.Ordinal);
+            var sawCanvas = false;
 
             foreach (var layer in profile.Value.EnumerateObject())
             {
+                if (layer.Name == "canvas")
+                {
+                    if (!fixedCanvas)
+                    {
+                        throw new ArgumentException("Only Theme V6 can define a fixed canvas.");
+                    }
+                    RequireObject(layer.Value, $"layouts.{profile.Name}.canvas");
+                    RejectUnknownProperties(layer.Value, $"layouts.{profile.Name}.canvas", "width", "height");
+                    var expectedWidth = profile.Name == "landscape" ? 1920 : 1080;
+                    var expectedHeight = profile.Name == "landscape" ? 1080 : 1920;
+                    if (!TryGetPropertyIgnoreCase(layer.Value, "width", out var canvasWidth)
+                        || !TryGetPropertyIgnoreCase(layer.Value, "height", out var canvasHeight)
+                        || canvasWidth.ValueKind != JsonValueKind.Number || canvasHeight.ValueKind != JsonValueKind.Number
+                        || !canvasWidth.TryGetDouble(out var actualWidth) || !canvasHeight.TryGetDouble(out var actualHeight)
+                        || actualWidth != expectedWidth || actualHeight != expectedHeight)
+                    {
+                        throw new ArgumentException("Theme V6 canvas dimensions are fixed.");
+                    }
+                    sawCanvas = true;
+                    continue;
+                }
                 if (!allowedLayers.Contains(layer.Name) || layer.Value.ValueKind != JsonValueKind.Object)
                 {
                     throw new ArgumentException("Theme contains an unknown editable layer.");
                 }
                 seenLayers.Add(layer.Name);
 
-                ValidateLayer(layer.Value, anchored);
+                ValidateLayer(layer.Value, anchored, fixedCanvas);
+            }
+            if (fixedCanvas && !sawCanvas)
+            {
+                throw new ArgumentException("Theme V6 layouts must declare their fixed canvas.");
             }
             if (anchored && !allowedLayers.SetEquals(seenLayers))
             {
@@ -518,7 +575,7 @@ public static class PlayerThemeV2Validator
         }
     }
 
-    private static void ValidateLayer(JsonElement layer, bool anchored)
+    private static void ValidateLayer(JsonElement layer, bool anchored, bool fixedCanvas)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in layer.EnumerateObject())
@@ -526,7 +583,7 @@ public static class PlayerThemeV2Validator
             seen.Add(property.Name);
             if (property.Name is "anchorX" or "anchorY")
             {
-                if (!anchored || property.Value.ValueKind != JsonValueKind.String
+                if (fixedCanvas || !anchored || property.Value.ValueKind != JsonValueKind.String
                     || property.Value.GetString() is not ("start" or "center" or "end"))
                 {
                     throw new ArgumentException("Layer anchor is unsupported.");
@@ -569,11 +626,9 @@ public static class PlayerThemeV2Validator
         }
         if (anchored)
         {
-            var required = new[]
-            {
-                "anchorX", "anchorY", "x", "y", "width", "height",
-                "rotation", "z", "opacity", "hidden", "locked"
-            };
+            var required = fixedCanvas
+                ? new[] { "x", "y", "width", "height", "rotation", "z", "opacity", "hidden", "locked" }
+                : new[] { "anchorX", "anchorY", "x", "y", "width", "height", "rotation", "z", "opacity", "hidden", "locked" };
             if (required.Any(name => !seen.Contains(name)))
             {
                 throw new ArgumentException("Theme V4 layers must contain complete anchored geometry.");
@@ -633,7 +688,8 @@ public static class PlayerThemeV2Validator
                 "metadataSurface", "lyricsSurface", "mediaSurface");
             ValidateOptionalEnum(choices, "artworkMode", "single", "coverflow");
             ValidateOptionalEnum(choices, "artworkMaterial", "plain", "vinyl", "poster", "turntable", "neumorphic", "deck", "stack", "coverflow");
-            ValidateOptionalEnum(choices, "controlMaterial", "glass", "minimal", "neumorphic", "deck", "poster");
+            ValidateOptionalEnum(choices, "controlMaterial", "glass", "minimal", "black", "white", "gradient", "rainbow",
+                "neumorphic", "deck", "poster");
             ValidateOptionalEnum(choices, "metadataAnchor", "start", "center", "end");
             ValidateOptionalEnum(choices, "metadataAlign", "left", "center", "right");
             foreach (var name in new[] { "metadataSurface", "lyricsSurface", "mediaSurface" })
@@ -677,10 +733,11 @@ public static class PlayerThemeV2Validator
         }
         RequireObject(v2, "v2");
         RejectUnknownProperties(v2, "v2",
-            "schemaVersion", "layoutModel", "layouts", "layoutOverrides", "viewportTransforms", "lyrics", "artwork",
-            "visualizer", "popupStyle", "controls", "typography");
+            "schemaVersion", "layoutModel", "layouts", "layoutOverrides", "viewport", "viewportTransforms", "lyrics", "artwork",
+            "metadata", "visualizer", "systemChrome", "overlays", "console", "volume", "popupStyle", "controls", "typography");
         ValidateOptionalNumber(v2, "schemaVersion", PlayerThemeV2Schema.LegacyVersion, PlayerThemeV2Schema.Version);
         var v2Version = GetOptionalInteger(v2, "schemaVersion", PlayerThemeV2Schema.LegacyVersion);
+        if (v2Version == PlayerThemeV2Schema.Version) { ValidateThemeV6Sections(v2, v2Version); }
         var responsiveProfiles = v2Version >= PlayerThemeV2Schema.V3Version
             ? PlayerThemeV2Schema.ResponsiveProfiles
             : PlayerThemeV2Schema.LegacyResponsiveProfiles;
@@ -691,14 +748,17 @@ public static class PlayerThemeV2Validator
             {
                 throw new ArgumentException("Theme V4 must declare its anchored canvas layout model.");
             }
-            ValidateOptionalEnum(v2, "layoutModel", v2Version == PlayerThemeV2Schema.Version
+            ValidateOptionalEnum(v2, "layoutModel", v2Version >= PlayerThemeV2Schema.V5Version
                 ? new[] { PlayerThemeV2Schema.LayoutModel, PlayerThemeV2Schema.LegacyV5LayoutModel }
                 : new[] { PlayerThemeV2Schema.PreviousLayoutModel });
-            if (!TryGetPropertyIgnoreCase(v2, "viewportTransforms", out var transforms))
+            if (v2Version < PlayerThemeV2Schema.Version)
             {
-                throw new ArgumentException("Theme V4 must contain both viewport transforms.");
+                if (!TryGetPropertyIgnoreCase(v2, "viewportTransforms", out var transforms))
+                {
+                    throw new ArgumentException("Theme V4 must contain both viewport transforms.");
+                }
+                ValidateViewportTransforms(transforms);
             }
-            ValidateViewportTransforms(transforms);
             if (TryGetPropertyIgnoreCase(v2, "layoutOverrides", out _))
             {
                 throw new ArgumentException("Theme V4 does not support layout inheritance overrides.");
@@ -761,9 +821,10 @@ public static class PlayerThemeV2Validator
         }
         if (TryGetPropertyIgnoreCase(v2, "controls", out var controls))
         {
-            ValidateControlDock(controls, requireProfiles: v2Version == PlayerThemeV2Schema.Version);
+            ValidateControlDock(controls, requireProfiles: v2Version >= PlayerThemeV2Schema.V5Version,
+                strictV6: v2Version == PlayerThemeV2Schema.Version);
         }
-        else if (v2Version == PlayerThemeV2Schema.Version)
+        else if (v2Version >= PlayerThemeV2Schema.V5Version)
         {
             throw new ArgumentException("Theme V5 must contain control dock profiles.");
         }
@@ -773,7 +834,151 @@ public static class PlayerThemeV2Validator
         }
     }
 
-    private static void ValidateControlDock(JsonElement controls, bool requireProfiles)
+    private static void ValidatePortableV6Sections(JsonElement root)
+    {
+        ValidateV6Viewport(RequireProperty(root, "viewport", "Theme V6 must define viewport fitting."));
+        var metadata = RequireProperty(root, "metadata", "Theme V6 must define metadata fields.");
+        RequireObject(metadata, "metadata");
+        ValidateMetadataSummaryFields(metadata, required: true);
+        ValidateSystemChrome(RequireProperty(root, "systemChrome", "Theme V6 must define systemChrome."));
+        ValidateOverlays(RequireProperty(root, "overlays", "Theme V6 must define overlays."));
+        ValidateV6Console(RequireProperty(root, "console", "Theme V6 must define console."), portable: true);
+        ValidateVolume(RequireProperty(root, "volume", "Theme V6 must define volume."));
+    }
+
+    private static void ValidateV6Viewport(JsonElement viewport)
+    {
+        RequireObject(viewport, "viewport");
+        RejectUnknownProperties(viewport, "viewport", "fit", "alignX", "alignY");
+        RequireEnum(viewport, "fit", "contain");
+        RequireEnum(viewport, "alignX", "center");
+        RequireEnum(viewport, "alignY", "end");
+    }
+
+    private static void ValidateMetadataSummaryFields(JsonElement metadata, bool required)
+    {
+        if (!TryGetPropertyIgnoreCase(metadata, "summaryFields", out var fields))
+        {
+            if (required) { throw new ArgumentException("Theme V6 metadata must define summaryFields."); }
+            return;
+        }
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        if (fields.ValueKind != JsonValueKind.Array || fields.GetArrayLength() > MetadataSummaryFieldIds.Count
+            || fields.EnumerateArray().Any(field => field.ValueKind != JsonValueKind.String
+                || !MetadataSummaryFieldIds.Contains(field.GetString() ?? "")
+                || !seen.Add(field.GetString() ?? "")))
+        {
+            throw new ArgumentException("Theme V6 metadata summary fields are invalid.");
+        }
+    }
+
+    private static void ValidateSystemChrome(JsonElement chrome)
+    {
+        RequireObject(chrome, "systemChrome");
+        RejectUnknownProperties(chrome, "systemChrome",
+            "size", "surface", "color", "surfaceColor", "radius", "blur", "shadow", "showLabels");
+        ValidateOptionalNumber(chrome, "size", 44, 80);
+        ValidateOptionalEnum(chrome, "surface", "none", "glass", "black", "white", "gradient");
+        ValidateOptionalColor(chrome, "color");
+        ValidateOptionalColor(chrome, "surfaceColor");
+        ValidateOptionalNumber(chrome, "radius", 0, 50);
+        ValidateOptionalNumber(chrome, "blur", 0, 48);
+        ValidateOptionalNumber(chrome, "shadow", 0, 64);
+        ValidateOptionalBoolean(chrome, "showLabels");
+    }
+
+    private static void ValidateOverlays(JsonElement overlays)
+    {
+        RequireObject(overlays, "overlays");
+        RejectUnknownProperties(overlays, "overlays", "surface", "surfaceColor", "textColor", "accentColor",
+            "radius", "blur", "opacity", "backdrop", "gap", "margin", "arrowSize", "durationMs", "sizes");
+        ValidateOptionalEnum(overlays, "surface", "none", "glass", "black", "white", "gradient");
+        foreach (var name in new[] { "surfaceColor", "textColor", "accentColor" }) { ValidateOptionalColor(overlays, name); }
+        ValidateOptionalNumber(overlays, "radius", 0, 64);
+        ValidateOptionalNumber(overlays, "blur", 0, 64);
+        ValidateOptionalNumber(overlays, "opacity", 0, 100);
+        ValidateOptionalNumber(overlays, "gap", 4, 32);
+        ValidateOptionalNumber(overlays, "margin", 8, 48);
+        ValidateOptionalNumber(overlays, "arrowSize", 4, 24);
+        ValidateOptionalNumber(overlays, "durationMs", 0, 600);
+        if (TryGetPropertyIgnoreCase(overlays, "backdrop", out var backdrop))
+        {
+            RequireObject(backdrop, "overlays.backdrop");
+            RejectUnknownProperties(backdrop, "overlays.backdrop", "dim", "blur");
+            ValidateOptionalNumber(backdrop, "dim", 0, 100);
+            ValidateOptionalNumber(backdrop, "blur", 0, 48);
+        }
+        if (TryGetPropertyIgnoreCase(overlays, "sizes", out var sizes))
+        {
+            RequireObject(sizes, "overlays.sizes");
+            RejectUnknownProperties(sizes, "overlays.sizes", OverlayKinds);
+            foreach (var kind in OverlayKinds)
+            {
+                if (!TryGetPropertyIgnoreCase(sizes, kind, out var size)) { continue; }
+                RequireObject(size, $"overlays.sizes.{kind}");
+                RejectUnknownProperties(size, $"overlays.sizes.{kind}", "minWidth", "maxWidth", "maxHeight");
+                ValidateOptionalNumber(size, "minWidth", 48, 720);
+                ValidateOptionalNumber(size, "maxWidth", 48, 720);
+                ValidateOptionalNumber(size, "maxHeight", 10, 100);
+                if (TryGetPropertyIgnoreCase(size, "minWidth", out var minWidth)
+                    && TryGetPropertyIgnoreCase(size, "maxWidth", out var maxWidth)
+                    && minWidth.GetDouble() > maxWidth.GetDouble())
+                {
+                    throw new ArgumentException($"Theme overlays.sizes.{kind} has an invalid width range.");
+                }
+            }
+        }
+    }
+
+    private static void ValidateV6Console(JsonElement console, bool portable)
+    {
+        RequireObject(console, "console");
+        var keys = new List<string>
+        {
+            "material", "surfaceColor", "textColor", "accentColor", "gradientA", "gradientB", "gradientAngle",
+            "radius", "blur", "opacity", "borderWidth", "shadow"
+        };
+        if (portable)
+        {
+            keys.AddRange(new[] { "progressHeight", "progressThumbSize", "volumeHeight", "volumeThumbSize",
+                "progressActive", "progressTrack", "volumeActive", "volumeTrack", "safeArea" });
+        }
+        RejectUnknownProperties(console, "console", keys.ToArray());
+        ValidateOptionalEnum(console, "material", "glass", "minimal", "black", "white", "gradient", "rainbow",
+            "neumorphic", "deck", "poster");
+        foreach (var name in new[] { "surfaceColor", "textColor", "accentColor", "gradientA", "gradientB",
+                     "progressActive", "progressTrack", "volumeActive", "volumeTrack" })
+        {
+            ValidateOptionalColor(console, name);
+        }
+        ValidateOptionalNumber(console, "gradientAngle", 0, 360);
+        ValidateOptionalNumber(console, "radius", 0, 64);
+        ValidateOptionalNumber(console, "blur", 0, 64);
+        ValidateOptionalNumber(console, "opacity", 0, 100);
+        ValidateOptionalNumber(console, "borderWidth", 0, 12);
+        ValidateOptionalNumber(console, "shadow", 0, 64);
+        if (portable)
+        {
+            ValidateOptionalNumber(console, "progressHeight", 2, 12);
+            ValidateOptionalNumber(console, "progressThumbSize", 8, 26);
+            ValidateOptionalNumber(console, "volumeHeight", 2, 12);
+            ValidateOptionalNumber(console, "volumeThumbSize", 8, 24);
+            ValidateOptionalNumber(console, "safeArea", 44, 180);
+        }
+    }
+
+    private static void ValidateVolume(JsonElement volume)
+    {
+        RequireObject(volume, "volume");
+        RejectUnknownProperties(volume, "volume", "landscapeMode", "portraitMode", "iconFill", "popoverWidth", "popoverHeight");
+        ValidateOptionalEnum(volume, "landscapeMode", "expanded", "iconPopover");
+        ValidateOptionalEnum(volume, "portraitMode", "iconPopover");
+        ValidateOptionalBoolean(volume, "iconFill");
+        ValidateOptionalNumber(volume, "popoverWidth", 64, 120);
+        ValidateOptionalNumber(volume, "popoverHeight", 160, 360);
+    }
+
+    private static void ValidateControlDock(JsonElement controls, bool requireProfiles, bool strictV6 = false)
     {
         RequireObject(controls, "controls");
         RejectUnknownProperties(controls, "controls", "safeArea", "profiles");
@@ -791,11 +996,11 @@ public static class PlayerThemeV2Validator
             {
                 throw new ArgumentException("Control dock must define landscape and portrait profiles.");
             }
-            ValidateControlDockProfile(profile, profileId);
+            ValidateControlDockProfile(profile, profileId, strictV6);
         }
     }
 
-    private static void ValidateControlDockProfile(JsonElement profile, string profileId)
+    private static void ValidateControlDockProfile(JsonElement profile, string profileId, bool strictV6)
     {
         RequireObject(profile, $"controls.profiles.{profileId}");
         RejectUnknownProperties(profile, $"controls.profiles.{profileId}", "rows", "groups");
@@ -852,7 +1057,7 @@ public static class PlayerThemeV2Validator
             {
                 throw new ArgumentException("Progress and transport groups cannot be hidden.");
             }
-            ValidateControlDockButtons(group, groupId, "order", requireAll: true);
+            ValidateControlDockButtons(group, groupId, "order", requireAll: true, strictV6);
             ValidateControlDockButtons(group, groupId, "hiddenButtons", requireAll: false);
             if (groupId == "transport" && TryGetPropertyIgnoreCase(group, "hiddenButtons", out var hidden)
                 && hidden.EnumerateArray().Any(item => item.GetString() == "playPause"))
@@ -862,7 +1067,8 @@ public static class PlayerThemeV2Validator
         }
     }
 
-    private static void ValidateControlDockButtons(JsonElement group, string groupId, string propertyName, bool requireAll)
+    private static void ValidateControlDockButtons(
+        JsonElement group, string groupId, string propertyName, bool requireAll, bool strictV6 = false)
     {
         if (!TryGetPropertyIgnoreCase(group, propertyName, out var values) || values.ValueKind != JsonValueKind.Array)
         {
@@ -877,7 +1083,10 @@ public static class PlayerThemeV2Validator
                 throw new ArgumentException("Control dock buttons must be unique and supported.");
             }
         }
-        if (requireAll && !DockButtons[groupId].SetEquals(seen))
+        var requiredButtons = groupId == "auxiliary" && !strictV6
+            ? new HashSet<string>(new[] { "shuffle", "repeat", "stop", "queue", "media", "secondaryLyrics", "artworkRotation" }, StringComparer.Ordinal)
+            : DockButtons[groupId];
+        if (requireAll && (strictV6 ? !requiredButtons.SetEquals(seen) : !requiredButtons.IsSubsetOf(seen)))
         {
             throw new ArgumentException("Control dock button order must contain every supported button exactly once.");
         }
@@ -1058,6 +1267,24 @@ public static class PlayerThemeV2Validator
                 throw new ArgumentException($"Theme {sectionName} contains unknown parameter {property.Name}.");
             }
         }
+    }
+
+    private static JsonElement RequireProperty(JsonElement parent, string name, string message)
+    {
+        if (!TryGetPropertyIgnoreCase(parent, name, out var value))
+        {
+            throw new ArgumentException(message);
+        }
+        return value;
+    }
+
+    private static void RequireEnum(JsonElement parent, string name, params string[] allowedValues)
+    {
+        if (!TryGetPropertyIgnoreCase(parent, name, out _))
+        {
+            throw new ArgumentException($"Theme parameter {name} is required.");
+        }
+        ValidateOptionalEnum(parent, name, allowedValues);
     }
 
     private static void RequireObject(JsonElement value, string name)

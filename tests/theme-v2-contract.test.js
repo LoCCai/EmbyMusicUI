@@ -22,15 +22,28 @@ assert(adapter.includes("PLAYER_THEME_V2_REGISTRY"), "the web editor should expo
     assert(models.includes(`\"${profile}\"`), `${profile} should be server-validated`);
 });
 assert(adapter.includes('layoutModel: PLAYER_THEME_LAYOUT_MODEL') && models.includes('LayoutModel = "fixed-canvas-v1"'),
-    "V5 themes should declare the anchored canvas model");
+    "V6 themes should declare the fixed canvas model");
+assert(adapter.includes("absolutePlayerThemeV6Layer")
+    && adapter.includes("delete layer.anchorX") && adapter.includes("delete layer.anchorY"),
+    "V1-V5 anchors must migrate into absolute V6 canvas coordinates and disappear from new documents");
+assert(validator.includes("fixedCanvas") && validator.includes("Only Theme V6 can define a fixed canvas"),
+    "the server must distinguish strict fixed V6 canvases from anchored V4/V5 layouts");
+assert(validator.includes("ValidateSystemChrome") && validator.includes("ValidateOverlays")
+    && validator.includes("ValidateVolume") && validator.includes("ValidateV6Console"),
+    "all V6 visual parameter families must use strict server-side validation");
+assert(adapter.includes("createMetadataSummaryFieldControl")
+    && adapter.includes("createPlayerThemeV6RangeSetting") && adapter.includes("syncPlayerThemeV6Settings"),
+    "V6 metadata, chrome, overlay and volume parameters must remain editable instead of JSON-only");
 assert(adapter.includes('PLAYER_THEME_LEGACY_V5_LAYOUT_MODEL = "anchored-canvas-v2"')
     && models.includes('LegacyV5LayoutModel = "anchored-canvas-v2"'),
     "existing V5 account drafts should migrate once into the fixed 16:9/9:16 canvas");
 assert(/applyPlayerThemeDefinition\(\s*renderer,\s*preferences\.playerThemeDesign\s*\)/.test(adapter)
     && adapter.includes('服务器 Workspace 接口未确认新的 revision'),
     "Workspace drafts must restore regardless of their source preset and sync only after a revision acknowledgement");
-assert(adapter.includes("viewportTransforms") && models.includes("viewportTransforms"),
-    "both orientations should persist an independent viewport transform");
+assert(adapter.includes('viewport: { fit: "contain", alignX: "center", alignY: "end" }')
+    && adapter.includes("canvas: clonePlayerThemeV2Value(PLAYER_THEME_CANVAS_SIZES.landscape)")
+    && adapter.includes("canvas: clonePlayerThemeV2Value(PLAYER_THEME_CANVAS_SIZES.portrait)"),
+    "V6 should use two immutable design canvases and one contain/end viewport transform");
 assert(validator.includes("Theme V4 must declare its anchored canvas layout model")
     && validator.includes("Theme V4 must contain both anchored layouts")
     && validator.includes("Theme V4 layouts must contain all editable layers")
@@ -122,8 +135,9 @@ assert(adapter.includes("PLAYER_LEGACY_GEOMETRY_TUNING_IDS.indexOf(definition.id
 assert(css.includes("backdrop-filter: none !important"), "the settings editor should remain opaque and unblurred");
 assert(css.includes("--elyric-layer-overlay") && css.includes("--elyric-layer-designer"),
     "single-root overlays and designer handles should use one bounded layer-token system");
-assert(css.includes("V4 geometry ownership") && css.includes(".elyric-player-safety-toolbar"),
-    "V4 should declare one geometry owner and an out-of-stage safety toolbar");
+assert(css.includes("V4 geometry ownership") && css.includes(".elyric-player-button-back")
+    && css.includes(".elyric-player-button-cast"),
+    "V6 should retain one geometry owner and fixed self-rendered system chrome");
 assert(!adapter.includes('isCompactPlayerViewport() ? "compact" : "desktop"'),
     "runtime layout selection must never reintroduce compact or desktop profiles");
 assert(!adapter.includes("rect.left / window.innerWidth"),
@@ -142,9 +156,9 @@ assert(!adapter.includes("PLAYER_THEME_V3_BUILTIN_LAYOUTS") && !adapter.includes
     "V4 built-ins and migrations should not keep misleading V3 runtime names");
 assert(!adapter.includes("portablePlayerThemeV3") && !adapter.includes("__elyricPlayerThemeV3Fixtures"),
     "V4 export and test hooks should not keep misleading V3 runtime names");
-assert(adapter.includes("function portablePlayerThemeV5") && adapter.includes("__elyricPlayerThemeV5Fixtures")
-    && adapter.includes("__elyricPortablePlayerThemeV5"),
-"V5 export and built-in fixtures should expose first-class V5 names");
+assert(adapter.includes("function portablePlayerThemeV5") && adapter.includes("__elyricPlayerThemeV6Fixtures")
+    && adapter.includes("__elyricPortablePlayerThemeV6"),
+"V6 export and built-in fixtures should expose first-class V6 names while preserving compatibility aliases");
 assert(css.includes('[data-elyric-theme-v2="true"] .elyric-player-v2-layer')
     && css.includes("inset: auto !important") && css.includes("max-width: none !important"),
 "V4 geometry ownership must override every legacy theme-specific rectangle while V3 stays compatible");

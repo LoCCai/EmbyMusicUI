@@ -106,7 +106,8 @@ const window = {
     matchMedia(query) { return { matches: query.includes("prefers-reduced-motion") }; },
     addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); },
     removeEventListener(type, listener) { this.listeners[type] = (this.listeners[type] || []).filter((value) => value !== listener); },
-    getComputedStyle() { return { paddingTop: "0", paddingRight: "0", paddingBottom: "0", paddingLeft: "0", getPropertyValue() { return "0"; } }; }
+    getComputedStyle() { return { paddingTop: "0", paddingRight: "0", paddingBottom: "0", paddingLeft: "0", getPropertyValue() { return "0"; } }; },
+    confirm() { return true; }
 };
 class MutationObserver { observe() {} disconnect() {} }
 const stored = new Map();
@@ -145,6 +146,8 @@ function item(id, name, mediaType = "Audio") {
         MediaSources: [{ Id: `source-${id}`, DefaultSubtitleStreamIndex: 2, MediaStreams: [{ Type: "Subtitle", Index: 2 }] }] };
 }
 const player = {};
+player.endSession = function () { calls.push(["endSession"]); return Promise.resolve(); };
+player.getSupportedCommands = function () { return ["EndSession"]; };
 let currentItem = item("song-a", "歌曲 A");
 let state = { NowPlayingItem: currentItem,
     PlayState: { PositionTicks: 50000000, IsPaused: false, IsMuted: false, VolumeLevel: 64 },
@@ -168,6 +171,12 @@ const manager = {
     setCurrentPlaylistItem(...args) { calls.push(["playQueue", ...args]); return Promise.resolve(); },
     removeFromPlaylist(...args) { calls.push(["removeQueue", ...args]); return Promise.resolve(); },
     movePlaylistItem(...args) { calls.push(["moveQueue", ...args]); return Promise.resolve(); }
+    ,getTargets() { return Promise.resolve([
+        { Id: "remote-living-room", Name: "客厅 Emby", PlayerName: "Emby Theater" }
+    ]); }
+    ,getPlayerInfo() { return { Id: "local-browser", Name: "此设备", IsLocalPlayer: true }; }
+    ,trySetActivePlayer(...args) { calls.push(["castTarget", ...args]); return Promise.resolve(); }
+    ,setDefaultPlayerActive(...args) { calls.push(["castLocal", ...args]); return Promise.resolve(); }
 };
 
 const pendingLyrics = new Map();
@@ -306,14 +315,24 @@ function deferLyrics(id) {
     assert.strictEqual(workspaceWrites.length, 0, "initialization must block debounced Workspace writes");
     assert.strictEqual(displayPreferenceWrites, 0, "daily persistence must never write DisplayPreferences");
 
-    const serverDraft = JSON.parse(JSON.stringify(window.__elyricPlayerThemeV5Fixtures[0]));
-    assert.strictEqual(window.__elyricPlayerThemeV5Fixtures.length, 9,
-        "the runtime must expose all nine built-in Theme V5 fixtures");
-    window.__elyricPlayerThemeV5Fixtures.forEach((fixture) => {
+    const serverDraft = JSON.parse(JSON.stringify(window.__elyricPlayerThemeV6Fixtures[0]));
+    assert.strictEqual(window.__elyricPlayerThemeV6Fixtures.length, 9,
+        "the runtime must expose all nine built-in Theme V6 fixtures");
+    window.__elyricPlayerThemeV6Fixtures.forEach((fixture) => {
+        assert.strictEqual(fixture.schemaVersion, 6);
+        assert.strictEqual(fixture.layoutModel, "fixed-canvas-v1");
         ["landscape", "portrait"].forEach((profile) => {
-            assert(window.__elyricPlayerThemeV5LayoutIsSafe(fixture.layouts[profile], profile),
+            Object.entries(fixture.layouts[profile]).forEach(([layerId, layer]) => {
+                if (layerId !== "canvas") {
+                    assert(!Object.prototype.hasOwnProperty.call(layer, "anchorX")
+                        && !Object.prototype.hasOwnProperty.call(layer, "anchorY"),
+                    `${fixture.baseTheme} ${profile} ${layerId} must use absolute V6 canvas geometry only`);
+                }
+            });
+            assert(window.__elyricPlayerThemeV6LayoutIsSafe(fixture.layouts[profile], profile),
                 `${fixture.baseTheme} ${profile} must pass the shared playback safety solver without fallback`);
         });
+        assert.strictEqual(fixture.visualizer.frequencyLayout, fixture.baseTheme === "mint" ? "radial" : "centerOut");
     });
     serverDraft.name = "账号权威主题";
     serverDraft.lyrics.style = "gradient";
@@ -332,15 +351,23 @@ function deferLyrics(id) {
     assert.strictEqual(root.getAttribute("data-elyric-workspace-revision"), "7");
     assert.strictEqual(root.getAttribute("data-elyric-account-scope"), "server-a.runtime-user");
     assert.strictEqual(root.querySelector(".elyric-player-lyric-viewport").getAttribute("data-elyric-theme"), "gradient");
+    const fixedStage = root.querySelector(".elyric-player-stage");
+    assert.strictEqual(fixedStage.style.getPropertyValue("width"), "1920px");
+    assert.strictEqual(fixedStage.style.getPropertyValue("height"), "1080px");
+    assert(fixedStage.style.getPropertyValue("transform").includes("scale(0.75)"),
+        "1440x900 should transform the complete 1920x1080 stage once at 0.75");
+    assert.strictEqual(root.querySelector(".elyric-player-metadata").style.getPropertyValue("position"), "absolute");
+    assert.strictEqual(root.querySelector(".elyric-player-metadata").style.getPropertyValue("left"), "96px",
+        "stage children must retain V6 design-space geometry rather than viewport pixels");
     assert.strictEqual(osd.__elyricRenderer.__elyricPlayerLayout, "album");
-    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x, 940.8);
-    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.portrait.metadata.x, 0);
+    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x, 96);
+    assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.layouts.portrait.metadata.x, 96);
     assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.controls.profiles.landscape.groups.transport.gap, 19);
     assert.strictEqual(osd.__elyricRenderer.__elyricThemeV2.controls.profiles.portrait.groups.transport.gap, 27,
         "one account draft must retain independent landscape and portrait control profiles");
     await wait(10); await settle();
     assert.strictEqual(workspaceWrites.length, 1,
-        "an unsafe unmarked V5 draft should create one repaired Workspace revision after preserving its backup");
+        "an unsafe unmarked V6 draft should create one repaired Workspace revision after preserving its backup");
     assert([...stored.keys()].some((key) => key.includes("layout-repair-backups")),
         "the original unsafe draft must remain available as an account-scoped read-only backup");
     assert(root.querySelector(".elyric-theme-restore-repair"),
@@ -349,7 +376,7 @@ function deferLyrics(id) {
     await wait(550); await settle();
     assert.strictEqual(workspaceWrites.length, 2, "post-repair edits should debounce into one further Workspace PUT");
     assert.strictEqual(workspaceWrites[1].ExpectedRevision, 8);
-    assert.strictEqual(JSON.parse(workspaceWrites[1].DraftJson).schemaVersion, 5);
+    assert.strictEqual(JSON.parse(workspaceWrites[1].DraftJson).schemaVersion, 6);
     assert.strictEqual(JSON.parse(workspaceWrites[1].DraftJson).layoutModel, "fixed-canvas-v1");
     assert.strictEqual(root.getAttribute("data-elyric-workspace-revision"), "9",
         "the visible sync revision must update only after the server acknowledges the PUT");
@@ -389,6 +416,40 @@ function deferLyrics(id) {
     assert.strictEqual(queuePanel.getAttribute("data-elyric-anchor-mode"), "button");
     assert(Number.parseFloat(queuePanel.style.getPropertyValue("max-height")) <= window.innerHeight * .66);
     queuePanel.querySelector(".elyric-player-settings-close").click();
+    const castButton = root.querySelector(".elyric-player-button-cast");
+    castButton.click(); await settle();
+    const castPanel = root.querySelector(".elyric-player-cast-panel");
+    assert.strictEqual(castPanel.getAttribute("data-elyric-anchor-mode"), "button");
+    assert(["above", "below", "left", "right"].includes(castPanel.getAttribute("data-elyric-anchor-placement")));
+    const castTargets = castPanel.querySelectorAll(".elyric-player-cast-target");
+    assert(castTargets.length >= 2 && castPanel.textContent.includes("客厅 Emby"),
+        "the root-owned cast overlay should render local and remote Emby targets");
+    castTargets[1].click(); await settle();
+    assert(calls.some((call) => call[0] === "castTarget" && call[1] === "Emby Theater"),
+        "selecting a target must use playbackmanager.trySetActivePlayer instead of a native dialog");
+    castButton.click();
+    window.innerWidth = 390; window.innerHeight = 844;
+    window.visualViewport.width = 390; window.visualViewport.height = 844;
+    document.documentElement.clientHeight = 844;
+    window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
+    assert.strictEqual(fixedStage.style.getPropertyValue("width"), "1080px");
+    assert.strictEqual(fixedStage.style.getPropertyValue("height"), "1920px");
+    assert(fixedStage.style.getPropertyValue("transform").includes("scale(0.3611111111111111)"),
+        "390x844 should change only the shared portrait-stage transform");
+    assert.strictEqual(root.querySelector(".elyric-player-metadata").style.getPropertyValue("left"), "96px",
+        "orientation changes must select the portrait fixture without viewport-relative component reflow");
+    const muteButton = root.querySelector(".elyric-player-button-mute");
+    assert.strictEqual(muteButton.getAttribute("data-elyric-volume"), "64");
+    muteButton.click();
+    const volumePanel = root.querySelector(".elyric-player-volume-panel");
+    assert(!volumePanel.hasAttribute("hidden") && volumePanel.getAttribute("data-elyric-anchor-mode") === "button",
+        "portrait volume must open a root-owned button-anchored vertical slider");
+    assert(["above", "below", "left", "right"].includes(volumePanel.getAttribute("data-elyric-anchor-placement")));
+    muteButton.click();
+    window.innerWidth = 1440; window.innerHeight = 900;
+    window.visualViewport.width = 1440; window.visualViewport.height = 900;
+    document.documentElement.clientHeight = 900;
+    window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
     assert.strictEqual(first.native.getAttribute("aria-hidden"), "true"); assert(first.native.hasAttribute("inert"));
     assert.strictEqual(first.native.style.visibility, "hidden");
 
@@ -463,8 +524,8 @@ function deferLyrics(id) {
     scopedOsd.onResume(); await settle();
     const scopedRoot = scoped.page.querySelector(".elyric-player-root");
     assert.strictEqual(scopedRoot.getAttribute("data-elyric-account-scope"), "server-b.other-user");
-    assert.strictEqual(scopedOsd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x, 940.8,
-        "a second server/user pair must independently repair only its own unsafe Workspace");
+    assert.strictEqual(scopedOsd.__elyricRenderer.__elyricThemeV2.layouts.landscape.metadata.x, 333,
+        "a second server/user pair must preserve geometry that already passes the V6 safety solver");
     const scopedCacheKeys = [...stored.keys()].filter((key) => key.includes("workspace-cache"));
     assert(scopedCacheKeys.some((key) => key.endsWith("server-a.runtime-user"))
         && scopedCacheKeys.some((key) => key.endsWith("server-b.other-user")),

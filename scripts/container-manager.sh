@@ -2,7 +2,7 @@
 set -eu
 
 VERSION="4.9.5.0"
-BUILD_ID="2026.08.13-theme-v5-system-repair-r3"
+BUILD_ID="2026.08.14-theme-v6-dual-canvas-r1"
 TARGET_ROOT="${ELYRIC_TARGET_ROOT:-/system/dashboard-ui/videoosd}"
 CONFIG_ROOT="${ELYRIC_CONFIG_ROOT:-/config}"
 BACKUP_ROOT="$CONFIG_ROOT/emby-lyric-enhance/$VERSION"

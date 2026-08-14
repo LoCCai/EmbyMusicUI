@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.13-theme-v5-system-repair-r3 */
+/* ELYRIC_BUILD:2026.08.14-theme-v6-dual-canvas-r1 */
 ;(function () {
     "use strict";
 
@@ -36,9 +36,9 @@
     var PLAYER_PREFERENCES_KEY = "emby-lyric-enhance.player-preferences.v2";
     var PLAYER_THEME_LIBRARY_STORAGE_KEY = "emby-lyric-enhance.player-themes.v1";
     var PLAYER_THEME_DESIGN_STORAGE_KEY = "emby-lyric-enhance.player-theme-design.v1";
-    var PLAYER_BUILD_ID = "2026.08.13-theme-v5-system-repair-r3";
-    var PLAYER_PREFERENCES_VERSION = 5;
-    var PLAYER_THEME_SCHEMA_VERSION = 5;
+    var PLAYER_BUILD_ID = "2026.08.14-theme-v6-dual-canvas-r1";
+    var PLAYER_PREFERENCES_VERSION = 6;
+    var PLAYER_THEME_SCHEMA_VERSION = 6;
     var PLAYER_THEME_DOCUMENT_FORMAT = "emby-lyric-theme";
     var PLAYER_THEME_LAYOUT_MODEL = "fixed-canvas-v1";
     var PLAYER_THEME_LEGACY_V5_LAYOUT_MODEL = "anchored-canvas-v2";
@@ -47,8 +47,9 @@
         landscape: { width: 1920, height: 1080 },
         portrait: { width: 1080, height: 1920 }
     };
-    var PLAYER_THEME_MAX_RENDER_SCALE = 4 / 3;
+    var PLAYER_THEME_MAX_RENDER_SCALE = 8;
     var PLAYER_THEME_V3_MIGRATION_BACKUP_KEY = "emby-lyric-enhance.player-theme-v3-backup.v1";
+    var PLAYER_THEME_V6_MIGRATION_BACKUP_KEY = "emby-lyric-enhance.player-theme-v6-backup.v1";
     var MAX_LEGACY_USER_PLAYER_THEMES = 24;
     var PLAYER_PREFERENCES_SAVE_DELAY = 500;
     var PLAYER_WORKSPACE_PATH = "EmbyLyricEnhance/UserWorkspace";
@@ -58,7 +59,10 @@
     var PLAYER_THEME_V2_WORKSPACE_CACHE_KEY = "emby-lyric-enhance.theme-v5.workspace-cache";
     var PLAYER_THEME_V2_LEGACY_ARCHIVE_KEY = "emby-lyric-enhance.theme-v5.legacy-archive";
     var PLAYER_THEME_V5_REPAIR_BACKUP_KEY = "emby-lyric-enhance.theme-v5.layout-repair-backups";
-    var PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION = 1;
+    var PLAYER_THEME_V5_LAYOUT_REPAIR_REVISION = 2;
+    var PLAYER_THEME_LAYER_Z = {
+        artwork: 20, metadata: 20, lyrics: 20, visualizer: 30, controlDock: 40
+    };
     var PUBLIC_CONFIGURATION_PATH = "EmbyLyricEnhance/PublicConfiguration";
     var PLAYER_LAYOUTS = [
         { id: "album", label: "编辑唱片" },
@@ -134,6 +138,10 @@
     var PLAYER_CONTROL_MATERIALS = [
         { id: "glass", label: "玻璃" },
         { id: "minimal", label: "简洁" },
+        { id: "black", label: "纯黑" },
+        { id: "white", label: "纯白" },
+        { id: "gradient", label: "渐变" },
+        { id: "rainbow", label: "彩虹" },
         { id: "neumorphic", label: "拟物" },
         { id: "deck", label: "唱盘" },
         { id: "poster", label: "海报" }
@@ -149,6 +157,12 @@
         { id: "audio", label: "音频" },
         { id: "image", label: "图像" },
         { id: "lyrics", label: "歌词流" }
+    ];
+    var PLAYER_METADATA_SUMMARY_FIELDS = [
+        { id: "title", label: "歌名" }, { id: "artist", label: "艺术家" }, { id: "album", label: "专辑" },
+        { id: "container", label: "容器" }, { id: "codec", label: "编码" },
+        { id: "sampleRate", label: "采样率" }, { id: "bitDepth", label: "位深" },
+        { id: "channels", label: "声道" }, { id: "bitrate", label: "码率" }
     ];
     var PLAYER_THEME_COLOR_DEFINITIONS = [
         { id: "backgroundA", label: "背景颜色一", cssProperty: "--elyric-design-background-a", fallback: "#10141c" },
@@ -563,7 +577,8 @@
         progress: [],
         transport: ["previous", "playPause", "next"],
         volume: ["mute", "slider", "value"],
-        auxiliary: ["shuffle", "repeat", "stop", "queue", "media", "secondaryLyrics", "artworkRotation"]
+        auxiliary: ["shuffle", "repeat", "stop", "queue", "media", "settings", "visualizerToggle",
+            "secondaryLyrics", "tertiaryLyrics", "artworkRotation"]
     };
     var PLAYER_CONTROL_DOCK_JUSTIFY_IDS = ["start", "center", "end", "space-between"];
     var PLAYER_CONTROL_DOCK_ALIGN_IDS = ["start", "center", "end"];
@@ -798,29 +813,7 @@
         });
     });
     PLAYER_THEME_V2_PROFILE_IDS.forEach(function (profileId) {
-        [
-            ["scale", 1, .5, 1.6], ["offsetX", 0, -600, 600], ["offsetY", 0, -600, 600]
-        ].forEach(function (item) {
-            registerPlayerThemeV2Parameter({
-                id: "viewportTransforms." + profileId + "." + item[0],
-                defaultValue: item[1],
-                validate: function (value) {
-                    return normalizePlayerThemeV2Number(value, item[2], item[3], item[1]);
-                },
-                editor: "range", binding: "stage-matrix", serverRule: "viewport-transform-range"
-            });
-        });
         PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
-            ["anchorX", "anchorY"].forEach(function (key) {
-                registerPlayerThemeV2Parameter({
-                    id: "layouts." + profileId + "." + layerId + "." + key,
-                    defaultValue: defaultPlayerThemeV2Layouts()[profileId][layerId][key],
-                    validate: function (value) {
-                        return normalizePlayerThemeV2Enum(value, PLAYER_THEME_V2_ANCHORS, "start");
-                    },
-                    editor: "segmented", binding: "layer-anchor", serverRule: "anchor-enum"
-                });
-            });
             [
                 ["x", 0, "position"], ["y", 0, "position"],
                 ["width", 10, "size"], ["height", 10, "size"],
@@ -911,28 +904,34 @@
     }
 
     function defaultPlayerThemeV2Layer(x, y, width, height, z, hidden, anchorX, anchorY) {
-        return {
-            anchorX: anchorX || "start", anchorY: anchorY || "start",
+        var layer = {
             x: x, y: y, width: width, height: height,
             rotation: 0, z: z, opacity: 1, hidden: !!hidden, locked: false
         };
+        if (anchorX || anchorY) {
+            layer.anchorX = anchorX || "start";
+            layer.anchorY = anchorY || "start";
+        }
+        return layer;
     }
 
     function defaultPlayerThemeV2Layouts() {
         return {
             landscape: {
-                artwork: defaultPlayerThemeV2Layer(134.4, 183.6, 576, 583.2, 12, false, "start", "start"),
-                metadata: defaultPlayerThemeV2Layer(940.8, 108, 800, 172.8, 14, false, "start", "start"),
-                lyrics: defaultPlayerThemeV2Layer(921.6, 313.2, 864, 475.2, 11, false, "start", "start"),
-                visualizer: defaultPlayerThemeV2Layer(0, 810, 1536, 75.6, 9, false, "center", "start"),
-                controlDock: defaultPlayerThemeV2Layer(0, -28, 1689.6, 150, 17, false, "center", "end")
+                canvas: clonePlayerThemeV2Value(PLAYER_THEME_CANVAS_SIZES.landscape),
+                artwork: defaultPlayerThemeV2Layer(96, 144, 568, 568, PLAYER_THEME_LAYER_Z.artwork),
+                metadata: defaultPlayerThemeV2Layer(96, 736, 568, 112, PLAYER_THEME_LAYER_Z.metadata),
+                lyrics: defaultPlayerThemeV2Layer(720, 120, 1104, 548, PLAYER_THEME_LAYER_Z.lyrics),
+                visualizer: defaultPlayerThemeV2Layer(720, 692, 1104, 156, PLAYER_THEME_LAYER_Z.visualizer),
+                controlDock: defaultPlayerThemeV2Layer(64, 884, 1792, 160, PLAYER_THEME_LAYER_Z.controlDock)
             },
             portrait: {
-                artwork: defaultPlayerThemeV2Layer(0, 115.2, 600, 576, 12, false, "center", "start"),
-                metadata: defaultPlayerThemeV2Layer(0, 729.6, 907.2, 240, 14, false, "center", "start"),
-                lyrics: defaultPlayerThemeV2Layer(0, 998.4, 950.4, 400, 11, false, "center", "start"),
-                visualizer: defaultPlayerThemeV2Layer(0, 1430, 864, 100, 9, false, "center", "start"),
-                controlDock: defaultPlayerThemeV2Layer(0, -30, 1000, 330, 17, false, "center", "end")
+                canvas: clonePlayerThemeV2Value(PLAYER_THEME_CANVAS_SIZES.portrait),
+                artwork: defaultPlayerThemeV2Layer(180, 112, 720, 720, PLAYER_THEME_LAYER_Z.artwork),
+                metadata: defaultPlayerThemeV2Layer(96, 856, 888, 152, PLAYER_THEME_LAYER_Z.metadata),
+                lyrics: defaultPlayerThemeV2Layer(80, 1032, 920, 372, PLAYER_THEME_LAYER_Z.lyrics),
+                visualizer: defaultPlayerThemeV2Layer(80, 1428, 920, 124, PLAYER_THEME_LAYER_Z.visualizer),
+                controlDock: defaultPlayerThemeV2Layer(40, 1608, 1000, 264, PLAYER_THEME_LAYER_Z.controlDock)
             }
         };
     }
@@ -949,6 +948,32 @@
             if (isFinite(Number(scaled[key]))) { scaled[key] = Math.round(Number(scaled[key]) * scaleY * 10) / 10; }
         });
         return scaled;
+    }
+
+    function absolutePlayerThemeV6Layer(layer, profileId) {
+        layer = clonePlayerThemeV2Value(layer || {});
+        var canvas = PLAYER_THEME_CANVAS_SIZES[profileId];
+        var width = Number(layer.width) || 44;
+        var height = Number(layer.height) || 44;
+        var anchorX = layer.anchorX || "start";
+        var anchorY = layer.anchorY || "start";
+        layer.x = playerThemeV2AnchorCoordinate(anchorX, canvas.width)
+            - ("end" === anchorX ? width : ("center" === anchorX ? width / 2 : 0))
+            + (Number(layer.x) || 0);
+        layer.y = playerThemeV2AnchorCoordinate(anchorY, canvas.height)
+            - ("end" === anchorY ? height : ("center" === anchorY ? height / 2 : 0))
+            + (Number(layer.y) || 0);
+        delete layer.anchorX;
+        delete layer.anchorY;
+        return layer;
+    }
+
+    function absolutePlayerThemeV6Layout(layout, profileId) {
+        var normalized = { canvas: clonePlayerThemeV2Value(PLAYER_THEME_CANVAS_SIZES[profileId]) };
+        PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+            normalized[layerId] = absolutePlayerThemeV6Layer(layout && layout[layerId], profileId);
+        });
+        return normalized;
     }
 
     function scaleLegacyPlayerThemeV2Layout(layout, portrait) {
@@ -1048,12 +1073,13 @@
                     hiddenButtons: [], align: "center", gap: 12
                 },
                 volume: {
-                    visible: !portrait, order: ["mute", "slider", "value"],
+                    visible: true, order: ["mute", "slider", "value"],
                     hiddenButtons: [], align: "end", gap: 8
                 },
                 auxiliary: {
                     visible: true,
-                    order: ["shuffle", "repeat", "stop", "queue", "media", "secondaryLyrics", "artworkRotation"],
+                    order: ["shuffle", "repeat", "stop", "queue", "media", "settings", "visualizerToggle",
+                        "secondaryLyrics", "tertiaryLyrics", "artworkRotation"],
                     hiddenButtons: [], align: portrait ? "center" : "start", gap: portrait ? 4 : 8
                 }
             }
@@ -1096,10 +1122,7 @@
             schemaVersion: PLAYER_THEME_SCHEMA_VERSION,
             layoutModel: PLAYER_THEME_LAYOUT_MODEL,
             layoutRepairRevision: 0,
-            viewportTransforms: {
-                landscape: { scale: 1, offsetX: 0, offsetY: 0 },
-                portrait: { scale: 1, offsetX: 0, offsetY: 0 }
-            },
+            viewport: { fit: "contain", alignX: "center", alignY: "end" },
             layouts: defaultPlayerThemeV2Layouts(),
             artwork: {
                 source: "emby", url: "", assetId: "", fit: "cover",
@@ -1108,7 +1131,34 @@
             typography: defaultPlayerThemeV2Typography(),
             lyrics: { showSecondLine: true, showThirdAndLaterLines: true, followDelayMs: LYRIC_FOLLOW_IDLE_MS },
             visualizer: { frequencyLayout: "centerOut", analysis: analysis },
-            popupStyle: { surfaceOpacity: 100, radius: 24 },
+            metadata: {
+                summaryFields: ["title", "artist", "album", "container", "codec", "sampleRate", "bitDepth", "channels", "bitrate"]
+            },
+            systemChrome: {
+                size: 52, surface: "glass", color: "#ffffff", surfaceColor: "#111827",
+                radius: 50, blur: 18, shadow: 24, showLabels: false
+            },
+            overlays: {
+                surface: "glass", surfaceColor: "#111827", textColor: "#ffffff", accentColor: "#ffffff",
+                radius: 24, blur: 24, opacity: 92, backdrop: { dim: 0, blur: 0 },
+                gap: 12, margin: 16, arrowSize: 10, durationMs: 200,
+                sizes: {
+                    media: { minWidth: 360, maxWidth: 480, maxHeight: 56 },
+                    queue: { minWidth: 380, maxWidth: 460, maxHeight: 66 },
+                    settings: { minWidth: 420, maxWidth: 560, maxHeight: 78 },
+                    cast: { minWidth: 320, maxWidth: 420, maxHeight: 56 },
+                    volume: { minWidth: 64, maxWidth: 96, maxHeight: 32 }
+                }
+            },
+            console: {
+                material: "glass", surfaceColor: "#111827", textColor: "#ffffff", accentColor: "#ffffff",
+                gradientA: "#111827", gradientB: "#334155", gradientAngle: 135,
+                radius: 28, blur: 26, opacity: 72, borderWidth: 1, shadow: 28
+            },
+            volume: {
+                landscapeMode: "expanded", portraitMode: "iconPopover", iconFill: true,
+                popoverWidth: 72, popoverHeight: 240
+            },
             controls: defaultPlayerControlDock()
         };
     }
@@ -1156,24 +1206,35 @@
                 : clonePlayerThemeV2Value(fallback[layerId]);
         });
         converted.controlDock = clonePlayerThemeV2Value(fallback.controlDock);
-        return converted;
+        return absolutePlayerThemeV6Layout(converted, portrait ? "portrait" : "landscape");
     }
 
     function playerThemeV5LayoutsForBase(baseLayout) {
-        var sourceLayouts = PLAYER_THEME_V4_BUILTIN_LAYOUTS
-            && PLAYER_THEME_V4_BUILTIN_LAYOUTS[baseLayout];
+        var sourceLayouts = PLAYER_THEME_V6_BUILTIN_LAYOUTS
+            && PLAYER_THEME_V6_BUILTIN_LAYOUTS[baseLayout];
         if (!sourceLayouts) {
             return defaultPlayerThemeV2Layouts();
         }
-        var fallback = defaultPlayerThemeV2Layouts();
         return {
-            landscape: playerThemeV5SafeBuiltInLayout(playerThemeV5LayoutFromV4(
-                playerThemeV4LayoutFromPercent(sourceLayouts.landscape, false), false, fallback.landscape
-            ), false, fallback.landscape),
-            portrait: playerThemeV5SafeBuiltInLayout(playerThemeV5LayoutFromV4(
-                playerThemeV4LayoutFromPercent(sourceLayouts.portrait, true), true, fallback.portrait
-            ), true, fallback.portrait)
+            landscape: clonePlayerThemeV2Value(sourceLayouts.landscape),
+            portrait: clonePlayerThemeV2Value(sourceLayouts.portrait)
         };
+    }
+
+    function rememberPlayerThemeV6MigrationBackup(source) {
+        if (!source || Number(source.schemaVersion) >= PLAYER_THEME_SCHEMA_VERSION
+            || "undefined" === typeof localStorage) { return; }
+        try {
+            var backups = JSON.parse(localStorage.getItem(PLAYER_THEME_V6_MIGRATION_BACKUP_KEY) || "[]");
+            if (!Array.isArray(backups)) { backups = []; }
+            var serialized = JSON.stringify(source);
+            if (!backups.some(function (entry) { return entry && entry.json === serialized; })) {
+                backups.push({ migratedAt: Date.now(), schemaVersion: Number(source.schemaVersion) || 0, json: serialized });
+                localStorage.setItem(PLAYER_THEME_V6_MIGRATION_BACKUP_KEY, JSON.stringify(backups.slice(-24)));
+            }
+        } catch (error) {
+            // A server-backed migration remains usable if local backup storage is unavailable.
+        }
     }
 
     function playerThemeV5SafeBuiltInLayout(layout, portrait, fallbackLayout) {
@@ -1223,15 +1284,34 @@
             ? clonePlayerThemeV2Value(source)
             : {};
         var version = Number(incoming.schemaVersion) || 0;
+        if (version > 0 && version < PLAYER_THEME_SCHEMA_VERSION) {
+            rememberPlayerThemeV6MigrationBackup(incoming);
+        }
         var fallbackLayouts = playerThemeV5LayoutsForBase(baseLayout);
         if (PLAYER_THEME_SCHEMA_VERSION === version && PLAYER_THEME_LAYOUT_MODEL === incoming.layoutModel) {
-            // Current documents already own both direction layouts.
+            incoming.layouts = hasCompletePlayerThemeV2Layouts(incoming.layouts)
+                ? {
+                    landscape: absolutePlayerThemeV6Layout(incoming.layouts.landscape, "landscape"),
+                    portrait: absolutePlayerThemeV6Layout(incoming.layouts.portrait, "portrait")
+                }
+                : clonePlayerThemeV2Value(fallbackLayouts);
+        } else if (5 === version && PLAYER_THEME_LAYOUT_MODEL === incoming.layoutModel) {
+            incoming.layouts = hasCompletePlayerThemeV2Layouts(incoming.layouts)
+                ? {
+                    landscape: absolutePlayerThemeV6Layout(incoming.layouts.landscape, "landscape"),
+                    portrait: absolutePlayerThemeV6Layout(incoming.layouts.portrait, "portrait")
+                }
+                : clonePlayerThemeV2Value(fallbackLayouts);
         } else if (PLAYER_THEME_SCHEMA_VERSION === version
             && PLAYER_THEME_LEGACY_V5_LAYOUT_MODEL === incoming.layoutModel) {
             incoming.layouts = hasCompletePlayerThemeV2Layouts(incoming.layouts)
                 ? {
-                    landscape: scaleLegacyPlayerThemeV2Layout(incoming.layouts.landscape, false),
-                    portrait: scaleLegacyPlayerThemeV2Layout(incoming.layouts.portrait, true)
+                    landscape: absolutePlayerThemeV6Layout(
+                        scaleLegacyPlayerThemeV2Layout(incoming.layouts.landscape, false), "landscape"
+                    ),
+                    portrait: absolutePlayerThemeV6Layout(
+                        scaleLegacyPlayerThemeV2Layout(incoming.layouts.portrait, true), "portrait"
+                    )
                 }
                 : clonePlayerThemeV2Value(fallbackLayouts);
         } else if (4 === version && PLAYER_THEME_PREVIOUS_LAYOUT_MODEL === incoming.layoutModel) {
@@ -1251,9 +1331,108 @@
             incoming.controls = defaultPlayerControlDock();
         }
         delete incoming.layoutOverrides;
+        delete incoming.viewportTransforms;
         incoming.layoutModel = PLAYER_THEME_LAYOUT_MODEL;
         incoming.schemaVersion = PLAYER_THEME_SCHEMA_VERSION;
         return incoming;
+    }
+
+    function normalizeThemeV6Section(source, fallback) {
+        return mergePlayerThemeV2Object(
+            clonePlayerThemeV2Value(fallback),
+            source && "object" === typeof source ? source : {}
+        );
+    }
+
+    function normalizePlayerThemeV6Metadata(source, fallback) {
+        source = source && "object" === typeof source ? source : {};
+        var allowed = PLAYER_METADATA_SUMMARY_FIELDS.map(function (field) { return field.id; });
+        var seen = {};
+        var fields = [];
+        (Array.isArray(source.summaryFields) ? source.summaryFields : fallback.summaryFields).forEach(function (fieldId) {
+            if (allowed.indexOf(fieldId) >= 0 && !seen[fieldId]) { seen[fieldId] = true; fields.push(fieldId); }
+        });
+        return { summaryFields: fields };
+    }
+
+    function normalizePlayerThemeV6SystemChrome(source, fallback) {
+        source = source && "object" === typeof source ? source : {};
+        return {
+            size: normalizePlayerThemeV2Number(source.size, 44, 80, fallback.size),
+            surface: normalizePlayerThemeV2Enum(source.surface, ["none", "glass", "black", "white", "gradient"], fallback.surface),
+            color: normalizeHexColor(source.color, fallback.color),
+            surfaceColor: normalizeHexColor(source.surfaceColor, fallback.surfaceColor),
+            radius: normalizePlayerThemeV2Number(source.radius, 0, 50, fallback.radius),
+            blur: normalizePlayerThemeV2Number(source.blur, 0, 48, fallback.blur),
+            shadow: normalizePlayerThemeV2Number(source.shadow, 0, 64, fallback.shadow),
+            showLabels: "boolean" === typeof source.showLabels ? source.showLabels : fallback.showLabels
+        };
+    }
+
+    function normalizePlayerThemeV6Overlays(source, fallback) {
+        source = source && "object" === typeof source ? source : {};
+        var sizes = {};
+        ["media", "queue", "settings", "cast", "volume"].forEach(function (kind) {
+            var candidate = source.sizes && source.sizes[kind] || {};
+            var defaults = fallback.sizes[kind];
+            var minimumWidth = normalizePlayerThemeV2Number(candidate.minWidth, 48, 720, defaults.minWidth);
+            var maximumWidth = normalizePlayerThemeV2Number(candidate.maxWidth, 48, 720, defaults.maxWidth);
+            if (minimumWidth > maximumWidth) { minimumWidth = Math.min(defaults.minWidth, maximumWidth); }
+            sizes[kind] = {
+                minWidth: minimumWidth, maxWidth: maximumWidth,
+                maxHeight: normalizePlayerThemeV2Number(candidate.maxHeight, 10, 100, defaults.maxHeight)
+            };
+        });
+        var backdrop = source.backdrop && "object" === typeof source.backdrop ? source.backdrop : {};
+        return {
+            surface: normalizePlayerThemeV2Enum(source.surface, ["none", "glass", "black", "white", "gradient"], fallback.surface),
+            surfaceColor: normalizeHexColor(source.surfaceColor, fallback.surfaceColor),
+            textColor: normalizeHexColor(source.textColor, fallback.textColor),
+            accentColor: normalizeHexColor(source.accentColor, fallback.accentColor),
+            radius: normalizePlayerThemeV2Number(source.radius, 0, 64, fallback.radius),
+            blur: normalizePlayerThemeV2Number(source.blur, 0, 64, fallback.blur),
+            opacity: normalizePlayerThemeV2Number(source.opacity, 0, 100, fallback.opacity),
+            backdrop: {
+                dim: normalizePlayerThemeV2Number(backdrop.dim, 0, 100, fallback.backdrop.dim),
+                blur: normalizePlayerThemeV2Number(backdrop.blur, 0, 48, fallback.backdrop.blur)
+            },
+            gap: normalizePlayerThemeV2Number(source.gap, 4, 32, fallback.gap),
+            margin: normalizePlayerThemeV2Number(source.margin, 8, 48, fallback.margin),
+            arrowSize: normalizePlayerThemeV2Number(source.arrowSize, 4, 24, fallback.arrowSize),
+            durationMs: normalizePlayerThemeV2Number(source.durationMs, 0, 600, fallback.durationMs),
+            sizes: sizes
+        };
+    }
+
+    function normalizePlayerThemeV6Console(source, fallback) {
+        source = source && "object" === typeof source ? source : {};
+        return {
+            material: normalizePlayerThemeV2Enum(source.material,
+                ["glass", "minimal", "black", "white", "gradient", "rainbow", "neumorphic", "deck", "poster"],
+                fallback.material),
+            surfaceColor: normalizeHexColor(source.surfaceColor, fallback.surfaceColor),
+            textColor: normalizeHexColor(source.textColor, fallback.textColor),
+            accentColor: normalizeHexColor(source.accentColor, fallback.accentColor),
+            gradientA: normalizeHexColor(source.gradientA, fallback.gradientA),
+            gradientB: normalizeHexColor(source.gradientB, fallback.gradientB),
+            gradientAngle: normalizePlayerThemeV2Number(source.gradientAngle, 0, 360, fallback.gradientAngle),
+            radius: normalizePlayerThemeV2Number(source.radius, 0, 64, fallback.radius),
+            blur: normalizePlayerThemeV2Number(source.blur, 0, 64, fallback.blur),
+            opacity: normalizePlayerThemeV2Number(source.opacity, 0, 100, fallback.opacity),
+            borderWidth: normalizePlayerThemeV2Number(source.borderWidth, 0, 12, fallback.borderWidth),
+            shadow: normalizePlayerThemeV2Number(source.shadow, 0, 64, fallback.shadow)
+        };
+    }
+
+    function normalizePlayerThemeV6Volume(source, fallback) {
+        source = source && "object" === typeof source ? source : {};
+        return {
+            landscapeMode: normalizePlayerThemeV2Enum(source.landscapeMode, ["expanded", "iconPopover"], fallback.landscapeMode),
+            portraitMode: "iconPopover",
+            iconFill: "boolean" === typeof source.iconFill ? source.iconFill : fallback.iconFill,
+            popoverWidth: normalizePlayerThemeV2Number(source.popoverWidth, 64, 120, fallback.popoverWidth),
+            popoverHeight: normalizePlayerThemeV2Number(source.popoverHeight, 160, 360, fallback.popoverHeight)
+        };
     }
 
     function normalizePlayerThemeV2State(source, baseLayout) {
@@ -1280,34 +1459,42 @@
             )
         );
         sanitizedRoot.v2.controls = normalizePlayerControlDock(state.controls);
+        var v6Defaults = defaultPlayerThemeV2State();
+        sanitizedRoot.v2.viewport = { fit: "contain", alignX: "center", alignY: "end" };
+        sanitizedRoot.v2.metadata = normalizePlayerThemeV6Metadata(state.metadata, v6Defaults.metadata);
+        sanitizedRoot.v2.systemChrome = normalizePlayerThemeV6SystemChrome(state.systemChrome, v6Defaults.systemChrome);
+        sanitizedRoot.v2.overlays = normalizePlayerThemeV6Overlays(state.overlays, v6Defaults.overlays);
+        sanitizedRoot.v2.console = normalizePlayerThemeV6Console(state.console, v6Defaults.console);
+        sanitizedRoot.v2.volume = normalizePlayerThemeV6Volume(state.volume, v6Defaults.volume);
+        PLAYER_THEME_V2_PROFILE_IDS.forEach(function (profileId) {
+            sanitizedRoot.v2.layouts[profileId].canvas = clonePlayerThemeV2Value(PLAYER_THEME_CANVAS_SIZES[profileId]);
+            PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+                sanitizedRoot.v2.layouts[profileId][layerId].z = PLAYER_THEME_LAYER_Z[layerId];
+            });
+        });
         return sanitizedRoot.v2;
     }
 
     function currentPlayerThemeV2Profile() {
-        if ("undefined" !== typeof window && window.matchMedia) {
-            var query = window.matchMedia("(orientation: portrait)");
-            if (query && "boolean" === typeof query.matches) {
-                var requested = query.matches ? "portrait" : "landscape";
-                var active = document && document.activeElement;
-                var editingText = active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName || "");
-                var viewport = window.visualViewport;
-                var layoutHeight = Math.max(
-                    Number(window.innerHeight) || 0,
-                    Number(document.documentElement && document.documentElement.clientHeight) || 0
-                );
-                var keyboardReducedViewport = editingText && viewport && layoutHeight > 0
-                    && Number(viewport.height) < layoutHeight * .78;
-                if (keyboardReducedViewport && playerThemeV2ActiveProfile) {
-                    return playerThemeV2ActiveProfile;
-                }
-                playerThemeV2ActiveProfile = requested;
-                return requested;
-            }
-        }
         var viewport = "undefined" !== typeof window && window.visualViewport;
-        var width = viewport ? viewport.width : ("undefined" !== typeof window ? window.innerWidth : 1366);
-        var height = viewport ? viewport.height : ("undefined" !== typeof window ? window.innerHeight : 768);
-        playerThemeV2ActiveProfile = height > width ? "portrait" : "landscape";
+        var layoutWidth = Math.max(
+            Number("undefined" !== typeof window && window.innerWidth) || 0,
+            Number(document.documentElement && document.documentElement.clientWidth) || 0
+        );
+        var layoutHeight = Math.max(
+            Number("undefined" !== typeof window && window.innerHeight) || 0,
+            Number(document.documentElement && document.documentElement.clientHeight) || 0
+        );
+        var active = document && document.activeElement;
+        var editingText = active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName || "");
+        var keyboardReducedViewport = editingText && viewport && layoutHeight > 0
+            && Number(viewport.height) < layoutHeight * .78;
+        if (keyboardReducedViewport && playerThemeV2ActiveProfile) {
+            return playerThemeV2ActiveProfile;
+        }
+        var width = layoutWidth || Number(viewport && viewport.width) || 1366;
+        var height = layoutHeight || Number(viewport && viewport.height) || 768;
+        playerThemeV2ActiveProfile = width >= height ? "landscape" : "portrait";
         return playerThemeV2ActiveProfile;
     }
 
@@ -1436,21 +1623,11 @@
                 + Math.max(0, (viewport.height - safeInsets.top - safeInsets.bottom - available.height) / 2);
             baseScale = previewScale;
         }
-        var transform = renderer && renderer.__elyricThemeV2
-            && renderer.__elyricThemeV2.viewportTransforms[profileId]
-            ? renderer.__elyricThemeV2.viewportTransforms[profileId]
-            : { scale: 1, offsetX: 0, offsetY: 0 };
-        if (!(renderer && renderer.__elyricThemeV2DesignerOpen)) {
-            transform = { scale: 1, offsetX: 0, offsetY: 0 };
-        }
-        var userScale = normalizePlayerThemeV2Number(transform.scale, .5, 1.6, 1);
-        var scale = baseScale * userScale;
+        var scale = baseScale;
         var designWidth = baseWidth;
         var designHeight = baseHeight;
-        var originX = available.left + (available.width - designWidth * scale) / 2
-            + normalizePlayerThemeV2Number(transform.offsetX, -600, 600, 0) * scale;
-        var originY = available.top + (available.height - designHeight * scale) / 2
-            + normalizePlayerThemeV2Number(transform.offsetY, -600, 600, 0) * scale;
+        var originX = available.left + (available.width - designWidth * scale) / 2;
+        var originY = available.top + available.height - designHeight * scale;
         return {
             profileId: profileId, viewport: viewport, available: available,
             baseWidth: baseWidth, baseHeight: baseHeight,
@@ -1472,18 +1649,15 @@
     function playerThemeV2LayerDesignRect(layer, metrics) {
         var width = Number(layer.width) || 44;
         var height = Number(layer.height) || 44;
-        var factorX = "end" === layer.anchorX ? 1 : ("center" === layer.anchorX ? .5 : 0);
-        var factorY = "end" === layer.anchorY ? 1 : ("center" === layer.anchorY ? .5 : 0);
+        var anchorX = layer.anchorX || "start";
+        var anchorY = layer.anchorY || "start";
+        var factorX = "end" === anchorX ? 1 : ("center" === anchorX ? .5 : 0);
+        var factorY = "end" === anchorY ? 1 : ("center" === anchorY ? .5 : 0);
         return {
-            left: playerThemeV2AnchorCoordinate(layer.anchorX, metrics.designWidth) - width * factorX + Number(layer.x || 0),
-            top: playerThemeV2AnchorCoordinate(layer.anchorY, metrics.designHeight) - height * factorY + Number(layer.y || 0),
+            left: playerThemeV2AnchorCoordinate(anchorX, metrics.designWidth) - width * factorX + Number(layer.x || 0),
+            top: playerThemeV2AnchorCoordinate(anchorY, metrics.designHeight) - height * factorY + Number(layer.y || 0),
             width: width, height: height
         };
-    }
-
-    function playerThemeV5CompactLandscape() {
-        var viewport = playerThemeV2ViewportRect();
-        return viewport.width >= viewport.height && (viewport.height < 520 || viewport.width < 960);
     }
 
     function playerThemeV5RectanglesOverlap(first, second, gap) {
@@ -1521,8 +1695,14 @@
                 && rect.top + rect.height <= canvas.height - safeMargin + epsilon;
         });
         if (!valid) { return false; }
+        var radialVisualizer = rects.visualizer.left <= rects.artwork.left
+            && rects.visualizer.top <= rects.artwork.top
+            && rects.visualizer.left + rects.visualizer.width >= rects.artwork.left + rects.artwork.width
+            && rects.visualizer.top + rects.visualizer.height >= rects.artwork.top + rects.artwork.height;
         if ("portrait" === profileId) {
-            var order = ["artwork", "metadata", "lyrics", "visualizer", "controlDock"];
+            var order = radialVisualizer
+                ? ["artwork", "metadata", "lyrics", "controlDock"]
+                : ["artwork", "metadata", "lyrics", "visualizer", "controlDock"];
             for (var index = 1; index < order.length; index++) {
                 var previous = rects[order[index - 1]];
                 var current = rects[order[index]];
@@ -1534,7 +1714,7 @@
         return !playerThemeV5RectanglesOverlap(rects.artwork, rects.metadata, gap)
             && !playerThemeV5RectanglesOverlap(rects.artwork, rects.lyrics, gap)
             && !playerThemeV5RectanglesOverlap(rects.metadata, rects.lyrics, gap)
-            && !playerThemeV5RectanglesOverlap(rects.lyrics, rects.visualizer, gap)
+            && (radialVisualizer || !playerThemeV5RectanglesOverlap(rects.lyrics, rects.visualizer, gap))
             && !playerThemeV5RectanglesOverlap(rects.visualizer, rects.controlDock, gap);
     }
 
@@ -1571,11 +1751,6 @@
         var state = normalizePlayerThemeV2State(source);
         var changed = false;
         PLAYER_THEME_V2_PROFILE_IDS.forEach(function (profileId) {
-            var transform = state.viewportTransforms[profileId] || {};
-            if (Number(transform.scale) !== 1 || Number(transform.offsetX) !== 0 || Number(transform.offsetY) !== 0) {
-                state.viewportTransforms[profileId] = { scale: 1, offsetX: 0, offsetY: 0 };
-                changed = true;
-            }
             if (!playerThemeV5LayoutIsSafe(state.layouts[profileId], profileId)) {
                 state.layouts[profileId] = repairPlayerThemeV5Layout(state.layouts[profileId], profileId);
                 changed = true;
@@ -1611,6 +1786,28 @@
         return { left: point.x, top: point.y, width: width, height: height };
     }
 
+    function applyPlayerThemeV6Stage(renderer, metrics) {
+        var stage = renderer && renderer.__elyricPlayerStage;
+        if (!stage || !stage.style || !metrics) { return; }
+        stage.style.setProperty("position", "fixed", "important");
+        stage.style.setProperty("left", "0px", "important");
+        stage.style.setProperty("top", "0px", "important");
+        stage.style.setProperty("right", "auto", "important");
+        stage.style.setProperty("bottom", "auto", "important");
+        stage.style.setProperty("width", metrics.designWidth + "px", "important");
+        stage.style.setProperty("height", metrics.designHeight + "px", "important");
+        stage.style.setProperty("transform-origin", "top left", "important");
+        stage.style.setProperty(
+            "transform",
+            "translate3d(" + metrics.originX + "px," + metrics.originY + "px,0) scale(" + metrics.scale + ")",
+            "important"
+        );
+        stage.style.setProperty("--elyric-v6-stage-width", metrics.designWidth + "px");
+        stage.style.setProperty("--elyric-v6-stage-height", metrics.designHeight + "px");
+        stage.style.setProperty("--elyric-v6-stage-scale", String(metrics.scale));
+        stage.setAttribute("data-elyric-canvas-profile", metrics.profileId);
+    }
+
     function applyPlayerThemeV2Layer(renderer, layerId, layer) {
         var element = playerThemeV2LayerElement(renderer, layerId);
         if (!element || !element.style) { return; }
@@ -1622,9 +1819,10 @@
         var displayedLayer = layer;
         var metrics = playerThemeV2StageMetrics(renderer, renderer.__elyricThemeV2Profile);
         metrics.renderer = renderer;
-        var rect = playerThemeV2RenderedRect(displayedLayer, metrics);
+        var rect = playerThemeV2LayerDesignRect(displayedLayer, metrics);
+        applyPlayerThemeV6Stage(renderer, metrics);
         element.classList.add("elyric-player-v2-layer", "elyric-player-v2-layer-" + layerId);
-        element.style.setProperty("position", "fixed", "important");
+        element.style.setProperty("position", "absolute", "important");
         element.style.setProperty("left", rect.left + "px", "important");
         element.style.setProperty("top", rect.top + "px", "important");
         element.style.setProperty("width", rect.width + "px", "important");
@@ -1636,14 +1834,11 @@
         element.style.setProperty("--elyric-v4-layer-height", rect.height + "px");
         element.style.setProperty("--elyric-v4-layer-rotation", displayedLayer.rotation + "deg");
         element.style.setProperty("transform-origin", "center", "important");
-        element.style.setProperty("z-index", String(displayedLayer.z), "important");
+        element.style.setProperty("z-index", String(PLAYER_THEME_LAYER_Z[layerId]), "important");
         element.style.setProperty("opacity", String(displayedLayer.opacity), "important");
         if (displayedLayer.hidden && "controlDock" !== layerId) { element.style.setProperty("display", "none", "important"); }
         else { element.style.removeProperty("display"); }
         element.setAttribute("data-elyric-v2-layer", layerId);
-        if ("controlDock" === layerId) {
-            element.style.setProperty("--elyric-control-stage-scale", String(Math.max(.001, metrics.scale)));
-        }
     }
 
     if ("undefined" !== typeof window) {
@@ -1654,22 +1849,73 @@
             renderedRect: playerThemeV2RenderedRect
         };
         window.__elyricPlayerThemeV5Geometry = window.__elyricPlayerThemeV4Geometry;
+        window.__elyricPlayerThemeV6Geometry = window.__elyricPlayerThemeV4Geometry;
     }
 
     function applyPlayerThemeV2SemanticControls(renderer) {
         var state = renderer.__elyricThemeV2;
         if (!state) { return; }
-        var popupOpacity = Math.min(100, Math.max(35, Number(state.popupStyle.surfaceOpacity) || 100));
-        var popupRadius = Math.min(64, Math.max(0, Number(state.popupStyle.radius) || 0));
+        var overlayStyle = state.overlays || defaultPlayerThemeV2State().overlays;
+        var consoleStyle = state.console || defaultPlayerThemeV2State().console;
+        var chromeStyle = state.systemChrome || defaultPlayerThemeV2State().systemChrome;
+        var popupOpacity = Math.min(100, Math.max(0,
+            null == overlayStyle.opacity ? 92 : Number(overlayStyle.opacity) || 0));
+        var popupRadius = Math.min(64, Math.max(0, Number(overlayStyle.radius) || 0));
         var safeArea = Math.min(180, Math.max(44, Number(state.controls.safeArea) || 64));
-        var hosts = [renderer.__elyricThemeControl, renderer.__elyricMediaPanel, renderer.__elyricSettingsPanel];
+        var hosts = [renderer.__elyricThemeControl, renderer.__elyricMediaPanel, renderer.__elyricSettingsPanel,
+            renderer.__elyricQueuePanel, renderer.__elyricCastPanel, renderer.__elyricVolumePanel];
         if (document.body && document.body.__elyricPlayerPageOwner === renderer) { hosts.push(document.body); }
         hosts.forEach(function (host) {
             if (!host || !host.style) { return; }
             setDisplayStyle(host, "--elyric-v2-popup-opacity", popupOpacity + "%");
             setDisplayStyle(host, "--elyric-v2-popup-radius", popupRadius + "px");
             setDisplayStyle(host, "--elyric-v2-safe-area", safeArea + "px");
+            setDisplayStyle(host, "--elyric-v6-overlay-bg", normalizeHexColor(overlayStyle.surfaceColor, "#111827"));
+            setDisplayStyle(host, "--elyric-v6-overlay-text", normalizeHexColor(overlayStyle.textColor, "#ffffff"));
+            setDisplayStyle(host, "--elyric-v6-overlay-accent", normalizeHexColor(overlayStyle.accentColor, "#ffffff"));
+            setDisplayStyle(host, "--elyric-v6-overlay-blur", normalizePlayerThemeV2Number(overlayStyle.blur, 0, 64, 24) + "px");
+            setDisplayStyle(host, "--elyric-v6-overlay-duration", normalizePlayerThemeV2Number(overlayStyle.durationMs, 0, 600, 200) + "ms");
+            setDisplayStyle(host, "--elyric-v6-overlay-arrow", normalizePlayerThemeV2Number(overlayStyle.arrowSize, 4, 24, 10) + "px");
+            setDisplayStyle(host, "--elyric-v6-console-bg", normalizeHexColor(consoleStyle.surfaceColor, "#111827"));
+            setDisplayStyle(host, "--elyric-v6-console-text", normalizeHexColor(consoleStyle.textColor, "#ffffff"));
+            setDisplayStyle(host, "--elyric-v6-console-accent", normalizeHexColor(consoleStyle.accentColor, "#ffffff"));
+            setDisplayStyle(host, "--elyric-v6-console-gradient-a", normalizeHexColor(consoleStyle.gradientA, "#111827"));
+            setDisplayStyle(host, "--elyric-v6-console-gradient-b", normalizeHexColor(consoleStyle.gradientB, "#334155"));
+            setDisplayStyle(host, "--elyric-v6-console-gradient-angle",
+                normalizePlayerThemeV2Number(consoleStyle.gradientAngle, 0, 360, 135) + "deg");
+            setDisplayStyle(host, "--elyric-v6-console-radius", normalizePlayerThemeV2Number(consoleStyle.radius, 0, 64, 28) + "px");
+            setDisplayStyle(host, "--elyric-v6-console-blur", normalizePlayerThemeV2Number(consoleStyle.blur, 0, 64, 26) + "px");
+            setDisplayStyle(host, "--elyric-v6-console-opacity", normalizePlayerThemeV2Number(consoleStyle.opacity, 0, 100, 72) + "%");
+            setDisplayStyle(host, "--elyric-v6-console-border", normalizePlayerThemeV2Number(consoleStyle.borderWidth, 0, 12, 1) + "px");
+            setDisplayStyle(host, "--elyric-v6-console-shadow", normalizePlayerThemeV2Number(consoleStyle.shadow, 0, 64, 28) + "px");
+            setDisplayStyle(host, "--elyric-v6-chrome-size", normalizePlayerThemeV2Number(chromeStyle.size, 44, 80, 52) + "px");
+            setDisplayStyle(host, "--elyric-v6-chrome-color", normalizeHexColor(chromeStyle.color, "#ffffff"));
+            setDisplayStyle(host, "--elyric-v6-chrome-bg", normalizeHexColor(chromeStyle.surfaceColor, "#111827"));
+            setDisplayStyle(host, "--elyric-v6-chrome-radius", normalizePlayerThemeV2Number(chromeStyle.radius, 0, 50, 50) + "%");
+            setDisplayStyle(host, "--elyric-v6-chrome-blur", normalizePlayerThemeV2Number(chromeStyle.blur, 0, 48, 18) + "px");
+            setDisplayStyle(host, "--elyric-v6-chrome-shadow", normalizePlayerThemeV2Number(chromeStyle.shadow, 0, 64, 24) + "px");
+            setAttributeIfChanged(host, "data-elyric-chrome-surface", chromeStyle.surface || "glass");
+            setAttributeIfChanged(host, "data-elyric-overlay-surface", overlayStyle.surface || "glass");
+            setAttributeIfChanged(host, "data-elyric-control-material", consoleStyle.material || "glass");
+            setAttributeIfChanged(host, "data-elyric-volume-landscape-mode",
+                state.volume && state.volume.landscapeMode || "expanded");
+            setAttributeIfChanged(host, "data-elyric-volume-icon-fill",
+                !state.volume || false !== state.volume.iconFill ? "true" : "false");
         });
+        if (renderer.__elyricVolumePanel) {
+            var volumeStyle = state.volume || defaultPlayerThemeV2State().volume;
+            setDisplayStyle(renderer.__elyricVolumePanel, "--elyric-v6-volume-popover-width",
+                normalizePlayerThemeV2Number(volumeStyle.popoverWidth, 64, 120, 72) + "px");
+            setDisplayStyle(renderer.__elyricVolumePanel, "--elyric-v6-volume-popover-height",
+                normalizePlayerThemeV2Number(volumeStyle.popoverHeight, 160, 360, 240) + "px");
+        }
+        if (renderer.__elyricOverlayScrim) {
+            var backdrop = overlayStyle.backdrop || {};
+            setDisplayStyle(renderer.__elyricOverlayScrim, "--elyric-v6-backdrop-dim",
+                normalizePlayerThemeV2Number(backdrop.dim, 0, 100, 0) / 100);
+            setDisplayStyle(renderer.__elyricOverlayScrim, "--elyric-v6-backdrop-blur",
+                normalizePlayerThemeV2Number(backdrop.blur, 0, 48, 0) + "px");
+        }
     }
 
     function playerControlDockCssAlignment(value) {
@@ -1693,6 +1939,10 @@
         );
         renderer.__elyricThemeV2.controls.profiles[profileId] = profile;
         while (dock.firstChild) { dock.removeChild(dock.firstChild); }
+        var surface = document.createElement("div");
+        surface.className = "elyric-player-control-dock-surface";
+        surface.setAttribute("aria-hidden", "true");
+        dock.appendChild(surface);
         profile.rows.forEach(function (rowDefinition, rowIndex) {
             var row = document.createElement("div");
             row.className = "elyric-player-control-row";
@@ -1819,6 +2069,12 @@
     function setThirdLineOverride(renderer, show, persist) {
         renderer.__elyricLocalShowThird = !!show;
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-show-third-plus", show ? "true" : "false");
+        if (renderer.__elyricThirdLineButton) {
+            setAttributeIfChanged(renderer.__elyricThirdLineButton, "aria-pressed", show ? "true" : "false");
+            setAttributeIfChanged(renderer.__elyricThirdLineButton, "data-elyric-active", show ? "true" : "false");
+            setAttributeIfChanged(renderer.__elyricThirdLineButton, "title", show ? "隐藏翻译/第三行" : "显示翻译/第三行");
+            setAttributeIfChanged(renderer.__elyricThirdLineButton, "data-elyric-tooltip", show ? "隐藏翻译" : "显示翻译");
+        }
         if (persist) {
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
@@ -1878,13 +2134,9 @@
         applyPlayerThemeV2Artwork(renderer);
         applyPlayerThemeV2SemanticControls(renderer);
         applyPlayerControlDock(renderer, renderer.__elyricThemeV2Profile);
+        syncPlayerThemeV6Settings(renderer);
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-theme-v2", "true");
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-theme-v2-profile", renderer.__elyricThemeV2Profile);
-        setAttributeIfChanged(
-            renderer.__elyricThemeControl,
-            "data-elyric-short-landscape",
-            playerThemeV5CompactLandscape() ? "true" : "false"
-        );
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-theme-v2", "true");
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-theme-v2-profile", renderer.__elyricThemeV2Profile);
         if (document.body && document.body.__elyricPlayerPageOwner === renderer) {
@@ -2093,6 +2345,132 @@
         return converted;
     }
 
+    function playerThemeV6Layer(tuple, layerId) {
+        return defaultPlayerThemeV2Layer(
+            tuple[0], tuple[1], tuple[2], tuple[3], PLAYER_THEME_LAYER_Z[layerId], false
+        );
+    }
+
+    function playerThemeV6Layout(profileId, specification) {
+        var layout = { canvas: clonePlayerThemeV2Value(PLAYER_THEME_CANVAS_SIZES[profileId]) };
+        PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
+            layout[layerId] = playerThemeV6Layer(specification[layerId], layerId);
+        });
+        return layout;
+    }
+
+    var PLAYER_THEME_V6_BUILTIN_LAYOUTS = {
+        album: {
+            landscape: playerThemeV6Layout("landscape", {
+                artwork: [96, 144, 568, 568], metadata: [96, 736, 568, 112],
+                lyrics: [720, 120, 1104, 548], visualizer: [720, 692, 1104, 156],
+                controlDock: [64, 884, 1792, 160]
+            }),
+            portrait: playerThemeV6Layout("portrait", {
+                artwork: [180, 112, 720, 720], metadata: [96, 856, 888, 152],
+                lyrics: [80, 1032, 920, 372], visualizer: [80, 1428, 920, 124],
+                controlDock: [40, 1608, 1000, 264]
+            })
+        },
+        center: {
+            landscape: playerThemeV6Layout("landscape", {
+                artwork: [88, 144, 520, 520], metadata: [648, 144, 400, 520],
+                lyrics: [1088, 144, 744, 520], visualizer: [88, 696, 1744, 152],
+                controlDock: [64, 884, 1792, 160]
+            }),
+            portrait: playerThemeV6Layout("portrait", {
+                artwork: [174, 104, 732, 732], metadata: [88, 860, 904, 192],
+                lyrics: [88, 1076, 904, 328], visualizer: [88, 1428, 904, 124],
+                controlDock: [40, 1608, 1000, 264]
+            })
+        },
+        mobile: {
+            landscape: playerThemeV6Layout("landscape", {
+                artwork: [88, 112, 736, 704], metadata: [880, 128, 872, 148],
+                lyrics: [880, 300, 872, 356], visualizer: [880, 680, 872, 136],
+                controlDock: [64, 884, 1792, 160]
+            }),
+            portrait: playerThemeV6Layout("portrait", {
+                artwork: [104, 104, 872, 720], metadata: [88, 848, 904, 164],
+                lyrics: [88, 1036, 904, 368], visualizer: [88, 1428, 904, 124],
+                controlDock: [40, 1608, 1000, 264]
+            })
+        },
+        mint: {
+            landscape: playerThemeV6Layout("landscape", {
+                artwork: [720, 104, 480, 480], metadata: [480, 600, 960, 104],
+                lyrics: [320, 720, 1280, 128], visualizer: [600, 40, 720, 600],
+                controlDock: [64, 884, 1792, 160]
+            }),
+            portrait: playerThemeV6Layout("portrait", {
+                artwork: [220, 120, 640, 640], metadata: [96, 784, 888, 148],
+                lyrics: [88, 956, 904, 420], visualizer: [150, 70, 780, 740],
+                controlDock: [40, 1608, 1000, 264]
+            })
+        },
+        deck: {
+            landscape: playerThemeV6Layout("landscape", {
+                artwork: [80, 112, 720, 704], metadata: [864, 124, 896, 154],
+                lyrics: [864, 302, 896, 370], visualizer: [864, 696, 896, 120],
+                controlDock: [64, 884, 1792, 160]
+            }),
+            portrait: playerThemeV6Layout("portrait", {
+                artwork: [140, 96, 800, 760], metadata: [88, 880, 904, 148],
+                lyrics: [88, 1052, 904, 348], visualizer: [88, 1424, 904, 128],
+                controlDock: [40, 1608, 1000, 264]
+            })
+        },
+        stack: {
+            landscape: playerThemeV6Layout("landscape", {
+                artwork: [96, 152, 480, 480], metadata: [624, 136, 1176, 156],
+                lyrics: [624, 316, 1176, 368], visualizer: [96, 708, 1704, 140],
+                controlDock: [64, 884, 1792, 160]
+            }),
+            portrait: playerThemeV6Layout("portrait", {
+                artwork: [180, 104, 720, 720], metadata: [88, 848, 904, 164],
+                lyrics: [88, 1036, 904, 364], visualizer: [88, 1424, 904, 128],
+                controlDock: [40, 1608, 1000, 264]
+            })
+        },
+        coverflow: {
+            landscape: playerThemeV6Layout("landscape", {
+                artwork: [160, 112, 1600, 408], metadata: [272, 544, 1376, 104],
+                lyrics: [256, 672, 1408, 112], visualizer: [256, 808, 1408, 40],
+                controlDock: [64, 884, 1792, 160]
+            }),
+            portrait: playerThemeV6Layout("portrait", {
+                artwork: [80, 112, 920, 592], metadata: [88, 728, 904, 148],
+                lyrics: [88, 900, 904, 440], visualizer: [88, 1364, 904, 188],
+                controlDock: [40, 1608, 1000, 264]
+            })
+        },
+        lyrics: {
+            landscape: playerThemeV6Layout("landscape", {
+                artwork: [96, 148, 536, 536], metadata: [96, 708, 536, 140],
+                lyrics: [688, 112, 1136, 584], visualizer: [688, 720, 1136, 128],
+                controlDock: [64, 884, 1792, 160]
+            }),
+            portrait: playerThemeV6Layout("portrait", {
+                artwork: [220, 104, 640, 640], metadata: [88, 768, 904, 144],
+                lyrics: [72, 936, 936, 456], visualizer: [72, 1416, 936, 136],
+                controlDock: [40, 1608, 1000, 264]
+            })
+        },
+        rose: {
+            landscape: playerThemeV6Layout("landscape", {
+                artwork: [112, 144, 560, 560], metadata: [96, 728, 592, 120],
+                lyrics: [752, 120, 1072, 548], visualizer: [752, 692, 1072, 156],
+                controlDock: [64, 884, 1792, 160]
+            }),
+            portrait: playerThemeV6Layout("portrait", {
+                artwork: [172, 104, 736, 736], metadata: [80, 864, 920, 172],
+                lyrics: [72, 1060, 936, 344], visualizer: [72, 1428, 936, 124],
+                controlDock: [40, 1608, 1000, 264]
+            })
+        }
+    };
+
+    // Retained only as a migration source for historical Theme V4 documents.
     var PLAYER_THEME_V4_BUILTIN_LAYOUTS = {
         album: {
             landscape: playerThemeV4PresetLayout({
@@ -2188,17 +2566,8 @@
 
     function builtInPlayerThemeV4State(layoutId, preset) {
         var state = defaultPlayerThemeV2State();
-        var sourceLayouts = PLAYER_THEME_V4_BUILTIN_LAYOUTS[layoutId] || PLAYER_THEME_V4_BUILTIN_LAYOUTS.album;
-        state.layouts = {
-            landscape: playerThemeV5SafeBuiltInLayout(playerThemeV5LayoutFromV4(
-                playerThemeV4LayoutFromPercent(sourceLayouts.landscape, false), false,
-                defaultPlayerThemeV2Layouts().landscape
-            ), false, defaultPlayerThemeV2Layouts().landscape),
-            portrait: playerThemeV5SafeBuiltInLayout(playerThemeV5LayoutFromV4(
-                playerThemeV4LayoutFromPercent(sourceLayouts.portrait, true), true,
-                defaultPlayerThemeV2Layouts().portrait
-            ), true, defaultPlayerThemeV2Layouts().portrait)
-        };
+        var sourceLayouts = PLAYER_THEME_V6_BUILTIN_LAYOUTS[layoutId] || PLAYER_THEME_V6_BUILTIN_LAYOUTS.album;
+        state.layouts = clonePlayerThemeV2Value(sourceLayouts);
         var colors = preset && preset.colors ? preset.colors : {};
         ["primary", "secondary", "tertiary"].forEach(function (lineId) {
             var typography = state.typography[lineId];
@@ -2210,6 +2579,15 @@
                 ? preset.typographyShadowBlur : 18;
         });
         state.visualizer.frequencyLayout = "centerOut";
+        state.console.material = preset && preset.choices && preset.choices.controlMaterial || "glass";
+        state.console.surfaceColor = preset && preset.colors && preset.colors.mediaSurface || "#111827";
+        state.console.accentColor = preset && preset.colors && preset.colors.progressActive || "#ffffff";
+        state.systemChrome.surfaceColor = state.console.surfaceColor;
+        state.systemChrome.color = preset && preset.colors && preset.colors.metadataText || "#ffffff";
+        state.overlays.surfaceColor = state.console.surfaceColor;
+        state.overlays.textColor = state.systemChrome.color;
+        state.overlays.accentColor = state.console.accentColor;
+        if ("mint" === layoutId) { state.visualizer.frequencyLayout = "radial"; }
         return normalizePlayerThemeV2State(state);
     }
     var DEFAULT_DISPLAY_CONFIGURATION = {
@@ -2573,6 +2951,21 @@
             }
             return Promise.resolve(manager[name].apply(manager, args));
         }
+        function castTargetId(target, index) {
+            return String(target && (target.id || target.Id || target.deviceId || target.DeviceId
+                || target.playerName || target.PlayerName) || "cast-target-" + String(index || 0));
+        }
+        function normalizeCastTarget(target, index) {
+            target = target || {};
+            return {
+                id: castTargetId(target, index),
+                name: String(target.name || target.Name || target.deviceName || target.DeviceName
+                    || target.playerName || target.PlayerName || "Emby 播放设备"),
+                playerName: String(target.playerName || target.PlayerName || target.name || target.Name || ""),
+                local: !!(target.isLocalPlayer || target.IsLocalPlayer || target.local),
+                raw: target
+            };
+        }
         var bridge = {
             capabilities: {},
             getSnapshot: function () {
@@ -2651,12 +3044,60 @@
                 }
                 return Promise.reject(new Error("Emby router is unavailable"));
             },
-            showCastMenu: function (anchor) {
-                if ("undefined" !== typeof Emby && Emby.importModule) {
-                    return Promise.resolve(Emby.importModule("./modules/playback/playerselection.js"))
-                        .then(function (module) { return (module.default || module).show(anchor); });
+            getCastTargets: function () {
+                if ("function" !== typeof manager.getTargets) { return Promise.resolve([]); }
+                return Promise.resolve(manager.getTargets()).then(function (result) {
+                    var targets = Array.isArray(result) ? result : result && (result.Items || result.Targets) || [];
+                    return targets.map(normalizeCastTarget);
+                });
+            },
+            getActiveCastTarget: function () {
+                var current = player();
+                var info = "function" === typeof manager.getPlayerInfo ? manager.getPlayerInfo(current) : null;
+                var target = info && (info.target || info.Target || info) || current;
+                return target ? normalizeCastTarget(target, 0) : null;
+            },
+            selectCastTarget: function (targetId) {
+                if ("function" !== typeof manager.getTargets || "function" !== typeof manager.trySetActivePlayer) {
+                    return Promise.reject(new Error("Emby 设备切换不可用"));
                 }
-                return Promise.reject(new Error("Emby player selection is unavailable"));
+                return bridge.getCastTargets().then(function (targets) {
+                    var target = targets.filter(function (entry) { return entry.id === String(targetId); })[0];
+                    if (!target) { throw new Error("播放设备已离线"); }
+                    return manager.trySetActivePlayer(target.playerName, target.raw);
+                });
+            },
+            selectLocalTarget: function () {
+                return "function" === typeof manager.setDefaultPlayerActive
+                    ? Promise.resolve(manager.setDefaultPlayerActive())
+                    : Promise.reject(new Error("本机播放器切换不可用"));
+            },
+            canEndCurrentSession: function () {
+                var current = player();
+                if (!current || "function" !== typeof current.endSession) { return false; }
+                var commands = "function" === typeof current.getSupportedCommands
+                    ? current.getSupportedCommands() || [] : [];
+                return !commands.length || commands.indexOf("EndSession") >= 0;
+            },
+            endCurrentSession: function () {
+                var current = player();
+                return current && "function" === typeof current.endSession
+                    ? Promise.resolve(current.endSession())
+                    : Promise.reject(new Error("当前会话不支持结束"));
+            },
+            subscribeCastTargets: function (listener) {
+                if (!_events || !_events.default || !_events.default.on) { return function () {}; }
+                var handler = function () { if (!destroyed) { listener(); } };
+                ["playerchange", "availableplayerschanged"].forEach(function (name) {
+                    _events.default.on(manager, name, handler);
+                });
+                return function () {
+                    if (_events.default.off) {
+                        ["playerchange", "availableplayerschanged"].forEach(function (name) {
+                            _events.default.off(manager, name, handler);
+                        });
+                    }
+                };
             },
             destroy: function () { destroyed = true; }
         };
@@ -2670,7 +3111,9 @@
             bridge.capabilities[name] = "function" === typeof manager[managerCapabilities[name]];
         });
         bridge.capabilities.goBack = !!(_approuter && _approuter.default && _approuter.default.back);
-        bridge.capabilities.showCastMenu = "undefined" !== typeof Emby && !!Emby.importModule;
+        bridge.capabilities.cast = "function" === typeof manager.getTargets
+            && "function" === typeof manager.trySetActivePlayer;
+        bridge.capabilities.selectLocalTarget = "function" === typeof manager.setDefaultPlayerActive;
         return bridge;
     }
 
@@ -2865,7 +3308,7 @@
             return null;
         }
         if (PLAYER_THEME_DOCUMENT_FORMAT === source.format
-            && [3, 4, 5].indexOf(Number(source.schemaVersion)) >= 0
+            && [3, 4, 5, 6].indexOf(Number(source.schemaVersion)) >= 0
             && !source.v2) {
             source = playerThemeInternalFromV3Document(source, index);
         }
@@ -2919,7 +3362,7 @@
         var lyrics = source.lyrics || {};
         var visualizer = source.visualizer || {};
         var consoleStyle = source.console || {};
-        var mediaCard = source.mediaCard || {};
+        var mediaCard = source.mediaCard || source.overlays || {};
         var tuning = {};
         assignThemeSectionValues(tuning, background, {
             blur: "backgroundBlur", dim: "backgroundDim",
@@ -2996,7 +3439,7 @@
         });
         var migratedState = builtInPlayerThemeV4State(source.baseTheme || "album", null);
         if (Number(source.schemaVersion) >= 4) {
-            migratedState.layouts = 5 === Number(source.schemaVersion)
+            migratedState.layouts = Number(source.schemaVersion) >= 5
                 && PLAYER_THEME_LAYOUT_MODEL === source.layoutModel
                 ? clonePlayerThemeV2Value(source.layouts || migratedState.layouts)
                 : {
@@ -3007,9 +3450,6 @@
                         source.layouts && source.layouts.portrait, true, migratedState.layouts.portrait, true
                     )
                 };
-            migratedState.viewportTransforms = clonePlayerThemeV2Value(
-                source.viewportTransforms || migratedState.viewportTransforms
-            );
         }
         migratedState.artwork = {
             source: artwork.source || "emby", url: artwork.url || "",
@@ -3035,6 +3475,15 @@
         migratedState.controls = normalizePlayerControlDock(source.controls || {
             safeArea: consoleStyle.safeArea || 64
         });
+        migratedState.viewport = normalizeThemeV6Section(source.viewport, migratedState.viewport);
+        migratedState.metadata = normalizeThemeV6Section({ summaryFields: metadata.summaryFields }, migratedState.metadata);
+        migratedState.systemChrome = normalizeThemeV6Section(source.systemChrome, migratedState.systemChrome);
+        migratedState.overlays = normalizeThemeV6Section(source.overlays || {
+            surface: mediaCard.surface, surfaceColor: mediaCard.surfaceColor,
+            radius: mediaCard.popupRadius, blur: mediaCard.blur, opacity: mediaCard.popupOpacity
+        }, migratedState.overlays);
+        migratedState.console = normalizeThemeV6Section(consoleStyle, migratedState.console);
+        migratedState.volume = normalizeThemeV6Section(source.volume, migratedState.volume);
         return {
             format: PLAYER_THEME_DOCUMENT_FORMAT,
             schemaVersion: PLAYER_THEME_SCHEMA_VERSION,
@@ -3078,8 +3527,11 @@
             name: normalizePlayerThemeName(theme.name, "导出主题"),
             baseTheme: theme.baseLayout || "album",
             layouts: clonePlayerThemeV2Value(state.layouts),
-            viewportTransforms: clonePlayerThemeV2Value(state.viewportTransforms),
+            viewport: clonePlayerThemeV2Value(state.viewport),
             controls: clonePlayerThemeV2Value(state.controls),
+            systemChrome: clonePlayerThemeV2Value(state.systemChrome),
+            overlays: clonePlayerThemeV2Value(state.overlays),
+            volume: clonePlayerThemeV2Value(state.volume),
             background: {
                 mode: player.backgroundMode || "blur", blur: tuning.backgroundBlur,
                 dim: tuning.backgroundDim, saturation: tuning.backgroundSaturation,
@@ -3102,7 +3554,8 @@
                 letterSpacing: tuning.metadataLetterSpacing, padding: tuning.metadataPadding,
                 radius: tuning.metadataRadius, blur: tuning.metadataBlur,
                 opacity: tuning.metadataOpacity, textColor: colors.metadataText,
-                surfaceColor: colors.metadataSurface
+                surfaceColor: colors.metadataSurface,
+                summaryFields: clonePlayerThemeV2Value(state.metadata.summaryFields)
             },
             lyrics: {
                 style: player.theme || "classic", alignment: player.lyricAlignment || "left",
@@ -3130,7 +3583,12 @@
                 analysis: clonePlayerThemeV2Value(state.visualizer.analysis)
             },
             console: {
-                material: choices.controlMaterial,
+                material: state.console.material || choices.controlMaterial,
+                surfaceColor: state.console.surfaceColor,
+                textColor: state.console.textColor, accentColor: state.console.accentColor,
+                gradientA: state.console.gradientA, gradientB: state.console.gradientB,
+                gradientAngle: state.console.gradientAngle, radius: state.console.radius,
+                borderWidth: state.console.borderWidth, shadow: state.console.shadow,
                 progressHeight: tuning.progressTrackHeight,
                 progressThumbSize: tuning.progressThumbSize,
                 volumeHeight: tuning.volumeTrackHeight, volumeThumbSize: tuning.volumeThumbSize,
@@ -3152,15 +3610,18 @@
     }
 
     if ("undefined" !== typeof window) {
-        window.__elyricPlayerThemeV5Fixtures = PLAYER_LAYOUTS.filter(function (layout) {
+        window.__elyricPlayerThemeV6Fixtures = PLAYER_LAYOUTS.filter(function (layout) {
             return "custom" !== layout.id;
         }).map(function (layout) {
             return portablePlayerThemeV5(resolvedBuiltInPlayerTheme(layout.id), false);
         });
-        window.__elyricPortablePlayerThemeV5 = function (theme) {
+        window.__elyricPortablePlayerThemeV6 = function (theme) {
             return portablePlayerThemeV5(theme, false);
         };
-        window.__elyricPlayerThemeV5LayoutIsSafe = playerThemeV5LayoutIsSafe;
+        window.__elyricPlayerThemeV6LayoutIsSafe = playerThemeV5LayoutIsSafe;
+        window.__elyricPlayerThemeV5Fixtures = window.__elyricPlayerThemeV6Fixtures;
+        window.__elyricPortablePlayerThemeV5 = window.__elyricPortablePlayerThemeV6;
+        window.__elyricPlayerThemeV5LayoutIsSafe = window.__elyricPlayerThemeV6LayoutIsSafe;
         window.__elyricValidatePortablePlayerThemeV3 = validatePortablePlayerThemeV3Document;
         // Compatibility aliases for older test harnesses and exported tooling.
         window.__elyricPlayerThemeV4Fixtures = window.__elyricPlayerThemeV5Fixtures;
@@ -3484,6 +3945,82 @@
             storeCurrentPlayerThemeDesign(renderer);
             scheduleUserPlayerPreferencesSave(renderer);
         }
+    }
+
+    function commitPlayerThemeV6Section(renderer, sectionId, patch, persist) {
+        ensurePlayerThemeV2State(renderer);
+        if (!renderer.__elyricThemeV2[sectionId] || "object" !== typeof renderer.__elyricThemeV2[sectionId]) {
+            renderer.__elyricThemeV2[sectionId] = {};
+        }
+        Object.keys(patch || {}).forEach(function (key) {
+            renderer.__elyricThemeV2[sectionId][key] = patch[key];
+        });
+        renderer.__elyricThemeV2 = normalizePlayerThemeV2State(renderer.__elyricThemeV2);
+        applyPlayerThemeV2SemanticControls(renderer);
+        repositionPlayerOverlays(renderer);
+        syncPlayerThemeV6Settings(renderer);
+        if (persist) {
+            storeCurrentPlayerThemeDesign(renderer);
+            scheduleUserPlayerPreferencesSave(renderer);
+        }
+    }
+
+    function commitPlayerThemeV6Path(renderer, path, value, persist) {
+        ensurePlayerThemeV2State(renderer);
+        setPlayerThemeV2PathValue(renderer.__elyricThemeV2, path, value);
+        renderer.__elyricThemeV2 = normalizePlayerThemeV2State(renderer.__elyricThemeV2);
+        applyPlayerThemeV2SemanticControls(renderer);
+        repositionPlayerOverlays(renderer);
+        syncPlayerThemeV6Settings(renderer);
+        if (persist) {
+            storeCurrentPlayerThemeDesign(renderer);
+            scheduleUserPlayerPreferencesSave(renderer);
+        }
+    }
+
+    function setMetadataSummaryField(renderer, fieldId, visible, persist) {
+        if (!PLAYER_METADATA_SUMMARY_FIELDS.some(function (field) { return field.id === fieldId; })) { return; }
+        ensurePlayerThemeV2State(renderer);
+        var fields = Array.isArray(renderer.__elyricThemeV2.metadata.summaryFields)
+            ? renderer.__elyricThemeV2.metadata.summaryFields.slice() : [];
+        var index = fields.indexOf(fieldId);
+        if (visible && index < 0) { fields.push(fieldId); }
+        if (!visible && index >= 0) { fields.splice(index, 1); }
+        renderer.__elyricThemeV2.metadata.summaryFields = fields;
+        updatePlayerMetadata(renderer);
+        syncPlayerThemeV6Settings(renderer);
+        if (persist) {
+            storeCurrentPlayerThemeDesign(renderer);
+            scheduleUserPlayerPreferencesSave(renderer);
+        }
+    }
+
+    function syncPlayerThemeV6Settings(renderer) {
+        var state = renderer && renderer.__elyricThemeV2;
+        if (!state) { return; }
+        var fields = state.metadata && state.metadata.summaryFields || [];
+        (renderer.__elyricMetadataSummaryButtons || []).forEach(function (button) {
+            var active = fields.indexOf(button.getAttribute("data-elyric-choice")) >= 0;
+            setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
+            setAttributeIfChanged(button, "data-elyric-active", active ? "true" : "false");
+        });
+        Object.keys(renderer.__elyricThemeV6RangeControls || {}).forEach(function (path) {
+            var control = renderer.__elyricThemeV6RangeControls[path];
+            var value = playerThemeV2PathValue(state, path);
+            control.input.value = String(value);
+            control.input.setAttribute("value", String(value));
+            replaceElementText(control.value, String(value));
+        });
+        Object.keys(renderer.__elyricThemeV6SegmentControls || {}).forEach(function (path) {
+            syncSegmentedButtons(renderer.__elyricThemeV6SegmentControls[path], playerThemeV2PathValue(state, path));
+        });
+        Object.keys(renderer.__elyricThemeV6ColorControls || {}).forEach(function (path) {
+            var control = renderer.__elyricThemeV6ColorControls[path];
+            var value = normalizeHexColor(playerThemeV2PathValue(state, path), "#ffffff");
+            control.input.value = value;
+            control.input.setAttribute("value", value);
+            control.swatch.style.background = value;
+        });
     }
 
     function applyPlayerThemeDefinition(renderer, source) {
@@ -5383,7 +5920,9 @@
     var PLAYER_OVERLAY_LAYOUTS = {
         media: { minimumWidth: 360, maximumWidth: 480, landscapeHeight: .56, portraitHeight: .54 },
         queue: { minimumWidth: 380, maximumWidth: 460, landscapeHeight: .66, portraitHeight: .66 },
-        settings: { minimumWidth: 420, maximumWidth: 520, landscapeHeight: .78, portraitHeight: .82 }
+        settings: { minimumWidth: 420, maximumWidth: 560, landscapeHeight: .78, portraitHeight: .78 },
+        cast: { minimumWidth: 320, maximumWidth: 420, landscapeHeight: .56, portraitHeight: .56 },
+        volume: { minimumWidth: 64, maximumWidth: 96, landscapeHeight: .32, portraitHeight: .32 }
     };
 
     function playerOverlayParts(renderer, kind) {
@@ -5396,6 +5935,12 @@
                 panel: renderer.__elyricQueuePanel,
                 button: anchored || renderer.__elyricPlayerButtons && renderer.__elyricPlayerButtons.queue
             };
+        }
+        if ("cast" === kind) {
+            return { panel: renderer.__elyricCastPanel, button: anchored || renderer.__elyricPlayerButtons.cast };
+        }
+        if ("volume" === kind) {
+            return { panel: renderer.__elyricVolumePanel, button: anchored || renderer.__elyricPlayerButtons.mute };
         }
         return { panel: renderer.__elyricSettingsPanel, button: anchored || renderer.__elyricSettingsButton };
     }
@@ -5419,39 +5964,41 @@
         var spec = PLAYER_OVERLAY_LAYOUTS[kind];
         if (!panel || !spec || !panel.getBoundingClientRect) { return; }
         var viewport = playerThemeV2ViewportRect();
-        var margin = 16;
-        var gap = 12;
+        var overlayStyle = renderer.__elyricThemeV2 && renderer.__elyricThemeV2.overlays || {};
+        var margin = normalizePlayerThemeV2Number(overlayStyle.margin, 8, 48, 16);
+        var gap = normalizePlayerThemeV2Number(overlayStyle.gap, 4, 32, 12);
         var userHeightRatio = "media" === kind
             ? Math.max(.28, Math.min(.88, Number(renderer.__elyricPlayerTuning
                 && renderer.__elyricPlayerTuning.mediaMaxHeight || 72) / 100))
             : 1;
-        if ("portrait" === currentPlayerThemeV2Profile() || !button || !button.getBoundingClientRect) {
-            clearPlayerOverlayPosition(renderer, kind, "drawer");
-            var drawerWidth = Math.max(0, viewport.width - margin * 2);
-            var drawerHeight = Math.min(
-                viewport.height * Math.min(spec.portraitHeight, userHeightRatio),
-                Number(panel.scrollHeight) || viewport.height * spec.portraitHeight,
-                viewport.height - margin * 2
-            );
-            panel.style.setProperty("left", Math.round(viewport.left + margin) + "px", "important");
-            panel.style.setProperty("right", "auto", "important");
-            panel.style.setProperty("top", "auto", "important");
-            panel.style.setProperty("bottom", Math.round(margin) + "px", "important");
-            panel.style.setProperty("width", Math.round(drawerWidth) + "px", "important");
-            panel.style.setProperty("height", "auto", "important");
-            panel.style.setProperty("max-height", Math.round(drawerHeight) + "px", "important");
-            return;
-        }
+        if (!button || !button.getBoundingClientRect) { return; }
         var buttonRect = button.getBoundingClientRect();
         var panelRect = panel.getBoundingClientRect();
+        var configuredSize = overlayStyle.sizes && overlayStyle.sizes[kind] || {};
+        var minimumWidth = normalizePlayerThemeV2Number(
+            configuredSize.minWidth, 48, spec.maximumWidth, spec.minimumWidth
+        );
+        var maximumWidth = normalizePlayerThemeV2Number(
+            configuredSize.maxWidth, minimumWidth, 720, spec.maximumWidth
+        );
         var desiredWidth = Math.min(
             viewport.width - margin * 2,
-            Math.max(spec.minimumWidth, Math.min(spec.maximumWidth, Number(panelRect.width) || spec.maximumWidth))
+            Math.max(minimumWidth, Math.min(maximumWidth, Number(panelRect.width) || maximumWidth))
         );
-        var contentHeight = Number(panel.scrollHeight) || Number(panelRect.height) || viewport.height * spec.landscapeHeight;
+        var profileHeight = "portrait" === currentPlayerThemeV2Profile() ? spec.portraitHeight : spec.landscapeHeight;
+        if (isFinite(Number(configuredSize.maxHeight))) {
+            profileHeight = Math.min(profileHeight, Number(configuredSize.maxHeight) / 100);
+        }
+        var contentHeight = Number(panel.scrollHeight) || Number(panelRect.height) || viewport.height * profileHeight;
+        if ("volume" === kind) {
+            var volumeStyle = renderer.__elyricThemeV2 && renderer.__elyricThemeV2.volume || {};
+            desiredWidth = Math.min(viewport.width - margin * 2,
+                normalizePlayerThemeV2Number(volumeStyle.popoverWidth, 64, 120, 72));
+            contentHeight = normalizePlayerThemeV2Number(volumeStyle.popoverHeight, 160, 360, 240);
+        }
         var desiredHeight = Math.min(
             contentHeight,
-            viewport.height * Math.min(spec.landscapeHeight, userHeightRatio),
+            viewport.height * Math.min(profileHeight, userHeightRatio),
             viewport.height - margin * 2
         );
         var buttonLeft = Number(buttonRect.left) || 0;
@@ -5460,22 +6007,45 @@
         var buttonBottom = Number(buttonRect.bottom) || buttonTop + 44;
         var availableAbove = Math.max(0, buttonTop - viewport.top - gap - margin);
         var availableBelow = Math.max(0, viewport.top + viewport.height - buttonBottom - gap - margin);
+        var availableLeft = Math.max(0, buttonLeft - viewport.left - gap - margin);
+        var availableRight = Math.max(0, viewport.left + viewport.width - buttonRight - gap - margin);
         var preferred = renderer.__elyricOverlayPreferredPlacements
             && renderer.__elyricOverlayPreferredPlacements[kind] || "above";
-        var placeAbove = "below" === preferred
-            ? !(availableBelow >= Math.min(desiredHeight, 260) || availableBelow >= availableAbove)
-            : availableAbove >= Math.min(desiredHeight, 260) || availableAbove >= availableBelow;
-        var availableHeight = placeAbove ? availableAbove : availableBelow;
-        var finalHeight = Math.max(120, Math.min(desiredHeight, availableHeight));
         var center = (buttonLeft + buttonRight) / 2;
-        var left = Math.min(
-            viewport.left + viewport.width - desiredWidth - margin,
-            Math.max(viewport.left + margin, center - desiredWidth / 2)
-        );
-        var top = placeAbove
-            ? Math.max(viewport.top + margin, buttonTop - gap - finalHeight)
-            : Math.min(viewport.top + viewport.height - margin - finalHeight, buttonBottom + gap);
+        var centerY = (buttonTop + buttonBottom) / 2;
+        var placements = [preferred, "above", "below", "left", "right"].filter(function (placement, index, list) {
+            return ["above", "below", "left", "right"].indexOf(placement) >= 0 && list.indexOf(placement) === index;
+        });
+        var requiredHeight = Math.min(desiredHeight, "volume" === kind ? 120 : 260);
+        var requiredWidth = Math.min(desiredWidth, "volume" === kind ? 48 : 260);
+        var placement = placements.filter(function (candidate) {
+            if ("above" === candidate) { return availableAbove >= requiredHeight; }
+            if ("below" === candidate) { return availableBelow >= requiredHeight; }
+            if ("left" === candidate) { return availableLeft >= requiredWidth; }
+            return availableRight >= requiredWidth;
+        })[0];
+        if (!placement) {
+            placement = placements.sort(function (first, second) {
+                var spaces = { above: availableAbove, below: availableBelow, left: availableLeft, right: availableRight };
+                return spaces[second] - spaces[first];
+            })[0] || "above";
+        }
+        var verticalPlacement = "above" === placement || "below" === placement;
+        var availableHeight = "above" === placement ? availableAbove
+            : "below" === placement ? availableBelow : viewport.height - margin * 2;
+        var finalHeight = Math.max("volume" === kind ? 96 : 120, Math.min(desiredHeight, availableHeight));
+        var left = verticalPlacement
+            ? Math.min(viewport.left + viewport.width - desiredWidth - margin,
+                Math.max(viewport.left + margin, center - desiredWidth / 2))
+            : ("left" === placement ? buttonLeft - gap - desiredWidth : buttonRight + gap);
+        var top = verticalPlacement
+            ? ("above" === placement
+                ? Math.max(viewport.top + margin, buttonTop - gap - finalHeight)
+                : Math.min(viewport.top + viewport.height - margin - finalHeight, buttonBottom + gap))
+            : Math.min(viewport.top + viewport.height - margin - finalHeight,
+                Math.max(viewport.top + margin, centerY - finalHeight / 2));
         var anchorX = Math.min(desiredWidth - 18, Math.max(18, center - left));
+        var anchorY = Math.min(finalHeight - 18, Math.max(18, centerY - top));
         panel.style.setProperty("left", Math.round(left) + "px", "important");
         panel.style.setProperty("top", Math.round(top) + "px", "important");
         panel.style.setProperty("right", "auto", "important");
@@ -5484,16 +6054,19 @@
         panel.style.setProperty("height", "auto", "important");
         panel.style.setProperty("max-height", Math.round(finalHeight) + "px", "important");
         panel.style.setProperty("--elyric-overlay-anchor-tip-x", Math.round(anchorX) + "px");
+        panel.style.setProperty("--elyric-overlay-anchor-tip-y", Math.round(anchorY) + "px");
         panel.style.setProperty("--elyric-media-anchor-tip-x", Math.round(anchorX) + "px");
         setAttributeIfChanged(panel, "data-elyric-overlay-kind", kind);
         setAttributeIfChanged(panel, "data-elyric-anchor-mode", "button");
-        setAttributeIfChanged(panel, "data-elyric-anchor-placement", placeAbove ? "above" : "below");
+        setAttributeIfChanged(panel, "data-elyric-anchor-placement", placement);
     }
 
     function repositionPlayerOverlays(renderer) {
         if (renderer.__elyricSettingsOpen) { positionPlayerOverlay(renderer, "settings"); }
         if (renderer.__elyricMediaOpen) { positionPlayerOverlay(renderer, "media"); }
         if (renderer.__elyricQueueOpen) { positionPlayerOverlay(renderer, "queue"); }
+        if (renderer.__elyricCastOpen) { positionPlayerOverlay(renderer, "cast"); }
+        if (renderer.__elyricVolumeOpen) { positionPlayerOverlay(renderer, "volume"); }
     }
 
     function createPlayerOverlayManager(renderer) {
@@ -5510,10 +6083,14 @@
                 if ("media" === kind) { setMediaPanelOpen(renderer, true); }
                 else if ("queue" === kind) { setQueueOpen(renderer, true); }
                 else if ("settings" === kind) { setSettingsPanelOpen(renderer, true); }
+                else if ("cast" === kind) { setCastPanelOpen(renderer, true); }
+                else if ("volume" === kind) { setVolumePanelOpen(renderer, true); }
                 else if ("designer" === kind) {
                     setSettingsPanelOpen(renderer, false, true);
                     setMediaPanelOpen(renderer, false);
                     setQueueOpen(renderer, false);
+                    setCastPanelOpen(renderer, false);
+                    setVolumePanelOpen(renderer, false);
                     setPlayerThemeV2DesignerOpen(renderer, true);
                 }
             },
@@ -5521,6 +6098,8 @@
                 if ("media" === kind) { setMediaPanelOpen(renderer, false); }
                 else if ("queue" === kind) { setQueueOpen(renderer, false); }
                 else if ("settings" === kind) { setSettingsPanelOpen(renderer, false); }
+                else if ("cast" === kind) { setCastPanelOpen(renderer, false); }
+                else if ("volume" === kind) { setVolumePanelOpen(renderer, false); }
                 else if ("designer" === kind) { setPlayerThemeV2DesignerOpen(renderer, false); }
             },
             reposition: function () { repositionPlayerOverlays(renderer); }
@@ -5539,6 +6118,8 @@
         if ("media" === kind) { setMediaPanelOpen(renderer, true); }
         else if ("queue" === kind) { setQueueOpen(renderer, true); }
         else if ("settings" === kind) { setSettingsPanelOpen(renderer, true); }
+        else if ("cast" === kind) { setCastPanelOpen(renderer, true); }
+        else if ("volume" === kind) { setVolumePanelOpen(renderer, true); }
         else if ("designer" === kind) { setPlayerThemeV2DesignerOpen(renderer, true); }
     }
 
@@ -5550,7 +6131,49 @@
         if ("media" === kind) { setMediaPanelOpen(renderer, false); }
         else if ("queue" === kind) { setQueueOpen(renderer, false); }
         else if ("settings" === kind) { setSettingsPanelOpen(renderer, false); }
+        else if ("cast" === kind) { setCastPanelOpen(renderer, false); }
+        else if ("volume" === kind) { setVolumePanelOpen(renderer, false); }
         else if ("designer" === kind) { setPlayerThemeV2DesignerOpen(renderer, false); }
+    }
+
+    function setCastPanelOpen(renderer, open) {
+        open = !!open;
+        var wasOpen = !!renderer.__elyricCastOpen;
+        if (open) {
+            setSettingsPanelOpen(renderer, false);
+            setMediaPanelOpen(renderer, false);
+            if (renderer.__elyricQueueOpen) { setQueueOpen(renderer, false); }
+            if (renderer.__elyricVolumeOpen) { setVolumePanelOpen(renderer, false); }
+        }
+        renderer.__elyricCastOpen = open;
+        if (renderer.__elyricCastPanel) {
+            if (open) { removeAttributeIfPresent(renderer.__elyricCastPanel, "hidden"); }
+            else { setAttributeIfChanged(renderer.__elyricCastPanel, "hidden", "hidden"); }
+        }
+        var button = renderer.__elyricPlayerButtons && renderer.__elyricPlayerButtons.cast;
+        if (button) { setAttributeIfChanged(button, "aria-expanded", open ? "true" : "false"); }
+        syncPlayerOverlayScrim(renderer);
+        if (open) {
+            renderOwnedCastTargets(renderer); positionPlayerOverlay(renderer, "cast");
+            if (!wasOpen) { focusPlayerOverlay(renderer.__elyricCastPanel); }
+        } else if (wasOpen) { restorePlayerOverlayFocus(renderer.__elyricCastPanel, button); }
+    }
+
+    function setVolumePanelOpen(renderer, open) {
+        open = !!open;
+        var wasOpen = !!renderer.__elyricVolumeOpen;
+        renderer.__elyricVolumeOpen = open;
+        if (renderer.__elyricVolumePanel) {
+            if (open) { removeAttributeIfPresent(renderer.__elyricVolumePanel, "hidden"); }
+            else { setAttributeIfChanged(renderer.__elyricVolumePanel, "hidden", "hidden"); }
+        }
+        var button = renderer.__elyricPlayerButtons && renderer.__elyricPlayerButtons.mute;
+        if (button) { setAttributeIfChanged(button, "aria-expanded", open ? "true" : "false"); }
+        syncPlayerOverlayScrim(renderer);
+        if (open) {
+            positionPlayerOverlay(renderer, "volume");
+            if (!wasOpen) { focusPlayerOverlay(renderer.__elyricVolumePanel); }
+        } else if (wasOpen) { restorePlayerOverlayFocus(renderer.__elyricVolumePanel, button); }
     }
 
     function setSettingsPanelOpen(renderer, open, preserveDesigner) {
@@ -5564,6 +6187,8 @@
             if (renderer.__elyricQueueOpen) {
                 setQueueOpen(renderer, false);
             }
+            if (renderer.__elyricCastOpen) { setCastPanelOpen(renderer, false); }
+            if (renderer.__elyricVolumeOpen) { setVolumePanelOpen(renderer, false); }
         }
         renderer.__elyricSettingsOpen = open;
         setAttributeIfChanged(
@@ -5630,6 +6255,8 @@
             if (renderer.__elyricQueueOpen) {
                 setQueueOpen(renderer, false);
             }
+            if (renderer.__elyricCastOpen) { setCastPanelOpen(renderer, false); }
+            if (renderer.__elyricVolumeOpen) { setVolumePanelOpen(renderer, false); }
         }
         renderer.__elyricMediaOpen = open;
         if (renderer.__elyricMediaPanel) {
@@ -5666,8 +6293,9 @@
         if (!scrim) {
             return;
         }
-        if (false !== pageVisible
-            && (renderer.__elyricSettingsOpen || renderer.__elyricMediaOpen || renderer.__elyricQueueOpen)) {
+            if (false !== pageVisible
+            && (renderer.__elyricSettingsOpen || renderer.__elyricMediaOpen || renderer.__elyricQueueOpen
+                || renderer.__elyricCastOpen || renderer.__elyricVolumeOpen)) {
             removeAttributeIfPresent(scrim, "hidden");
         } else {
             setAttributeIfChanged(scrim, "hidden", "hidden");
@@ -6799,9 +7427,11 @@
             renderer.__elyricVisualizerFrameId = 0;
         }
         var canvas = renderer.__elyricVisualizerCanvas;
-        if (!canvas || !canvas.getContext) {
+        if (!canvas || !canvas.getContext || false === renderer.__elyricVisualizerEnabled) {
+            if (renderer.__elyricVisualizer) { renderer.__elyricVisualizer.setAttribute("data-elyric-disabled", "true"); }
             return;
         }
+        if (renderer.__elyricVisualizer) { renderer.__elyricVisualizer.setAttribute("data-elyric-disabled", "false"); }
         var reducedMotion = "undefined" !== typeof window
             && window.matchMedia
             && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -6932,6 +7562,8 @@
         if (open) {
             setSettingsPanelOpen(renderer, false);
             setMediaPanelOpen(renderer, false);
+            if (renderer.__elyricCastOpen) { setCastPanelOpen(renderer, false); }
+            if (renderer.__elyricVolumeOpen) { setVolumePanelOpen(renderer, false); }
         }
         renderer.__elyricQueueOpen = open;
         var queueButton = renderer.__elyricPlayerButtons && renderer.__elyricPlayerButtons.queue;
@@ -7005,8 +7637,17 @@
             }
             return;
         }
+        if ("cast" === action) {
+            if (renderer.__elyricCastOpen) { requestPlayerOverlayClose(renderer, "cast"); }
+            else { requestPlayerOverlayOpen(renderer, "cast", renderer.__elyricPlayerButtons.cast, "above"); }
+            return;
+        }
         if ("mute" === action) {
-            if (renderer.__elyricPlaybackBridge) { renderer.__elyricPlaybackBridge.toggleMute(); }
+            var volumeStyle = renderer.__elyricThemeV2 && renderer.__elyricThemeV2.volume || {};
+            if ("portrait" === currentPlayerThemeV2Profile() || "iconPopover" === volumeStyle.landscapeMode) {
+                if (renderer.__elyricVolumeOpen) { requestPlayerOverlayClose(renderer, "volume"); }
+                else { requestPlayerOverlayOpen(renderer, "volume", renderer.__elyricPlayerButtons.mute, "above"); }
+            } else if (renderer.__elyricPlaybackBridge) { renderer.__elyricPlaybackBridge.toggleMute(); }
             return;
         }
         if ("playPause" === action) {
@@ -7019,9 +7660,29 @@
         var bridge = renderer.__elyricPlaybackBridge;
         if (!bridge) { return; }
         var actions = {
-            back: "goBack", cast: "showCastMenu", previous: "previous", playPause: "playPause",
+            back: "goBack", previous: "previous", playPause: "playPause",
             stop: "stop", next: "next"
         };
+        if ("settings" === action) {
+            if (renderer.__elyricSettingsOpen) { requestPlayerOverlayClose(renderer, "settings"); }
+            else { requestPlayerOverlayOpen(renderer, "settings", renderer.__elyricPlayerButtons.settings, "above"); }
+            return;
+        }
+        if ("visualizerToggle" === action) {
+            renderer.__elyricVisualizerEnabled = false === renderer.__elyricVisualizerEnabled;
+            setAttributeIfChanged(renderer.__elyricPlayerButtons.visualizerToggle, "aria-pressed",
+                renderer.__elyricVisualizerEnabled ? "true" : "false");
+            syncVisualizerAnimation(renderer); return;
+        }
+        if ("secondaryLyrics" === action) {
+            setSecondLineOverride(renderer, !renderer.__elyricLocalShowSecond, true); return;
+        }
+        if ("tertiaryLyrics" === action) {
+            setThirdLineOverride(renderer, !renderer.__elyricLocalShowThird, true); return;
+        }
+        if ("artworkRotation" === action) {
+            setArtworkRotation(renderer, !renderer.__elyricArtworkRotation, true); return;
+        }
         if ("shuffle" === action) {
             var shuffleSnapshot = bridge.getSnapshot();
             bridge.setShuffle(!shuffleSnapshot.shuffle);
@@ -7030,10 +7691,7 @@
             var repeatModes = ["RepeatNone", "RepeatAll", "RepeatOne"];
             var repeatIndex = repeatModes.indexOf(repeatSnapshot.repeatMode);
             bridge.setRepeatMode(repeatModes[(repeatIndex + 1) % repeatModes.length]);
-        } else if (actions[action]) {
-            if ("cast" === action) { bridge.showCastMenu(renderer.__elyricPlayerButtons.cast); }
-            else { bridge[actions[action]](); }
-        }
+        } else if (actions[action]) { bridge[actions[action]](); }
     }
 
     var PLAYER_ICON_PATHS = {
@@ -7051,6 +7709,8 @@
         queue: "M4 6h12 M4 12h12 M4 18h8 M19 15v6 M16 18h6",
         info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 11v6 M12 7h.01",
         subtitle: "M4 5h16v14H4z M7 14h4 M7 17h7 M13 14h4 M16 17h1",
+        visualizer: "M3 12h2 M7 7v10 M11 4v16 M15 8v8 M19 6v12 M23 11v2",
+        translation: "M4 5h9 M8.5 3v2 M6 9c1.5 2.5 3.5 4.5 6 6 M12 9c-1.3 2.2-3.2 4.2-6 6 M15 19l3-8 3 8 M16 16h4",
         rotation: "M20 7v5h-5 M4 17v-5h5 M18.5 9A7 7 0 0 0 6.2 6.2L4 8 M5.5 15A7 7 0 0 0 17.8 17.8L20 16",
         settings: "M4 7h8 M16 7h4 M4 17h2 M10 17h10 M12 4v6 M6 14v6",
         close: "M6 6l12 12 M18 6L6 18",
@@ -7166,6 +7826,11 @@
     function syncVolumePresentation(renderer, value) {
         value = Math.min(100, Math.max(0, Number(value) || 0));
         replaceElementText(renderer.__elyricVolumeValue, Math.round(value) + "%");
+        if (renderer.__elyricPortraitVolumeSlider) {
+            renderer.__elyricPortraitVolumeSlider.value = String(Math.round(value));
+            renderer.__elyricPortraitVolumeSlider.setAttribute("value", String(Math.round(value)));
+            setDisplayStyle(renderer.__elyricPortraitVolumeSlider, "--elyric-player-volume", value + "%");
+        }
         var button = renderer.__elyricPlayerButtons && renderer.__elyricPlayerButtons.mute;
         if (!button) {
             return;
@@ -7177,6 +7842,8 @@
         setAttributeIfChanged(button, "data-elyric-tooltip", muted ? "取消静音" : "静音");
         setAttributeIfChanged(button, "aria-pressed", muted ? "true" : "false");
         setAttributeIfChanged(button, "data-elyric-active", muted ? "true" : "false");
+        setDisplayStyle(button, "--elyric-volume-fill", value + "%");
+        setAttributeIfChanged(button, "data-elyric-volume", String(Math.round(value)));
     }
 
     function togglePlayerMute(renderer) {
@@ -7313,7 +7980,7 @@
         return isFinite(value) ? value.toLocaleString("en-US") : "—";
     }
 
-    function compactMediaSummary(item) {
+    function compactMediaSummary(item, visibleFields) {
         var source = item && item.MediaSources && item.MediaSources[0] || item || {};
         var streams = source.MediaStreams || item && item.MediaStreams || [];
         var audio = null;
@@ -7323,22 +7990,24 @@
                 break;
             }
         }
+        visibleFields = Array.isArray(visibleFields) ? visibleFields : defaultPlayerThemeV2State().metadata.summaryFields;
         var parts = [];
-        if (source.Container) {
+        if (source.Container && visibleFields.indexOf("container") >= 0) {
             parts.push(String(source.Container).toUpperCase());
         }
-        if (audio && audio.Codec) {
+        if (audio && audio.Codec && visibleFields.indexOf("codec") >= 0) {
             parts.push(String(audio.Codec).toUpperCase());
         }
-        if (audio && audio.SampleRate) {
+        if (audio && audio.SampleRate && visibleFields.indexOf("sampleRate") >= 0) {
             parts.push((Number(audio.SampleRate) / 1000).toFixed(1).replace(/\.0$/, "") + " kHz");
         }
-        if (audio && audio.BitDepth) {
+        if (audio && audio.BitDepth && visibleFields.indexOf("bitDepth") >= 0) {
             parts.push(audio.BitDepth + " bit");
         }
-        if (audio && (audio.ChannelLayout || audio.Channels)) {
+        if (audio && (audio.ChannelLayout || audio.Channels) && visibleFields.indexOf("channels") >= 0) {
             parts.push(audio.ChannelLayout || audio.Channels + " ch");
         }
+        if (audio && audio.BitRate && visibleFields.indexOf("bitrate") >= 0) { parts.push(formatMediaRate(audio.BitRate)); }
         return parts.join(" · ");
     }
 
@@ -7373,7 +8042,11 @@
     }
 
     function renderMediaInformation(renderer, item, statusText) {
-        replaceElementText(renderer.__elyricPlayerFormat, compactMediaSummary(item));
+        var summaryFields = renderer.__elyricThemeV2 && renderer.__elyricThemeV2.metadata
+            && renderer.__elyricThemeV2.metadata.summaryFields;
+        var technicalSummary = compactMediaSummary(item, summaryFields);
+        replaceElementText(renderer.__elyricPlayerFormat, technicalSummary);
+        if (renderer.__elyricPlayerFormat) { renderer.__elyricPlayerFormat.hidden = !technicalSummary; }
         var body = renderer.__elyricMediaBody;
         if (!body) {
             return;
@@ -7532,6 +8205,8 @@
 
     function updatePlayerMetadata(renderer) {
         var item = renderer.currentItem || null;
+        var metadataState = renderer.__elyricThemeV2 && renderer.__elyricThemeV2.metadata || {};
+        var summaryFields = Array.isArray(metadataState.summaryFields) ? metadataState.summaryFields : [];
         var signature = item
             ? [item.Id, item.Name, playerArtistText(item), item.Album, item.ImageTags && item.ImageTags.Primary].join("|")
             : "";
@@ -7546,6 +8221,9 @@
         replaceElementText(renderer.__elyricPlayerTitle, item && (item.Name || item.OriginalTitle) || "正在播放");
         replaceElementText(renderer.__elyricPlayerArtist, playerArtistText(item));
         replaceElementText(renderer.__elyricPlayerAlbum, item && item.Album || "");
+        if (renderer.__elyricPlayerTitle) { renderer.__elyricPlayerTitle.hidden = summaryFields.indexOf("title") < 0; }
+        if (renderer.__elyricPlayerArtist) { renderer.__elyricPlayerArtist.hidden = summaryFields.indexOf("artist") < 0; }
+        if (renderer.__elyricPlayerAlbum) { renderer.__elyricPlayerAlbum.hidden = summaryFields.indexOf("album") < 0; }
 
         var artworkUrl = playerArtworkUrl(renderer, item);
         renderer.__elyricPlayerEmbyArtworkUrl = artworkUrl || "";
@@ -7576,8 +8254,8 @@
             );
         });
         renderer.__elyricCoverflowPreviewAt = 0;
-        syncPlayerCoverflowPreview(renderer, true);
         renderMediaInformation(renderer, item);
+        syncPlayerCoverflowPreview(renderer, true);
         if (renderer.__elyricMediaOpen) {
             refreshMediaInformation(renderer);
         }
@@ -7627,7 +8305,7 @@
             }
             var capabilityNames = { previous: "previous", next: "next", playPause: "playPause", stop: "stop",
                 shuffle: "setShuffle", repeat: "setRepeatMode", queue: "getQueue", mute: "toggleMute",
-                back: "goBack", cast: "showCastMenu" };
+                back: "goBack", cast: "cast" };
             var enabled = !!(bridge && bridge.capabilities[capabilityNames[action]]);
             button.disabled = !enabled;
             button.setAttribute("aria-disabled", enabled ? "false" : "true");
@@ -7957,9 +8635,11 @@
         }
         if (0 === value.indexOf("builtin:")) {
             var layoutId = value.slice(8);
+            renderer.__elyricThemeResetUndo = renderer.__elyricThemeV2
+                ? clonePlayerThemeV2Value(renderer.__elyricThemeV2) : null;
             renderer.__elyricActiveUserPlayerThemeId = null;
             applyPlayerLayout(renderer, layoutId, true);
-            updatePlayerThemeLibraryStatus(renderer, "已应用内置主题；修改后可另存为我的主题", "ready");
+            updatePlayerThemeLibraryStatus(renderer, "已重置为内置主题并保留一次撤销快照；修改后可另存为我的主题", "ready");
             syncPlayerThemeLibraryControls(renderer);
             return;
         }
@@ -8317,14 +8997,18 @@
         });
     }
 
-    function validateImportedThemeLayer(layer, sectionName) {
+    function validateImportedThemeLayer(layer, sectionName, fixedCanvas) {
+        var keys = ["x", "y", "width", "height", "rotation", "z", "opacity", "hidden", "locked"];
+        if (!fixedCanvas) { keys = ["anchorX", "anchorY"].concat(keys); }
         validateImportedThemeObject(
             layer,
             sectionName,
-            ["anchorX", "anchorY", "x", "y", "width", "height", "rotation", "z", "opacity", "hidden", "locked"]
+            keys
         );
-        validateImportedThemeEnum(layer, "anchorX", PLAYER_THEME_V2_ANCHORS, sectionName);
-        validateImportedThemeEnum(layer, "anchorY", PLAYER_THEME_V2_ANCHORS, sectionName);
+        if (!fixedCanvas) {
+            validateImportedThemeEnum(layer, "anchorX", PLAYER_THEME_V2_ANCHORS, sectionName);
+            validateImportedThemeEnum(layer, "anchorY", PLAYER_THEME_V2_ANCHORS, sectionName);
+        }
         validateImportedThemeNumber(layer, "x", -1920, 1920, sectionName);
         validateImportedThemeNumber(layer, "y", -1920, 1920, sectionName);
         validateImportedThemeNumber(layer, "width", 44, 3840, sectionName);
@@ -8334,8 +9018,7 @@
         validateImportedThemeNumber(layer, "opacity", 0, 1, sectionName);
         validateImportedThemeBoolean(layer, "hidden", sectionName);
         validateImportedThemeBoolean(layer, "locked", sectionName);
-        ["anchorX", "anchorY", "x", "y", "width", "height", "rotation", "z", "opacity", "hidden", "locked"]
-            .forEach(function (key) {
+        keys.forEach(function (key) {
                 if (!Object.prototype.hasOwnProperty.call(layer, key)) {
                     throw new Error(sectionName + " 缺少 " + key);
                 }
@@ -8394,11 +9077,12 @@
         var legacyGeometry = 3 === portableVersion;
         validateImportedThemeForbiddenFields(documentValue, "theme");
         validateImportedThemeObject(documentValue, "theme", [
-            "format", "schemaVersion", "layoutModel", "name", "baseTheme", "layouts", "viewportTransforms", "background", "artwork",
-            "metadata", "lyrics", "visualizer", "console", "controls", "mediaCard", "mediaFields"
+            "format", "schemaVersion", "layoutModel", "name", "baseTheme", "layouts", "viewport", "viewportTransforms",
+            "background", "artwork", "metadata", "lyrics", "visualizer", "systemChrome", "console", "controls",
+            "volume", "overlays", "mediaCard", "mediaFields"
         ]);
         if (PLAYER_THEME_DOCUMENT_FORMAT !== documentValue.format
-            || [3, 4, 5].indexOf(Number(documentValue.schemaVersion)) < 0) {
+            || [3, 4, 5, 6].indexOf(Number(documentValue.schemaVersion)) < 0) {
             throw new Error("主题格式或版本不是 Theme V3");
         }
         if ("string" !== typeof documentValue.name || !documentValue.name.trim()
@@ -8412,34 +9096,34 @@
             "theme"
         );
         if (portableVersion >= 4) {
-            var expectedLayoutModel = 5 === portableVersion
+            var expectedLayoutModel = portableVersion >= 5
                 ? PLAYER_THEME_LAYOUT_MODEL : PLAYER_THEME_PREVIOUS_LAYOUT_MODEL;
-            var allowedLayoutModels = 5 === portableVersion
+            var allowedLayoutModels = portableVersion >= 5
                 ? [PLAYER_THEME_LAYOUT_MODEL, PLAYER_THEME_LEGACY_V5_LAYOUT_MODEL]
                 : [expectedLayoutModel];
             if (allowedLayoutModels.indexOf(documentValue.layoutModel) < 0) {
                 throw new Error("Theme V4 必须声明 anchored-canvas-v1 布局模型");
             }
-            if (!documentValue.viewportTransforms) {
+            if (portableVersion < 6 && !documentValue.viewportTransforms) {
                 throw new Error("Theme V4 缺少 viewportTransforms");
             }
             validateImportedThemeEnum(documentValue, "layoutModel", allowedLayoutModels, "theme");
-            validateImportedThemeObject(documentValue.viewportTransforms, "viewportTransforms", ["landscape", "portrait"]);
-            ["landscape", "portrait"].forEach(function (profileId) {
-                var transform = documentValue.viewportTransforms[profileId];
-                if (!transform) {
-                    throw new Error("viewportTransforms 缺少 " + profileId);
-                }
-                validateImportedThemeObject(transform, "viewportTransforms." + profileId, ["scale", "offsetX", "offsetY"]);
-                ["scale", "offsetX", "offsetY"].forEach(function (key) {
-                    if (!Object.prototype.hasOwnProperty.call(transform, key)) {
-                        throw new Error("viewportTransforms." + profileId + " 缺少 " + key);
-                    }
+            if (portableVersion < 6) {
+                validateImportedThemeObject(documentValue.viewportTransforms, "viewportTransforms", ["landscape", "portrait"]);
+                ["landscape", "portrait"].forEach(function (profileId) {
+                    var transform = documentValue.viewportTransforms[profileId];
+                    if (!transform) { throw new Error("viewportTransforms 缺少 " + profileId); }
+                    validateImportedThemeObject(transform, "viewportTransforms." + profileId, ["scale", "offsetX", "offsetY"]);
+                    ["scale", "offsetX", "offsetY"].forEach(function (key) {
+                        if (!Object.prototype.hasOwnProperty.call(transform, key)) {
+                            throw new Error("viewportTransforms." + profileId + " 缺少 " + key);
+                        }
+                    });
+                    validateImportedThemeNumber(transform, "scale", .5, 1.6, "viewportTransforms." + profileId);
+                    validateImportedThemeNumber(transform, "offsetX", -600, 600, "viewportTransforms." + profileId);
+                    validateImportedThemeNumber(transform, "offsetY", -600, 600, "viewportTransforms." + profileId);
                 });
-                validateImportedThemeNumber(transform, "scale", .5, 1.6, "viewportTransforms." + profileId);
-                validateImportedThemeNumber(transform, "offsetX", -600, 600, "viewportTransforms." + profileId);
-                validateImportedThemeNumber(transform, "offsetY", -600, 600, "viewportTransforms." + profileId);
-            });
+            }
         }
         if (!documentValue.layouts) {
             throw new Error("theme 缺少 layouts");
@@ -8450,22 +9134,32 @@
             if (!layout) {
                 throw new Error("layouts 缺少 " + profileId);
             }
-            var layerIds = 5 === portableVersion ? PLAYER_THEME_V2_LAYER_IDS
+            var layerIds = portableVersion >= 5 ? PLAYER_THEME_V2_LAYER_IDS
                 : (4 === portableVersion ? PLAYER_THEME_V4_LAYER_IDS : PLAYER_THEME_V2_LAYER_IDS);
-            validateImportedThemeObject(layout, "layouts." + profileId, layerIds);
+            validateImportedThemeObject(layout, "layouts." + profileId, layerIds.concat(portableVersion >= 6 ? ["canvas"] : []));
+            if (portableVersion >= 6) {
+                var canvas = layout.canvas;
+                var expectedCanvas = PLAYER_THEME_CANVAS_SIZES[profileId];
+                validateImportedThemeObject(canvas, "layouts." + profileId + ".canvas", ["width", "height"]);
+                if (!canvas || Number(canvas.width) !== expectedCanvas.width || Number(canvas.height) !== expectedCanvas.height) {
+                    throw new Error("layouts." + profileId + ".canvas 必须为固定 V6 画布尺寸");
+                }
+            }
             layerIds.forEach(function (layerId) {
                 if (!layout[layerId]) {
                     throw new Error("layouts." + profileId + " 缺少 " + layerId + " 图层");
                 }
                 if (portableVersion >= 4) {
-                    validateImportedThemeLayer(layout[layerId], "layouts." + profileId + "." + layerId);
+                    validateImportedThemeLayer(
+                        layout[layerId], "layouts." + profileId + "." + layerId, portableVersion >= 6
+                    );
                 }
             });
         });
-        if (5 === portableVersion) {
+        if (portableVersion >= 5) {
             var controls = normalizePlayerControlDock(documentValue.controls);
             if (!documentValue.controls || !documentValue.controls.profiles) {
-                throw new Error("Theme V5 缺少 controls.profiles");
+                throw new Error("Theme V6 缺少 controls.profiles");
             }
             ["landscape", "portrait"].forEach(function (profileId) {
                 var original = documentValue.controls.profiles[profileId];
@@ -8522,7 +9216,7 @@
         var metadata = documentValue.metadata || {};
         validateImportedThemeObject(metadata, "metadata", [
             "anchor", "align", "surface", "titleSize", "artistSize", "albumSize",
-            "letterSpacing", "padding", "radius", "blur", "opacity", "textColor", "surfaceColor"
+            "letterSpacing", "padding", "radius", "blur", "opacity", "textColor", "surfaceColor", "summaryFields"
         ].concat(legacyGeometry ? ["width", "x", "y"] : []));
         validateImportedThemeEnum(metadata, "anchor", ["start", "center", "end"], "metadata");
         validateImportedThemeEnum(metadata, "align", ["left", "center", "right"], "metadata");
@@ -8539,6 +9233,69 @@
         }
         validateImportedThemeColor(metadata, "textColor", "metadata");
         validateImportedThemeColor(metadata, "surfaceColor", "metadata");
+
+        if (portableVersion >= 6) {
+            var viewportV6 = documentValue.viewport || {};
+            validateImportedThemeObject(viewportV6, "viewport", ["fit", "alignX", "alignY"]);
+            validateImportedThemeEnum(viewportV6, "fit", ["contain"], "viewport");
+            validateImportedThemeEnum(viewportV6, "alignX", ["center"], "viewport");
+            validateImportedThemeEnum(viewportV6, "alignY", ["end"], "viewport");
+            var chrome = documentValue.systemChrome || {};
+            validateImportedThemeObject(chrome, "systemChrome", [
+                "size", "surface", "color", "surfaceColor", "radius", "blur", "shadow", "showLabels"
+            ]);
+            validateImportedThemeNumber(chrome, "size", 44, 80, "systemChrome");
+            validateImportedThemeEnum(chrome, "surface", ["none", "glass", "black", "white", "gradient"], "systemChrome");
+            validateImportedThemeColor(chrome, "color", "systemChrome");
+            validateImportedThemeColor(chrome, "surfaceColor", "systemChrome");
+            validateImportedThemeNumber(chrome, "radius", 0, 50, "systemChrome");
+            validateImportedThemeNumber(chrome, "blur", 0, 48, "systemChrome");
+            validateImportedThemeNumber(chrome, "shadow", 0, 64, "systemChrome");
+            validateImportedThemeBoolean(chrome, "showLabels", "systemChrome");
+
+            var overlayV6 = documentValue.overlays || {};
+            validateImportedThemeObject(overlayV6, "overlays", [
+                "surface", "surfaceColor", "textColor", "accentColor", "radius", "blur", "opacity",
+                "backdrop", "gap", "margin", "arrowSize", "durationMs", "sizes"
+            ]);
+            validateImportedThemeEnum(overlayV6, "surface", ["none", "glass", "black", "white", "gradient"], "overlays");
+            ["surfaceColor", "textColor", "accentColor"].forEach(function (key) {
+                validateImportedThemeColor(overlayV6, key, "overlays");
+            });
+            validateImportedThemeNumber(overlayV6, "radius", 0, 64, "overlays");
+            validateImportedThemeNumber(overlayV6, "blur", 0, 64, "overlays");
+            validateImportedThemeNumber(overlayV6, "opacity", 0, 100, "overlays");
+            validateImportedThemeNumber(overlayV6, "gap", 4, 32, "overlays");
+            validateImportedThemeNumber(overlayV6, "margin", 8, 48, "overlays");
+            validateImportedThemeNumber(overlayV6, "arrowSize", 4, 24, "overlays");
+            validateImportedThemeNumber(overlayV6, "durationMs", 0, 600, "overlays");
+            var backdrop = overlayV6.backdrop || {};
+            validateImportedThemeObject(backdrop, "overlays.backdrop", ["dim", "blur"]);
+            validateImportedThemeNumber(backdrop, "dim", 0, 100, "overlays.backdrop");
+            validateImportedThemeNumber(backdrop, "blur", 0, 48, "overlays.backdrop");
+            var overlaySizes = overlayV6.sizes || {};
+            validateImportedThemeObject(overlaySizes, "overlays.sizes", ["media", "queue", "settings", "cast", "volume"]);
+            ["media", "queue", "settings", "cast", "volume"].forEach(function (kind) {
+                var size = overlaySizes[kind] || {};
+                validateImportedThemeObject(size, "overlays.sizes." + kind, ["minWidth", "maxWidth", "maxHeight"]);
+                validateImportedThemeNumber(size, "minWidth", 48, 720, "overlays.sizes." + kind);
+                validateImportedThemeNumber(size, "maxWidth", 48, 720, "overlays.sizes." + kind);
+                validateImportedThemeNumber(size, "maxHeight", 10, 100, "overlays.sizes." + kind);
+                if (Number(size.minWidth) > Number(size.maxWidth)) {
+                    throw new Error("overlays.sizes." + kind + " 的最小宽度不能大于最大宽度");
+                }
+            });
+
+            var volumeV6 = documentValue.volume || {};
+            validateImportedThemeObject(volumeV6, "volume", [
+                "landscapeMode", "portraitMode", "iconFill", "popoverWidth", "popoverHeight"
+            ]);
+            validateImportedThemeEnum(volumeV6, "landscapeMode", ["expanded", "iconPopover"], "volume");
+            validateImportedThemeEnum(volumeV6, "portraitMode", ["iconPopover"], "volume");
+            validateImportedThemeBoolean(volumeV6, "iconFill", "volume");
+            validateImportedThemeNumber(volumeV6, "popoverWidth", 64, 120, "volume");
+            validateImportedThemeNumber(volumeV6, "popoverHeight", 160, 360, "volume");
+        }
 
         var lyrics = documentValue.lyrics || {};
         validateImportedThemeObject(lyrics, "lyrics", [
@@ -8608,7 +9365,8 @@
         validateImportedThemeObject(consoleStyle, "console", [
             "material", "progressHeight", "progressThumbSize", "volumeHeight",
             "volumeThumbSize", "blur", "opacity", "progressActive", "progressTrack", "volumeActive",
-            "volumeTrack", "safeArea"
+            "volumeTrack", "safeArea", "surfaceColor", "textColor", "accentColor", "gradientA", "gradientB",
+            "gradientAngle", "radius", "borderWidth", "shadow"
         ].concat(legacyGeometry ? ["progressWidth", "volumeWidth"] : []));
         validateImportedThemeEnum(consoleStyle, "material", PLAYER_CONTROL_MATERIALS.map(function (item) { return item.id; }), "console");
         validateImportedThemeMappedTuning(consoleStyle, "console", {
@@ -8929,12 +9687,13 @@
     function playerThemeV2Align(renderer, mode) {
         var layer = activePlayerThemeV2Layer(renderer);
         var patch = {};
-        if ("left" === mode) { patch.anchorX = "start"; patch.x = 0; }
-        if ("center" === mode) { patch.anchorX = "center"; patch.x = 0; }
-        if ("right" === mode) { patch.anchorX = "end"; patch.x = 0; }
-        if ("top" === mode) { patch.anchorY = "start"; patch.y = 0; }
-        if ("middle" === mode) { patch.anchorY = "center"; patch.y = 0; }
-        if ("bottom" === mode) { patch.anchorY = "end"; patch.y = 0; }
+        var canvas = PLAYER_THEME_CANVAS_SIZES[renderer.__elyricThemeV2Profile || currentPlayerThemeV2Profile()];
+        if ("left" === mode) { patch.x = 0; }
+        if ("center" === mode) { patch.x = (canvas.width - layer.width) / 2; }
+        if ("right" === mode) { patch.x = canvas.width - layer.width; }
+        if ("top" === mode) { patch.y = 0; }
+        if ("middle" === mode) { patch.y = (canvas.height - layer.height) / 2; }
+        if ("bottom" === mode) { patch.y = canvas.height - layer.height; }
         updatePlayerThemeV2Layer(renderer, patch, true);
     }
 
@@ -9099,15 +9858,7 @@
             var selected = button.getAttribute("data-layer") === renderer.__elyricThemeV2SelectedLayer;
             setAttributeIfChanged(button, "aria-pressed", selected ? "true" : "false");
         });
-        var viewportTransform = renderer.__elyricThemeV2.viewportTransforms[renderer.__elyricThemeV2Profile];
-        var transformInputs = renderer.__elyricThemeV2TransformInputs || {};
-        ["scale", "offsetX", "offsetY"].forEach(function (key) {
-            if (transformInputs[key]) { transformInputs[key].value = viewportTransform[key]; }
-        });
         var controls = renderer.__elyricThemeV2GeometryInputs || {};
-        ["anchorX", "anchorY"].forEach(function (key) {
-            if (controls[key]) { controls[key].value = layer[key]; }
-        });
         ["x", "y", "width", "height", "rotation", "z", "opacity"].forEach(function (key) {
             if (!controls[key]) { return; }
             controls[key].value = "opacity" === key ? Math.round(layer[key] * 100) : layer[key];
@@ -9430,7 +10181,6 @@
             renderer.__elyricThemeV2.layouts[profileId] = clonePlayerThemeV2Value(
                 playerThemeV5LayoutsForBase(renderer.__elyricThemeBaseLayout)[profileId]
             );
-            renderer.__elyricThemeV2.viewportTransforms[profileId] = { scale: 1, offsetX: 0, offsetY: 0 };
             renderer.__elyricThemeV2.controls.profiles[profileId] = defaultPlayerControlDock().profiles[profileId];
             applyPlayerThemeV2State(renderer, renderer.__elyricThemeV2, profileId);
             buildPlayerThemeV2DesignerBoxes(renderer);
@@ -9439,30 +10189,7 @@
         }, "elyric-v2-inheritance-reset");
         section.appendChild(inheritanceReset);
 
-        var transformGrid = document.createElement("div");
-        transformGrid.className = "elyric-v2-transform-grid";
         var transformInputs = {};
-        [
-            ["scale", "整体缩放", .5, 1.6, .01],
-            ["offsetX", "水平偏移", -600, 600, 1],
-            ["offsetY", "垂直偏移", -600, 600, 1]
-        ].forEach(function (item) {
-            var label = document.createElement("label");
-            label.appendChild(document.createTextNode(item[1]));
-            var input = document.createElement("input");
-            input.type = "number"; input.min = item[2]; input.max = item[3]; input.step = item[4];
-            input.addEventListener("change", function () {
-                pushPlayerThemeV2History(renderer);
-                renderer.__elyricThemeV2.viewportTransforms[renderer.__elyricThemeV2Profile][item[0]]
-                    = normalizePlayerThemeV2Number(input.value, item[2], item[3], "scale" === item[0] ? 1 : 0);
-                applyPlayerThemeV2State(renderer, renderer.__elyricThemeV2, renderer.__elyricThemeV2Profile);
-                buildPlayerThemeV2DesignerBoxes(renderer);
-                storeCurrentPlayerThemeDesign(renderer);
-                scheduleUserPlayerPreferencesSave(renderer);
-            });
-            label.appendChild(input); transformGrid.appendChild(label); transformInputs[item[0]] = input;
-        });
-        section.appendChild(transformGrid);
 
         var layers = document.createElement("div");
         layers.className = "elyric-v2-layer-list";
@@ -9482,19 +10209,6 @@
         var geometry = document.createElement("div");
         geometry.className = "elyric-v2-geometry-grid";
         var geometryInputs = {};
-        [["anchorX", "水平锚点"], ["anchorY", "垂直锚点"]].forEach(function (item) {
-            var label = document.createElement("label");
-            label.appendChild(document.createTextNode(item[1]));
-            var select = document.createElement("select");
-            [["start", "起点"], ["center", "中心"], ["end", "终点"]].forEach(function (choice) {
-                var option = document.createElement("option"); option.value = choice[0];
-                option.appendChild(document.createTextNode(choice[1])); select.appendChild(option);
-            });
-            select.addEventListener("change", function () {
-                var patch = {}; patch[item[0]] = select.value; updatePlayerThemeV2Layer(renderer, patch, true);
-            });
-            label.appendChild(select); geometry.appendChild(label); geometryInputs[item[0]] = select;
-        });
         [
             ["x", "X", -100, 200, .1], ["y", "Y", -100, 200, .1],
             ["width", "宽", 1, 200, .1], ["height", "高", 1, 200, .1],
@@ -9797,6 +10511,84 @@
         row.appendChild(field);
         section.appendChild(row);
         return { input: input, swatch: swatch };
+    }
+
+    function createPlayerThemeV6RangeSetting(renderer, section, path, label, minimum, maximum, step) {
+        var setting = createRangeSetting(
+            section, label, "elyric-v6-" + path.replace(/\./g, "-"), minimum, maximum, step, label,
+            function (value) {
+                commitPlayerThemeV6Path(renderer, path, Number(value), true);
+            }
+        );
+        renderer.__elyricThemeV6RangeControls = renderer.__elyricThemeV6RangeControls || {};
+        renderer.__elyricThemeV6RangeControls[path] = setting;
+        return setting;
+    }
+
+    function createPlayerThemeV6SegmentedSetting(renderer, section, path, label, items) {
+        var control = createSegmentedControl(
+            renderer, items, "elyric-v6-" + path.replace(/\./g, "-") + "-segments",
+            "elyric-v6-choice", label, function (value) {
+                commitPlayerThemeV6Path(renderer, path, value, true);
+            }
+        );
+        section.appendChild(control.element);
+        renderer.__elyricThemeV6SegmentControls = renderer.__elyricThemeV6SegmentControls || {};
+        renderer.__elyricThemeV6SegmentControls[path] = control.buttons;
+        return control;
+    }
+
+    function createPlayerThemeV6ColorSetting(renderer, section, path, label) {
+        var row = document.createElement("label");
+        row.className = "elyric-player-color-setting elyric-v6-color-setting";
+        var labelElement = document.createElement("span");
+        labelElement.appendChild(document.createTextNode(label));
+        var field = document.createElement("span");
+        field.className = "elyric-player-color-field";
+        var swatch = document.createElement("span");
+        swatch.className = "elyric-player-color-swatch";
+        var input = document.createElement("input");
+        input.className = "elyric-player-color-input";
+        input.type = "text";
+        input.maxLength = 7;
+        input.setAttribute("aria-label", label + "十六进制颜色");
+        input.addEventListener("input", function (event) {
+            stopControlEvent(event);
+            if (!/^#?[0-9a-f]{6}$/i.test(input.value || "")) {
+                setAttributeIfChanged(input, "aria-invalid", "true"); return;
+            }
+            removeAttributeIfPresent(input, "aria-invalid");
+            commitPlayerThemeV6Path(renderer, path, normalizeHexColor(input.value, "#ffffff"), true);
+        });
+        input.addEventListener("pointerdown", stopControlEvent);
+        field.appendChild(swatch); field.appendChild(input);
+        row.appendChild(labelElement); row.appendChild(field); section.appendChild(row);
+        renderer.__elyricThemeV6ColorControls = renderer.__elyricThemeV6ColorControls || {};
+        renderer.__elyricThemeV6ColorControls[path] = { input: input, swatch: swatch };
+        return renderer.__elyricThemeV6ColorControls[path];
+    }
+
+    function createMetadataSummaryFieldControl(renderer, section) {
+        var group = document.createElement("div");
+        group.className = "elyric-player-segmented elyric-metadata-summary-segments";
+        group.setAttribute("role", "group");
+        group.setAttribute("aria-label", "歌曲信息组件展示字段");
+        var buttons = [];
+        PLAYER_METADATA_SUMMARY_FIELDS.forEach(function (field) {
+            var button = document.createElement("button");
+            button.className = "elyric-player-segment elyric-metadata-summary-choice";
+            button.type = "button";
+            button.setAttribute("data-elyric-choice", field.id);
+            button.appendChild(document.createTextNode(field.label));
+            button.addEventListener("click", function (event) {
+                stopControlEvent(event);
+                var fields = renderer.__elyricThemeV2.metadata.summaryFields || [];
+                setMetadataSummaryField(renderer, field.id, fields.indexOf(field.id) < 0, true);
+            });
+            group.appendChild(button); buttons.push(button);
+        });
+        section.appendChild(group);
+        return buttons;
     }
 
     function createMediaFieldControl(renderer, section) {
@@ -10124,6 +10916,23 @@
         mediaButton.addEventListener("pointerdown", stopControlEvent);
         tools.appendChild(mediaButton);
 
+        var visualizerButton = document.createElement("button");
+        visualizerButton.className = "elyric-player-button elyric-player-button-visualizer";
+        visualizerButton.setAttribute("type", "button");
+        visualizerButton.setAttribute("aria-label", "开启或关闭音频律动");
+        visualizerButton.setAttribute("data-elyric-tooltip", "音频律动");
+        visualizerButton.setAttribute("aria-pressed", "true");
+        setButtonIcon(visualizerButton, "visualizer");
+        visualizerButton.addEventListener("click", function (event) {
+            stopControlEvent(event);
+            renderer.__elyricVisualizerEnabled = false === renderer.__elyricVisualizerEnabled;
+            setAttributeIfChanged(visualizerButton, "aria-pressed", renderer.__elyricVisualizerEnabled ? "true" : "false");
+            setAttributeIfChanged(visualizerButton, "data-elyric-active", renderer.__elyricVisualizerEnabled ? "true" : "false");
+            syncVisualizerAnimation(renderer);
+        });
+        visualizerButton.addEventListener("pointerdown", stopControlEvent);
+        tools.appendChild(visualizerButton);
+
         var secondLineButton = document.createElement("button");
         secondLineButton.className = "elyric-player-button elyric-player-button-secondline";
         secondLineButton.setAttribute("type", "button");
@@ -10137,6 +10946,19 @@
         });
         secondLineButton.addEventListener("pointerdown", stopControlEvent);
         tools.appendChild(secondLineButton);
+
+        var thirdLineButton = document.createElement("button");
+        thirdLineButton.className = "elyric-player-button elyric-player-button-thirdline";
+        thirdLineButton.setAttribute("type", "button");
+        thirdLineButton.setAttribute("aria-label", "显示或隐藏翻译");
+        thirdLineButton.setAttribute("data-elyric-tooltip", "翻译 / 第三行");
+        setButtonIcon(thirdLineButton, "translation");
+        thirdLineButton.addEventListener("click", function (event) {
+            stopControlEvent(event);
+            setThirdLineOverride(renderer, !renderer.__elyricLocalShowThird, true);
+        });
+        thirdLineButton.addEventListener("pointerdown", stopControlEvent);
+        tools.appendChild(thirdLineButton);
 
         var artworkRotationButton = document.createElement("button");
         artworkRotationButton.className = "elyric-player-button elyric-player-button-rotation";
@@ -10165,13 +10987,8 @@
             else { requestPlayerOverlayOpen(renderer, "settings", settingsButton, "above"); }
         });
         settingsButton.addEventListener("pointerdown", stopControlEvent);
+        tools.appendChild(settingsButton);
         stage.appendChild(controlDock);
-
-        var safetyToolbar = document.createElement("div");
-        safetyToolbar.className = "elyric-player-safety-toolbar";
-        safetyToolbar.setAttribute("aria-label", "播放器安全工具栏");
-        safetyToolbar.appendChild(settingsButton);
-        control.appendChild(safetyToolbar);
 
         var visualizer = document.createElement("div");
         visualizer.className = "elyric-player-visualizer";
@@ -10207,6 +11024,30 @@
         queuePanel.appendChild(queueHeader); queuePanel.appendChild(queueBody);
         control.appendChild(queuePanel);
 
+        var castPanel = document.createElement("aside");
+        castPanel.className = "elyric-player-cast-panel";
+        castPanel.setAttribute("role", "dialog");
+        castPanel.setAttribute("aria-label", "投放到其他设备");
+        castPanel.setAttribute("aria-modal", "true");
+        castPanel.setAttribute("hidden", "hidden");
+        var castHeader = document.createElement("div");
+        castHeader.className = "elyric-player-queue-header";
+        var castTitle = document.createElement("strong");
+        castTitle.appendChild(document.createTextNode("播放设备"));
+        var castClose = document.createElement("button");
+        castClose.className = "elyric-player-settings-close";
+        castClose.setAttribute("type", "button");
+        castClose.setAttribute("aria-label", "关闭播放设备");
+        setButtonIcon(castClose, "close");
+        castClose.addEventListener("click", function (event) {
+            stopControlEvent(event); requestPlayerOverlayClose(renderer, "cast");
+        });
+        castHeader.appendChild(castTitle); castHeader.appendChild(castClose);
+        var castBody = document.createElement("div");
+        castBody.className = "elyric-player-cast-body";
+        castPanel.appendChild(castHeader); castPanel.appendChild(castBody);
+        control.appendChild(castPanel);
+
         var followButton = document.createElement("button");
         followButton.className = "elyric-lyric-follow-button";
         followButton.setAttribute("type", "button");
@@ -10231,6 +11072,7 @@
             requestPlayerOverlayClose(renderer, "settings");
             requestPlayerOverlayClose(renderer, "media");
             requestPlayerOverlayClose(renderer, "queue");
+            requestPlayerOverlayClose(renderer, "cast");
         });
 
         var settingsPanel = document.createElement("div");
@@ -10271,6 +11113,9 @@
         var tuningValues = {};
         var themeChoiceControls = {};
         var themeColorSettings = {};
+        renderer.__elyricThemeV6RangeControls = {};
+        renderer.__elyricThemeV6SegmentControls = {};
+        renderer.__elyricThemeV6ColorControls = {};
 
         var librarySection = createSettingsSection(
             settingsPanel,
@@ -10315,6 +11160,10 @@
             "回退布局修复", "undo", function () { restoreLatestPlayerThemeV5RepairBackup(renderer); },
             "elyric-theme-restore-repair"
         );
+        var undoThemeResetButton = createSettingsActionButton(
+            "撤销主题重置", "undo", function () { undoPlayerThemeReset(renderer); },
+            "elyric-theme-undo-reset"
+        );
         var copyJsonButton = createSettingsActionButton(
             "复制主题 JSON", "copy", function () { copyPortablePlayerTheme(renderer); }, "elyric-theme-copy-json"
         );
@@ -10340,7 +11189,7 @@
         );
         [
             newThemeButton, saveThemeButton, duplicateThemeButton, renameThemeButton,
-            deleteThemeButton, restoreRepairBackupButton, copyJsonButton, downloadJsonButton,
+            deleteThemeButton, undoThemeResetButton, restoreRepairBackupButton, copyJsonButton, downloadJsonButton,
             pasteJsonButton, importFileButton
         ]
             .forEach(function (button) { themeLibraryActions.appendChild(button); });
@@ -10494,6 +11343,7 @@
         );
         compositionSection.appendChild(metadataSurfaceChoices.element);
         themeChoiceControls.metadataSurface = metadataSurfaceChoices.buttons;
+        var metadataSummaryButtons = createMetadataSummaryFieldControl(renderer, compositionSection);
         ["artworkFrame", "metadataText", "metadataSurface"].forEach(function (colorId) {
             themeColorSettings[colorId] = createPlayerThemeColorSetting(renderer, compositionSection, colorId);
         });
@@ -10713,9 +11563,46 @@
         consoleHelp.appendChild(document.createTextNode("控制台保持底部安全锚点，背景自动继承当前主题并应用取色毛玻璃；进度条和音量条外观可独立调整。"));
         consoleSection.appendChild(consoleHelp);
 
+        var v6ChromeSection = createSettingsSection(
+            settingsPanel, "9. 顶部系统按钮", "elyric-v6-system-chrome-settings"
+        );
+        createPlayerThemeV6RangeSetting(renderer, v6ChromeSection, "systemChrome.size", "按钮尺寸", 44, 80, 1);
+        createPlayerThemeV6RangeSetting(renderer, v6ChromeSection, "systemChrome.radius", "按钮圆角", 0, 50, 1);
+        createPlayerThemeV6RangeSetting(renderer, v6ChromeSection, "systemChrome.blur", "按钮背景模糊", 0, 48, 1);
+        createPlayerThemeV6SegmentedSetting(renderer, v6ChromeSection, "systemChrome.surface", "按钮材质", [
+            { id: "none", label: "透明" }, { id: "glass", label: "玻璃" }, { id: "black", label: "黑" },
+            { id: "white", label: "白" }, { id: "gradient", label: "渐变" }
+        ]);
+        createPlayerThemeV6ColorSetting(renderer, v6ChromeSection, "systemChrome.color", "按钮图标");
+        createPlayerThemeV6ColorSetting(renderer, v6ChromeSection, "systemChrome.surfaceColor", "按钮背景");
+
+        var v6OverlaySection = createSettingsSection(
+            settingsPanel, "10. 弹层、动效与背景", "elyric-v6-overlay-settings"
+        );
+        createPlayerThemeV6RangeSetting(renderer, v6OverlaySection, "overlays.opacity", "弹层不透明度", 0, 100, 1);
+        createPlayerThemeV6RangeSetting(renderer, v6OverlaySection, "overlays.blur", "弹层自身模糊", 0, 64, 1);
+        createPlayerThemeV6RangeSetting(renderer, v6OverlaySection, "overlays.durationMs", "弹出动画时长", 0, 600, 10);
+        createPlayerThemeV6RangeSetting(renderer, v6OverlaySection, "overlays.gap", "按钮与弹层距离", 4, 32, 1);
+        createPlayerThemeV6RangeSetting(renderer, v6OverlaySection, "overlays.margin", "视口安全边距", 8, 48, 1);
+        createPlayerThemeV6RangeSetting(renderer, v6OverlaySection, "overlays.backdrop.dim", "后方压暗", 0, 100, 1);
+        createPlayerThemeV6RangeSetting(renderer, v6OverlaySection, "overlays.backdrop.blur", "后方高斯模糊", 0, 48, 1);
+        createPlayerThemeV6ColorSetting(renderer, v6OverlaySection, "overlays.surfaceColor", "弹层背景");
+        createPlayerThemeV6ColorSetting(renderer, v6OverlaySection, "overlays.textColor", "弹层文字");
+        createPlayerThemeV6ColorSetting(renderer, v6OverlaySection, "overlays.accentColor", "弹层强调色");
+        var overlayHelp = document.createElement("small");
+        overlayHelp.className = "elyric-player-settings-help";
+        overlayHelp.appendChild(document.createTextNode("后方压暗与高斯模糊默认均为 0；弹层仍会从实际按钮附近展开并自动翻转。"));
+        v6OverlaySection.appendChild(overlayHelp);
+
+        var v6VolumeSection = createSettingsSection(
+            settingsPanel, "11. 竖屏音量弹层", "elyric-v6-volume-settings"
+        );
+        createPlayerThemeV6RangeSetting(renderer, v6VolumeSection, "volume.popoverWidth", "弹层宽度", 64, 120, 1);
+        createPlayerThemeV6RangeSetting(renderer, v6VolumeSection, "volume.popoverHeight", "弹层高度", 160, 360, 4);
+
         var mediaDesignSection = createSettingsSection(
             settingsPanel,
-            "9. 歌曲信息弹卡",
+            "12. 歌曲信息弹卡",
             "elyric-media-design-settings"
         );
         var mediaSurfaceChoices = createSegmentedControl(
@@ -10785,6 +11672,36 @@
         mediaPanel.addEventListener("click", stopControlEvent);
         mediaPanel.addEventListener("pointerdown", stopControlEvent);
 
+        var volumePanel = document.createElement("div");
+        volumePanel.className = "elyric-player-volume-panel";
+        volumePanel.setAttribute("role", "dialog");
+        volumePanel.setAttribute("aria-label", "音量");
+        volumePanel.setAttribute("hidden", "hidden");
+        var portraitVolumeSlider = document.createElement("input");
+        portraitVolumeSlider.className = "elyric-player-volume-slider elyric-player-volume-slider-portrait";
+        portraitVolumeSlider.setAttribute("type", "range");
+        portraitVolumeSlider.setAttribute("min", "0");
+        portraitVolumeSlider.setAttribute("max", "100");
+        portraitVolumeSlider.setAttribute("step", "1");
+        portraitVolumeSlider.setAttribute("value", "100");
+        portraitVolumeSlider.setAttribute("aria-label", "音量");
+        portraitVolumeSlider.min = "0";
+        portraitVolumeSlider.max = "100";
+        portraitVolumeSlider.value = "100";
+        portraitVolumeSlider.addEventListener("input", function (event) {
+            stopControlEvent(event);
+            volumeSlider.value = portraitVolumeSlider.value;
+            renderer.__elyricVolumeScrubbing = true;
+            volumeFromPlayerControl(renderer, "input");
+        });
+        portraitVolumeSlider.addEventListener("change", function (event) {
+            stopControlEvent(event);
+            volumeSlider.value = portraitVolumeSlider.value;
+            volumeFromPlayerControl(renderer, "change");
+        });
+        volumePanel.appendChild(portraitVolumeSlider);
+        control.appendChild(volumePanel);
+
         control.addEventListener("click", stopControlEvent);
         control.addEventListener("pointerdown", stopControlEvent);
         renderer.__elyricThemeSelect = null;
@@ -10829,11 +11746,14 @@
                 stop: renderer.__elyricPlayerButtons.stop,
                 queue: renderer.__elyricPlayerButtons.queue,
                 media: mediaButton,
+                settings: settingsButton,
+                visualizerToggle: visualizerButton,
                 secondaryLyrics: secondLineButton,
+                tertiaryLyrics: thirdLineButton,
                 artworkRotation: artworkRotationButton
             }
         };
-        renderer.__elyricPlayerSafetyToolbar = safetyToolbar;
+        renderer.__elyricPlayerSafetyToolbar = null;
         renderer.__elyricPlayerCoverflow = coverflow;
         renderer.__elyricCoverflowArtworks = coverflowArtworks;
         renderer.__elyricCoverflowCaptions = coverflowCaptions;
@@ -10849,6 +11769,9 @@
         renderer.__elyricVolumeSlider = volumeSlider;
         renderer.__elyricVolumeValue = volumeValue;
         renderer.__elyricSecondLineButton = secondLineButton;
+        renderer.__elyricThirdLineButton = thirdLineButton;
+        renderer.__elyricVisualizerToggleButton = visualizerButton;
+        renderer.__elyricVisualizerEnabled = true;
         renderer.__elyricSecondLineSettingsButtons = secondLineChoices.buttons;
         renderer.__elyricArtworkRotationButton = artworkRotationButton;
         renderer.__elyricArtworkRotationSettingsButtons = rotationChoices.buttons;
@@ -10863,9 +11786,20 @@
         renderer.__elyricMediaBody = mediaBody;
         renderer.__elyricMediaOpen = false;
         renderer.__elyricOverlayManager = createPlayerOverlayManager(renderer);
+        if (renderer.__elyricPlaybackBridge && renderer.__elyricPlaybackBridge.subscribeCastTargets) {
+            renderer.__elyricCastTargetsUnsubscribe = renderer.__elyricPlaybackBridge.subscribeCastTargets(function () {
+                if (renderer.__elyricCastOpen) { renderOwnedCastTargets(renderer); }
+            });
+        }
         renderer.__elyricVisualizer = visualizer;
         renderer.__elyricQueuePanel = queuePanel;
         renderer.__elyricQueueBody = queueBody;
+        renderer.__elyricCastPanel = castPanel;
+        renderer.__elyricCastBody = castBody;
+        renderer.__elyricCastOpen = false;
+        renderer.__elyricVolumePanel = volumePanel;
+        renderer.__elyricPortraitVolumeSlider = portraitVolumeSlider;
+        renderer.__elyricVolumeOpen = false;
         renderer.__elyricVisualizerCanvas = visualizerCanvas;
         renderer.__elyricVisualizerContext = visualizerCanvas.getContext
             ? visualizerCanvas.getContext("2d")
@@ -10901,6 +11835,7 @@
             renderer.__elyricPlayerThemeColorSwatches[colorId] = themeColorSettings[colorId].swatch;
         });
         renderer.__elyricMediaFieldButtons = mediaFieldButtons;
+        renderer.__elyricMetadataSummaryButtons = metadataSummaryButtons;
         renderer.__elyricPlayerThemeLibrarySelect = themeLibrarySelect;
         renderer.__elyricPlayerThemeNameInput = themeNameInput;
         renderer.__elyricPlayerThemeLibraryStatus = themeLibraryStatus;
@@ -10987,7 +11922,8 @@
             }
             if (event && "Escape" === event.key
                 && (renderer.__elyricSettingsOpen || renderer.__elyricMediaOpen
-                    || renderer.__elyricQueueOpen || renderer.__elyricThemeV2DesignerOpen)) {
+                    || renderer.__elyricQueueOpen || renderer.__elyricCastOpen
+                    || renderer.__elyricVolumeOpen || renderer.__elyricThemeV2DesignerOpen)) {
                 if (event.preventDefault) {
                     event.preventDefault();
                 }
@@ -10997,6 +11933,8 @@
                 requestPlayerOverlayClose(renderer, "settings");
                 requestPlayerOverlayClose(renderer, "media");
                 requestPlayerOverlayClose(renderer, "queue");
+                requestPlayerOverlayClose(renderer, "cast");
+                requestPlayerOverlayClose(renderer, "volume");
                 if (renderer.__elyricThemeV2DesignerOpen) {
                     requestPlayerOverlayClose(renderer, "designer");
                 }
@@ -11010,7 +11948,10 @@
                             ? renderer.__elyricMediaPanel
                             : renderer.__elyricQueueOpen
                                 ? renderer.__elyricQueuePanel
-                                : null,
+                                : renderer.__elyricCastOpen
+                                    ? renderer.__elyricCastPanel
+                                    : renderer.__elyricVolumeOpen
+                                        ? renderer.__elyricVolumePanel : null,
                     event
                 );
             }
@@ -11395,6 +12336,8 @@
         renderer.__elyricLastAudibleVolume = null;
         renderer.__elyricSecondLineButton = null;
         renderer.__elyricSecondLineSettingsButtons = null;
+        renderer.__elyricThirdLineButton = null;
+        renderer.__elyricVisualizerToggleButton = null;
         renderer.__elyricArtworkRotationButton = null;
         renderer.__elyricArtworkRotationSettingsButtons = null;
         renderer.__elyricArtworkRotation = null;
@@ -11402,6 +12345,7 @@
         renderer.__elyricSettingsPanel = null;
         renderer.__elyricSettingsBody = null;
         renderer.__elyricOverlayManager = null;
+        renderer.__elyricCastTargetsUnsubscribe = null;
         renderer.__elyricOverlayScrim = null;
         renderer.__elyricOverlayKeyHandler = null;
         renderer.__elyricPreferenceStatus = null;
@@ -11414,6 +12358,12 @@
         renderer.__elyricSettingsOpen = false;
         renderer.__elyricQueuePanel = null;
         renderer.__elyricQueueBody = null;
+        renderer.__elyricCastPanel = null;
+        renderer.__elyricCastBody = null;
+        renderer.__elyricCastOpen = false;
+        renderer.__elyricVolumePanel = null;
+        renderer.__elyricPortraitVolumeSlider = null;
+        renderer.__elyricVolumeOpen = false;
         renderer.__elyricMediaButton = null;
         renderer.__elyricMediaPanel = null;
         renderer.__elyricMediaBody = null;
@@ -11478,6 +12428,10 @@
         renderer.__elyricThemeV2Boxes = null;
         renderer.__elyricThemeV2FontStyle = null;
         renderer.__elyricThemeV2FontRules = null;
+        renderer.__elyricThemeV6RangeControls = null;
+        renderer.__elyricThemeV6SegmentControls = null;
+        renderer.__elyricThemeV6ColorControls = null;
+        renderer.__elyricMetadataSummaryButtons = null;
         renderer.__elyricPlayerButtons = null;
         renderer.__elyricQueueOpen = false;
         renderer.__elyricQueueDismissHost = null;
@@ -11601,6 +12555,118 @@
             if (!lyric || position >= Number(lyric.endTicks)) { return -1; }
         }
         return candidate;
+    }
+
+    function undoPlayerThemeReset(renderer) {
+        var snapshot = renderer.__elyricThemeResetUndo;
+        if (!snapshot) {
+            updatePlayerThemeLibraryStatus(renderer, "当前没有可撤销的主题重置", "error");
+            return;
+        }
+        renderer.__elyricThemeResetUndo = null;
+        renderer.__elyricActiveUserPlayerThemeId = null;
+        renderer.__elyricPlayerLayout = "custom";
+        renderer.__elyricThemeBaseLayout = renderer.__elyricThemeBaseLayout || "album";
+        applyPlayerThemeV2State(renderer, snapshot);
+        storeCurrentPlayerThemeDesign(renderer);
+        scheduleUserPlayerPreferencesSave(renderer);
+        updatePlayerThemeLibraryStatus(renderer, "已撤销上一次内置主题重置", "ready");
+        syncPlayerThemeLibraryControls(renderer);
+    }
+
+    function renderOwnedCastTargets(renderer) {
+        var body = renderer.__elyricCastBody;
+        var bridge = renderer.__elyricPlaybackBridge;
+        if (!body || !bridge) { return; }
+        while (body.firstChild) { body.removeChild(body.firstChild); }
+        var status = document.createElement("div");
+        status.className = "elyric-player-cast-status";
+        status.appendChild(document.createTextNode("正在查找播放设备…"));
+        body.appendChild(status);
+        Promise.resolve(bridge.getCastTargets()).then(function (targets) {
+            if (!renderer.__elyricCastOpen || !renderer.__elyricCastBody) { return; }
+            while (body.firstChild) { body.removeChild(body.firstChild); }
+            var active = bridge.getActiveCastTarget();
+            function appendTarget(target, local) {
+                var button = document.createElement("button");
+                button.className = "elyric-player-cast-target";
+                button.setAttribute("type", "button");
+                button.setAttribute("data-elyric-active", active && (local ? active.local : active.id === target.id) ? "true" : "false");
+                var label = document.createElement("strong");
+                label.appendChild(document.createTextNode(local ? "此设备" : target.name));
+                var detail = document.createElement("span");
+                detail.appendChild(document.createTextNode(local ? "使用当前浏览器播放" : target.playerName || "Emby 设备"));
+                button.appendChild(label); button.appendChild(detail);
+                button.addEventListener("click", function (event) {
+                    stopControlEvent(event);
+                    var activeTarget = bridge.getActiveCastTarget();
+                    var switchingAwayFromRemote = activeTarget && !activeTarget.local
+                        && (local || activeTarget.id !== target.id) && bridge.canEndCurrentSession();
+                    if (switchingAwayFromRemote && "undefined" !== typeof window && window.confirm
+                        && !window.confirm("当前正在其他设备播放。结束旧会话并切换设备？")) {
+                        return;
+                    }
+                    button.disabled = true;
+                    var switchTarget = function () {
+                        return local ? bridge.selectLocalTarget() : bridge.selectCastTarget(target.id);
+                    };
+                    var operation = switchingAwayFromRemote
+                        ? Promise.resolve(bridge.endCurrentSession()).then(switchTarget)
+                        : Promise.resolve(switchTarget());
+                    operation.then(function () {
+                        renderOwnedCastTargets(renderer);
+                    }, function (error) {
+                        button.disabled = false;
+                        renderer.__elyricCastStatus = error && error.message || "无法切换播放设备";
+                        renderOwnedCastTargets(renderer);
+                    });
+                });
+                body.appendChild(button);
+            }
+            appendTarget({ id: "local", name: "此设备" }, true);
+            (targets || []).filter(function (target) { return !target.local; }).forEach(function (target) {
+                appendTarget(target, false);
+            });
+            if (bridge.canEndCurrentSession()) {
+                var endButton = document.createElement("button");
+                endButton.className = "elyric-player-cast-target elyric-player-cast-end";
+                endButton.setAttribute("type", "button");
+                var endLabel = document.createElement("strong");
+                endLabel.appendChild(document.createTextNode("结束当前远端会话"));
+                var endDetail = document.createElement("span");
+                endDetail.appendChild(document.createTextNode("停止远端播放器并保留此页面"));
+                endButton.appendChild(endLabel); endButton.appendChild(endDetail);
+                endButton.addEventListener("click", function (event) {
+                    stopControlEvent(event);
+                    if ("undefined" !== typeof window && window.confirm
+                        && !window.confirm("确定结束当前远端播放会话？")) { return; }
+                    endButton.disabled = true;
+                    Promise.resolve(bridge.endCurrentSession()).then(function () {
+                        renderOwnedCastTargets(renderer);
+                    }, function (error) {
+                        renderer.__elyricCastStatus = error && error.message || "无法结束当前会话";
+                        renderOwnedCastTargets(renderer);
+                    });
+                });
+                body.appendChild(endButton);
+            }
+            if (renderer.__elyricCastStatus) {
+                var error = document.createElement("div");
+                error.className = "elyric-player-cast-status elyric-player-cast-error";
+                error.appendChild(document.createTextNode(renderer.__elyricCastStatus));
+                body.appendChild(error); renderer.__elyricCastStatus = "";
+            }
+        }, function () {
+            replaceElementText(status, "未能读取播放设备。");
+            var retry = document.createElement("button");
+            retry.className = "elyric-player-cast-retry";
+            retry.setAttribute("type", "button");
+            retry.appendChild(document.createTextNode("重试"));
+            retry.addEventListener("click", function (event) {
+                stopControlEvent(event); renderOwnedCastTargets(renderer);
+            });
+            body.appendChild(retry);
+        });
     }
 
     function createOwnedLyricRows(renderer, centerIndex) {
@@ -12016,6 +13082,7 @@
             renderer.__elyricDestroyed = true;
             renderer.__elyricLyricRequestId = (renderer.__elyricLyricRequestId || 0) + 1;
             if (renderer.__elyricBridgeUnsubscribe) { renderer.__elyricBridgeUnsubscribe(); }
+            if (renderer.__elyricCastTargetsUnsubscribe) { renderer.__elyricCastTargetsUnsubscribe(); }
             if (renderer.__elyricPlaybackBridge) { renderer.__elyricPlaybackBridge.destroy(); }
             restoreNativeOsd(renderer);
             removeDisplayConfiguration(renderer);
@@ -12053,6 +13120,7 @@
         renderer.__elyricLyricRequestId = (renderer.__elyricLyricRequestId || 0) + 1;
         cancelSmoothFrame(renderer);
         if (renderer.__elyricBridgeUnsubscribe) { renderer.__elyricBridgeUnsubscribe(); }
+        if (renderer.__elyricCastTargetsUnsubscribe) { renderer.__elyricCastTargetsUnsubscribe(); }
         if (renderer.__elyricPlaybackBridge) { renderer.__elyricPlaybackBridge.destroy(); }
         restoreNativeOsd(renderer);
         removeDisplayConfiguration(renderer);

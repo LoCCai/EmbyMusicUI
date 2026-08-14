@@ -184,6 +184,70 @@ var extendedFixedCanvasTheme = validThemeV5Json
     .Replace("\"width\": 360", "\"width\": 3600");
 Check(PlayerThemeV2Validator.ValidateThemeJson(extendedFixedCanvasTheme, 128 * 1024) == extendedFixedCanvasTheme,
     "fixed 1920x1080 and 1080x1920 canvases should accept their expanded design-unit geometry range");
+
+var completeV6Layer = """
+{ "x": 96, "y": 120, "width": 480, "height": 240, "rotation": 0, "z": 20, "opacity": 1, "hidden": false, "locked": false }
+""";
+var completeV6Landscape = $$"""
+{
+  "canvas": { "width": 1920, "height": 1080 },
+  "artwork": {{completeV6Layer}}, "metadata": {{completeV6Layer}}, "lyrics": {{completeV6Layer}},
+  "visualizer": {{completeV6Layer}}, "controlDock": {{completeV6Layer}}
+}
+""";
+var completeV6Portrait = completeV6Landscape.Replace(
+    "\"width\": 1920, \"height\": 1080", "\"width\": 1080, \"height\": 1920");
+var dockGroupsV6 = dockGroups.Replace(
+    "\"media\",\"secondaryLyrics\",\"artworkRotation\"",
+    "\"media\",\"settings\",\"visualizerToggle\",\"secondaryLyrics\",\"tertiaryLyrics\",\"artworkRotation\"");
+var dockProfileV6 = dockProfile.Replace(dockGroups, dockGroupsV6);
+var validThemeV6Json = $$"""
+{
+  "format": "emby-lyric-theme", "schemaVersion": 6, "layoutModel": "fixed-canvas-v1",
+  "name": "V6 test", "baseTheme": "album",
+  "viewport": { "fit": "contain", "alignX": "center", "alignY": "end" },
+  "layouts": { "landscape": {{completeV6Landscape}}, "portrait": {{completeV6Portrait}} },
+  "metadata": { "summaryFields": ["title","artist","album","codec","sampleRate"] },
+  "systemChrome": { "size": 52, "surface": "glass", "color": "#ffffff", "surfaceColor": "#111827", "radius": 50, "blur": 18, "shadow": 24, "showLabels": false },
+  "overlays": {
+    "surface": "glass", "surfaceColor": "#111827", "textColor": "#ffffff", "accentColor": "#ffffff",
+    "radius": 24, "blur": 24, "opacity": 92, "backdrop": { "dim": 0, "blur": 0 },
+    "gap": 12, "margin": 16, "arrowSize": 10, "durationMs": 200,
+    "sizes": {
+      "media": { "minWidth": 360, "maxWidth": 480, "maxHeight": 56 },
+      "queue": { "minWidth": 380, "maxWidth": 460, "maxHeight": 66 },
+      "settings": { "minWidth": 420, "maxWidth": 560, "maxHeight": 78 },
+      "cast": { "minWidth": 320, "maxWidth": 420, "maxHeight": 56 },
+      "volume": { "minWidth": 64, "maxWidth": 96, "maxHeight": 32 }
+    }
+  },
+  "console": { "material": "rainbow", "surfaceColor": "#111827", "textColor": "#ffffff", "accentColor": "#ff4081", "gradientA": "#ff4081", "gradientB": "#3366ff", "gradientAngle": 135, "radius": 28, "blur": 26, "opacity": 72, "borderWidth": 1, "shadow": 28 },
+  "volume": { "landscapeMode": "expanded", "portraitMode": "iconPopover", "iconFill": true, "popoverWidth": 72, "popoverHeight": 240 },
+  "controls": { "safeArea": 64, "profiles": { "landscape": {{dockProfileV6}}, "portrait": {{dockProfileV6}} } }
+}
+""";
+Check(PlayerThemeV2Validator.ValidateThemeJson(validThemeV6Json, 256 * 1024) == validThemeV6Json,
+    "complete ThemeDocumentV6 JSON should be accepted");
+foreach (var invalidV6 in new[]
+{
+    validThemeV6Json.Replace("\"width\": 1920, \"height\": 1080", "\"width\": 1919, \"height\": 1080"),
+    validThemeV6Json.Replace("\"x\": 96", "\"anchorX\": \"start\", \"x\": 96", StringComparison.Ordinal),
+    validThemeV6Json.Replace("\"surfaceColor\": \"#111827\"", "\"surfaceColor\": \"url(javascript:bad)\"", StringComparison.Ordinal),
+    validThemeV6Json.Replace("\"minWidth\": 360, \"maxWidth\": 480", "\"minWidth\": 600, \"maxWidth\": 480"),
+    validThemeV6Json.Replace("\"portraitMode\": \"iconPopover\"", "\"portraitMode\": \"expanded\""),
+    validThemeV6Json.Replace(",\"tertiaryLyrics\"", "", StringComparison.Ordinal)
+})
+{
+    try
+    {
+        PlayerThemeV2Validator.ValidateThemeJson(invalidV6, 256 * 1024);
+        Check(false, "invalid V6 canvas, layer, visual token, overlay, volume, or dock must be rejected");
+    }
+    catch (ArgumentException)
+    {
+        Check(true, "strict Theme V6 rejection");
+    }
+}
 foreach (var invalidV5 in new[]
 {
     validThemeV5Json.Replace("\"controlDock\":", "\"transport\":"),
