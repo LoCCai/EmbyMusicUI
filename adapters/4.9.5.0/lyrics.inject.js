@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.14-theme-v6-dual-canvas-r1 */
+/* ELYRIC_BUILD:2026.08.14-theme-v6-dual-canvas-r2 */
 ;(function () {
     "use strict";
 
@@ -36,7 +36,7 @@
     var PLAYER_PREFERENCES_KEY = "emby-lyric-enhance.player-preferences.v2";
     var PLAYER_THEME_LIBRARY_STORAGE_KEY = "emby-lyric-enhance.player-themes.v1";
     var PLAYER_THEME_DESIGN_STORAGE_KEY = "emby-lyric-enhance.player-theme-design.v1";
-    var PLAYER_BUILD_ID = "2026.08.14-theme-v6-dual-canvas-r1";
+    var PLAYER_BUILD_ID = "2026.08.14-theme-v6-dual-canvas-r2";
     var PLAYER_PREFERENCES_VERSION = 6;
     var PLAYER_THEME_SCHEMA_VERSION = 6;
     var PLAYER_THEME_DOCUMENT_FORMAT = "emby-lyric-theme";
@@ -2592,6 +2592,7 @@
     }
     var DEFAULT_DISPLAY_CONFIGURATION = {
         defaultTheme: "classic",
+        themeSchemaVersion: 0,
         allowUserThemeOverride: true,
         fontSizePercent: 100,
         lineHeight: 1.25,
@@ -2843,6 +2844,12 @@
 
         return {
             defaultTheme: isKnownTheme(defaultTheme) ? defaultTheme : DEFAULT_DISPLAY_CONFIGURATION.defaultTheme,
+            themeSchemaVersion: finiteNumber(
+                configValue(source, "themeSchemaVersion", "ThemeSchemaVersion"),
+                0,
+                PLAYER_THEME_SCHEMA_VERSION,
+                DEFAULT_DISPLAY_CONFIGURATION.themeSchemaVersion
+            ),
             allowUserThemeOverride: booleanValue(
                 configValue(source, "allowUserThemeOverride", "AllowUserThemeOverride"),
                 DEFAULT_DISPLAY_CONFIGURATION.allowUserThemeOverride
@@ -4444,10 +4451,16 @@
             }
             return Promise.resolve(apiClient.ajax(request)).then(parsePayload, function (error) {
                 var status = Number(error && (error.status || error.statusCode) || 0);
+                var rawPayload = error && (error.responseJSON || error.responseText || error.body || {});
                 if (409 === status) {
-                    return parsePayload(error.responseJSON || error.responseText || error.body || {});
+                    return parsePayload(rawPayload);
                 }
-                throw error;
+                var requestError = error instanceof Error
+                    ? error : new Error("主题服务请求失败（HTTP " + (status || "未知") + "）");
+                requestError.status = status;
+                requestError.payload = parsePayload(rawPayload);
+                requestError.detail = playerThemeV2SafeServerDetail(rawPayload);
+                throw requestError;
             });
         }
         if ("GET" === method && apiClient.getJSON) {
@@ -4474,11 +4487,27 @@
                     var requestError = new Error("主题服务请求失败（HTTP " + response.status + "）");
                     requestError.status = response.status;
                     requestError.payload = payload;
+                    requestError.detail = playerThemeV2SafeServerDetail(text || payload);
                     throw requestError;
                 }
                 return payload;
             });
         });
+    }
+
+    function playerThemeV2SafeServerDetail(value) {
+        var candidate = value;
+        if (candidate && "object" === typeof candidate) {
+            candidate = candidate.message || candidate.Message || candidate.error || candidate.Error
+                || candidate.responseStatus && (candidate.responseStatus.message || candidate.responseStatus.Message)
+                || "";
+        }
+        candidate = String(candidate || "")
+            .replace(/https?:\/\/\S+/gi, "[地址已隐藏]")
+            .replace(/(X-Emby-Token|api_key|token)\s*[=:]\s*[^\s&]+/gi, "$1=[已隐藏]")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ").trim();
+        return candidate.slice(0, 240);
     }
 
     function playerThemeV2FailureMessage(error, localAction) {
@@ -4492,6 +4521,12 @@
         }
         if (409 === status) {
             return "服务器检测到主题 revision 冲突；" + prefix;
+        }
+        if (400 === status) {
+            var detail = error && (error.detail || playerThemeV2SafeServerDetail(error.payload));
+            return "主题数据被服务器拒绝（HTTP 400）"
+                + (detail ? "：" + detail : "；请确认插件 DLL 支持 Theme V6")
+                + "；" + prefix;
         }
         if (status >= 500) {
             return "主题服务端处理失败（HTTP " + status
@@ -4713,6 +4748,7 @@
             LegacyImported: true
         };
         return playerThemeV2ApiRequest(renderer, "PUT", PLAYER_WORKSPACE_PATH, body).then(function (result) {
+            renderer.__elyricWorkspaceWriteBlocked = false;
             var value = playerThemeV2ResponseValue(result, "value", "Value", result);
             var conflict = !!playerThemeV2ResponseValue(result, "conflict", "Conflict", false);
             var previousRevision = Number(renderer.__elyricWorkspaceRevision || 0);
@@ -4757,9 +4793,23 @@
                 window.__elyricPlayerDiagnostics.syncSource = conflict ? "conflict" : "server";
             }
             return !conflict;
-        }).catch(function () {
-            queuePlayerThemeV2Operation(renderer, { kind: "workspace", method: "PUT", path: PLAYER_WORKSPACE_PATH, body: body });
-            updatePreferenceStatus(renderer, "local", "离线修改已进入待同步队列");
+        }).catch(function (error) {
+            var status = Number(error && (error.status || error.statusCode) || 0);
+            renderer.__elyricWorkspaceLastErrorStatus = status;
+            renderer.__elyricWorkspaceLastErrorMessage = String(
+                error && (error.detail || error.message) || "Workspace write failed"
+            );
+            if (400 !== status && 413 !== status) {
+                queuePlayerThemeV2Operation(renderer, { kind: "workspace", method: "PUT", path: PLAYER_WORKSPACE_PATH, body: body });
+            } else {
+                renderer.__elyricWorkspaceWriteBlocked = true;
+            }
+            updatePreferenceStatus(renderer, "local", playerThemeV2FailureMessage(
+                error,
+                400 === status || 413 === status
+                    ? "当前修改仅保存在本地，未加入无效重试队列"
+                    : "离线修改已进入待同步队列"
+            ));
             return false;
         });
     }
@@ -5076,6 +5126,7 @@
 
     function requestUserPlayerPreferences(renderer, force) {
         if (renderer.__elyricUserPreferencesPromise && !force) { return renderer.__elyricUserPreferencesPromise; }
+        if (force) { renderer.__elyricWorkspaceWriteBlocked = false; }
         var apiClient = activeApiClient(renderer);
         var scope = playerThemeV2AccountScope(renderer);
         var userId = scope.userId;
@@ -5172,8 +5223,13 @@
 
     function persistUserPlayerPreferences(renderer) {
         if (!renderer || !renderer.__elyricWorkspaceReady) { return Promise.resolve(false); }
+        if (renderer.__elyricWorkspaceWriteBlocked) {
+            updatePreferenceStatus(renderer, "local", "服务器仍拒绝 Theme V6；当前修改仅保存在本地，请更新插件 DLL 后刷新重试");
+            return Promise.resolve(false);
+        }
         updatePreferenceStatus(renderer, "saving", "正在同步到当前 Emby 账号…");
         return persistPlayerThemeV2Workspace(renderer).then(function (saved) {
+            if (renderer.__elyricWorkspaceWriteBlocked) { return false; }
             if (renderer.__elyricLastWorkspaceConflict) {
                 updatePreferenceStatus(renderer, "conflict", "revision 冲突：服务端版本继续生效，本地版本已保存为冲突副本");
             } else {
@@ -5186,6 +5242,7 @@
     function scheduleUserPlayerPreferencesSave(renderer) {
         if (!renderer || !renderer.__elyricThemeControl || !renderer.__elyricWorkspaceReady
             || renderer.__elyricApplyingUserPreferences) { return; }
+        if (renderer.__elyricWorkspaceWriteBlocked) { return; }
         if (renderer.__elyricPreferenceSaveTimer) { clearTimeout(renderer.__elyricPreferenceSaveTimer); }
         updatePreferenceStatus(renderer, "pending", "修改待同步");
         renderer.__elyricPreferenceSaveTimer = setTimeout(function () {
@@ -6044,8 +6101,6 @@
                 : Math.min(viewport.top + viewport.height - margin - finalHeight, buttonBottom + gap))
             : Math.min(viewport.top + viewport.height - margin - finalHeight,
                 Math.max(viewport.top + margin, centerY - finalHeight / 2));
-        var anchorX = Math.min(desiredWidth - 18, Math.max(18, center - left));
-        var anchorY = Math.min(finalHeight - 18, Math.max(18, centerY - top));
         panel.style.setProperty("left", Math.round(left) + "px", "important");
         panel.style.setProperty("top", Math.round(top) + "px", "important");
         panel.style.setProperty("right", "auto", "important");
@@ -6053,6 +6108,23 @@
         panel.style.setProperty("width", Math.round(desiredWidth) + "px", "important");
         panel.style.setProperty("height", "auto", "important");
         panel.style.setProperty("max-height", Math.round(finalHeight) + "px", "important");
+        var renderedRect = panel.getBoundingClientRect();
+        var renderedWidth = Math.min(desiredWidth, Math.max(1, Number(renderedRect.width) || desiredWidth));
+        var renderedHeight = Math.min(finalHeight, Math.max(1, Number(renderedRect.height) || finalHeight));
+        left = verticalPlacement
+            ? Math.min(viewport.left + viewport.width - renderedWidth - margin,
+                Math.max(viewport.left + margin, center - renderedWidth / 2))
+            : ("left" === placement ? buttonLeft - gap - renderedWidth : buttonRight + gap);
+        top = verticalPlacement
+            ? ("above" === placement
+                ? Math.max(viewport.top + margin, buttonTop - gap - renderedHeight)
+                : Math.min(viewport.top + viewport.height - margin - renderedHeight, buttonBottom + gap))
+            : Math.min(viewport.top + viewport.height - margin - renderedHeight,
+                Math.max(viewport.top + margin, centerY - renderedHeight / 2));
+        var anchorX = Math.min(renderedWidth - 18, Math.max(18, center - left));
+        var anchorY = Math.min(renderedHeight - 18, Math.max(18, centerY - top));
+        panel.style.setProperty("left", Math.round(left) + "px", "important");
+        panel.style.setProperty("top", Math.round(top) + "px", "important");
         panel.style.setProperty("--elyric-overlay-anchor-tip-x", Math.round(anchorX) + "px");
         panel.style.setProperty("--elyric-overlay-anchor-tip-y", Math.round(anchorY) + "px");
         panel.style.setProperty("--elyric-media-anchor-tip-x", Math.round(anchorX) + "px");
@@ -6535,6 +6607,11 @@
         ensureThemeState(renderer);
         configuration = normalizeDisplayConfiguration(configuration);
         renderer.__elyricDisplayConfiguration = configuration;
+        setAttributeIfChanged(
+            renderer.__elyricThemeControl,
+            "data-elyric-server-theme-schema",
+            String(Math.round(Number(configuration.themeSchemaVersion) || 0))
+        );
 
         var container = renderer.itemsContainer;
         if (container) {
@@ -12948,30 +13025,49 @@
         var sources = item && item.MediaSources || [];
         var requestedSourceId = item && item.MediaSourceId;
         var source = requestedSourceId
-            ? sources.filter(function (candidate) { return candidate.Id === requestedSourceId; })[0]
+            ? sources.filter(function (candidate) { return String(candidate.Id) === String(requestedSourceId); })[0]
             : null;
         source = source || sources[0];
         var streams = source && source.MediaStreams || [];
-        for (var i = 0; i < streams.length; i++) {
-            if ("Subtitle" === streams[i].Type && streams[i].Index === source.DefaultSubtitleStreamIndex) {
-                return { source: source, track: streams[i] };
-            }
-        }
-        return null;
+        var subtitleStreams = streams.filter(function (stream) {
+            var type = String(stream && stream.Type || "").toLowerCase();
+            return "subtitle" === type || "text" === type;
+        });
+        var defaultIndex = source && source.DefaultSubtitleStreamIndex;
+        var defaultTrack = subtitleStreams.filter(function (stream) {
+            return null != defaultIndex && String(stream.Index) === String(defaultIndex);
+        })[0];
+        if (defaultTrack) { return { source: source, track: defaultTrack }; }
+
+        var namedLyricTrack = subtitleStreams.filter(function (stream) {
+            var label = [stream.Title, stream.DisplayTitle, stream.Language]
+                .filter(Boolean).join(" ").toLowerCase();
+            return /(?:^|\s)(?:lyrics?|lrc)(?:\s|$)/i.test(label) || label.indexOf("歌词") >= 0;
+        })[0];
+        if (namedLyricTrack) { return { source: source, track: namedLyricTrack }; }
+
+        var textTrack = subtitleStreams.filter(function (stream) {
+            var codec = String(stream && stream.Codec || "").toLowerCase();
+            var type = String(stream && stream.Type || "").toLowerCase();
+            return "text" === type || "text" === codec || "lrc" === codec;
+        })[0];
+        return textTrack ? { source: source, track: textTrack } : null;
     }
 
-    function loadOwnedLyrics(renderer, item) {
-        var selected = ownedTrack(item);
-        var apiClient = activeApiClient(renderer);
-        var requestId = (renderer.__elyricLyricRequestId || 0) + 1;
-        renderer.__elyricLyricRequestId = requestId;
-        renderer.__elyricGeneration = (renderer.__elyricGeneration || 0) + 1;
-        renderer.__elyricItems = [];
-        setOwnedLyricStatus(renderer, "loading");
-        createOwnedLyricRows(renderer);
+    function ownedItemNeedsHydration(item) {
+        var sources = item && item.MediaSources;
+        return !Array.isArray(sources) || !sources.length || sources.some(function (source) {
+            return !Array.isArray(source && source.MediaStreams) || !source.MediaStreams.length;
+        });
+    }
+
+    function requestOwnedLyricTrack(renderer, item, selected, apiClient, requestId) {
         if (!selected || !apiClient || !apiClient.getJSON) {
-            setOwnedLyricStatus(renderer, "empty");
-            syncLyricAvailability(renderer); return Promise.resolve([]);
+            if (requestId === renderer.__elyricLyricRequestId) {
+                setOwnedLyricStatus(renderer, "empty");
+                syncLyricAvailability(renderer);
+            }
+            return Promise.resolve([]);
         }
         var cacheKey = [item.Id, selected.source.Id, selected.track.Index].join(":");
         renderer.__elyricLyricCache = renderer.__elyricLyricCache || {};
@@ -12997,6 +13093,44 @@
             createOwnedLyricRows(renderer);
             updateWordStates(renderer, renderer.__elyricLastPositionTicks || 0);
             return items;
+        }, function () {
+            if (requestId === renderer.__elyricLyricRequestId) {
+                renderer.__elyricItems = [];
+                setOwnedLyricStatus(renderer, "error");
+                createOwnedLyricRows(renderer);
+            }
+            return [];
+        });
+    }
+
+    function loadOwnedLyrics(renderer, item) {
+        var apiClient = activeApiClient(renderer);
+        var requestId = (renderer.__elyricLyricRequestId || 0) + 1;
+        renderer.__elyricLyricRequestId = requestId;
+        renderer.__elyricGeneration = (renderer.__elyricGeneration || 0) + 1;
+        renderer.__elyricItems = [];
+        setOwnedLyricStatus(renderer, "loading");
+        createOwnedLyricRows(renderer);
+        if (!item || !item.Id || !apiClient || !apiClient.getJSON) {
+            setOwnedLyricStatus(renderer, "empty");
+            syncLyricAvailability(renderer); return Promise.resolve([]);
+        }
+        var selected = ownedTrack(item);
+        if (selected || !ownedItemNeedsHydration(item)) {
+            return requestOwnedLyricTrack(renderer, item, selected, apiClient, requestId);
+        }
+        var hydration = requestDetailedMediaItem(renderer, item);
+        if (!hydration) {
+            return requestOwnedLyricTrack(renderer, item, null, apiClient, requestId);
+        }
+        return Promise.resolve(hydration).then(function (detailedItem) {
+            if (renderer.__elyricDestroyed || requestId !== renderer.__elyricLyricRequestId) { return []; }
+            var hydratedItem = Object.assign({}, item, detailedItem || {});
+            if (!hydratedItem.MediaSourceId && item.MediaSourceId) {
+                hydratedItem.MediaSourceId = item.MediaSourceId;
+            }
+            renderer.__elyricDetailedMediaItem = hydratedItem;
+            return requestOwnedLyricTrack(renderer, hydratedItem, ownedTrack(hydratedItem), apiClient, requestId);
         }, function () {
             if (requestId === renderer.__elyricLyricRequestId) {
                 renderer.__elyricItems = [];
@@ -13095,7 +13229,7 @@
         state = state || "empty";
         renderer.__elyricLyricStatusState = state;
         var messages = {
-            loading: ["正在加载歌词", "正在读取当前媒体的默认歌词流…"],
+            loading: ["正在加载歌词", "正在读取当前媒体的可用歌词流…"],
             empty: ["暂无同步歌词", "当前媒体没有提供歌词，播放控制仍可正常使用。"],
             instrumental: ["纯音乐", "歌词流标记为纯音乐，律动和播放控制仍会继续工作。"],
             error: ["歌词加载失败", "无法读取当前歌词流；切歌或重新进入播放器后会再次尝试。"]

@@ -1,0 +1,88 @@
+{
+  "format": "emby-lyric-theme",
+  "schemaVersion": 6,
+  "layoutModel": "fixed-canvas-v1",
+  "name": "编辑唱片",
+  "baseTheme": "album",
+  "layouts": {
+    "landscape": {
+      "canvas": { "width": 1920, "height": 1080 },
+      "artwork": { "x": 96, "y": 144, "width": 568, "height": 568, "rotation": 0, "z": 20, "opacity": 1, "hidden": false, "locked": false },
+      "metadata": { "x": 96, "y": 736, "width": 568, "height": 112, "rotation": 0, "z": 20, "opacity": 1, "hidden": false, "locked": false },
+      "lyrics": { "x": 720, "y": 120, "width": 1104, "height": 548, "rotation": 0, "z": 20, "opacity": 1, "hidden": false, "locked": false },
+      "visualizer": { "x": 720, "y": 692, "width": 1104, "height": 156, "rotation": 0, "z": 30, "opacity": 1, "hidden": false, "locked": false },
+      "controlDock": { "x": 64, "y": 884, "width": 1792, "height": 160, "rotation": 0, "z": 40, "opacity": 1, "hidden": false, "locked": false }
+    },
+    "portrait": {
+      "canvas": { "width": 1080, "height": 1920 },
+      "artwork": { "x": 180, "y": 112, "width": 720, "height": 720, "rotation": 0, "z": 20, "opacity": 1, "hidden": false, "locked": false },
+      "metadata": { "x": 96, "y": 856, "width": 888, "height": 152, "rotation": 0, "z": 20, "opacity": 1, "hidden": false, "locked": false },
+      "lyrics": { "x": 80, "y": 1032, "width": 920, "height": 372, "rotation": 0, "z": 20, "opacity": 1, "hidden": false, "locked": false },
+      "visualizer": { "x": 80, "y": 1428, "width": 920, "height": 124, "rotation": 0, "z": 30, "opacity": 1, "hidden": false, "locked": false },
+      "controlDock": { "x": 40, "y": 1608, "width": 1000, "height": 264, "rotation": 0, "z": 40, "opacity": 1, "hidden": false, "locked": false }
+    }
+  },
+  "viewport": { "fit": "contain", "alignX": "center", "alignY": "end" },
+  "controls": {
+    "safeArea": 64,
+    "profiles": {
+      "landscape": {
+        "rows": [
+          { "groups": ["progress"], "justify": "center", "align": "center", "gap": 0 },
+          { "groups": ["auxiliary", "transport", "volume"], "justify": "space-between", "align": "center", "gap": 20 }
+        ],
+        "groups": {
+          "progress": { "visible": true, "order": [], "hiddenButtons": [], "align": "center", "gap": 0 },
+          "transport": { "visible": true, "order": ["previous", "playPause", "next"], "hiddenButtons": [], "align": "center", "gap": 12 },
+          "volume": { "visible": true, "order": ["mute", "slider", "value"], "hiddenButtons": [], "align": "end", "gap": 8 },
+          "auxiliary": { "visible": true, "order": ["shuffle", "repeat", "stop", "queue", "media", "settings", "visualizerToggle", "secondaryLyrics", "tertiaryLyrics", "artworkRotation"], "hiddenButtons": [], "align": "start", "gap": 8 }
+        }
+      },
+      "portrait": {
+        "rows": [
+          { "groups": ["progress"], "justify": "center", "align": "center", "gap": 0 },
+          { "groups": ["transport"], "justify": "center", "align": "center", "gap": 12 },
+          { "groups": ["auxiliary", "volume"], "justify": "center", "align": "center", "gap": 12 }
+        ],
+        "groups": {
+          "progress": { "visible": true, "order": [], "hiddenButtons": [], "align": "center", "gap": 0 },
+          "transport": { "visible": true, "order": ["previous", "playPause", "next"], "hiddenButtons": [], "align": "center", "gap": 12 },
+          "volume": { "visible": true, "order": ["mute", "slider", "value"], "hiddenButtons": [], "align": "end", "gap": 8 },
+          "auxiliary": { "visible": true, "order": ["shuffle", "repeat", "stop", "queue", "media", "settings", "visualizerToggle", "secondaryLyrics", "tertiaryLyrics", "artworkRotation"], "hiddenButtons": [], "align": "center", "gap": 4 }
+        }
+      }
+    }
+  },
+  "systemChrome": { "size": 52, "surface": "glass", "color": "#17191d", "surfaceColor": "#111827", "radius": 50, "blur": 18, "shadow": 24, "showLabels": false },
+  "overlays": {
+    "surface": "glass", "surfaceColor": "#111827", "textColor": "#17191d", "accentColor": "#d74642",
+    "radius": 24, "blur": 24, "opacity": 92, "backdrop": { "dim": 0, "blur": 0 },
+    "gap": 12, "margin": 16, "arrowSize": 10, "durationMs": 200,
+    "sizes": {
+      "media": { "minWidth": 360, "maxWidth": 480, "maxHeight": 56 },
+      "queue": { "minWidth": 380, "maxWidth": 460, "maxHeight": 66 },
+      "settings": { "minWidth": 420, "maxWidth": 560, "maxHeight": 78 },
+      "cast": { "minWidth": 320, "maxWidth": 420, "maxHeight": 56 },
+      "volume": { "minWidth": 64, "maxWidth": 96, "maxHeight": 32 }
+    }
+  },
+  "volume": { "landscapeMode": "expanded", "portraitMode": "iconPopover", "iconFill": true, "popoverWidth": 72, "popoverHeight": 240 },
+  "background": { "mode": "white", "blur": 44, "dim": 64, "saturation": 115, "angle": 135, "colorA": "#f4f0e9", "colorB": "#d7c7b4" },
+  "artwork": { "source": "emby", "url": "", "assetId": "", "fit": "cover", "focusX": 50, "focusY": 50, "clipPath": "none", "mode": "single", "material": "vinyl", "rotation": true, "scale": 100, "innerSize": 42, "outerRadius": 50, "innerRadius": 50, "padding": 0, "borderWidth": 1, "shadowDepth": 28, "coverflowWidth": 82, "coverflowHeight": 48, "frameColor": "#17191d" },
+  "metadata": { "anchor": "start", "align": "left", "surface": "none", "titleSize": 190, "artistSize": 110, "albumSize": 100, "letterSpacing": 0, "padding": 12, "radius": 18, "blur": 18, "opacity": 72, "textColor": "#17191d", "surfaceColor": "#111827", "summaryFields": ["title", "artist", "album", "container", "codec", "sampleRate", "bitDepth", "channels", "bitrate"] },
+  "lyrics": {
+    "style": "classic", "alignment": "left", "scale": 100, "surface": "none", "lineHeight": 125, "inactiveOpacity": 30,
+    "padding": 22, "radius": 24, "blur": 22, "opacity": 58, "letterSpacing": 0, "pastSize": 95, "currentSize": 125,
+    "futureSize": 95, "currentWeight": 760, "pastColor": "#765f57", "currentColor": "#d74642", "futureColor": "#9e8f88",
+    "surfaceColor": "#111827", "showSecondLine": true, "showThirdAndLaterLines": true, "followDelayMs": 10000,
+    "typography": {
+      "primary": { "fontFamily": "inherit", "fontAssetId": "", "fontUrl": "", "size": 100, "weight": 700, "italic": false, "letterSpacing": 0, "lineHeight": 1.25, "color": "#d74642", "opacity": 1, "strokeWidth": 0, "strokeColor": "#000000", "shadowX": 0, "shadowY": 4, "shadowBlur": 0, "shadowColor": "#000000", "glow": 0, "states": { "past": { "color": "#765f57", "opacity": 0.62 }, "current": { "color": "#d74642", "opacity": 1 }, "future": { "color": "#9e8f88", "opacity": 0.48 } } },
+      "secondary": { "fontFamily": "inherit", "fontAssetId": "", "fontUrl": "", "size": 72, "weight": 500, "italic": false, "letterSpacing": 0, "lineHeight": 1.25, "color": "#d74642", "opacity": 0.72, "strokeWidth": 0, "strokeColor": "#000000", "shadowX": 0, "shadowY": 4, "shadowBlur": 0, "shadowColor": "#000000", "glow": 0, "states": { "past": { "color": "#765f57", "opacity": 0.62 }, "current": { "color": "#d74642", "opacity": 1 }, "future": { "color": "#9e8f88", "opacity": 0.48 } } },
+      "tertiary": { "fontFamily": "inherit", "fontAssetId": "", "fontUrl": "", "size": 62, "weight": 450, "italic": false, "letterSpacing": 0, "lineHeight": 1.25, "color": "#d74642", "opacity": 0.58, "strokeWidth": 0, "strokeColor": "#000000", "shadowX": 0, "shadowY": 4, "shadowBlur": 0, "shadowColor": "#000000", "glow": 0, "states": { "past": { "color": "#765f57", "opacity": 0.62 }, "current": { "color": "#d74642", "opacity": 1 }, "future": { "color": "#9e8f88", "opacity": 0.48 } } }
+    }
+  },
+  "visualizer": { "style": "line", "frequencyLayout": "centerOut", "width": 62, "height": 8, "amplitude": 70, "colorMode": "dual", "colors": ["#d74642", "#111111", "#767676"], "analysis": { "sensitivity": 125, "response": 80, "smoothing": 25, "minFrequency": 30, "maxFrequency": 16000, "density": 56, "bassBoost": 100 } },
+  "console": { "material": "minimal", "surfaceColor": "#111827", "textColor": "#ffffff", "accentColor": "#d74642", "gradientA": "#111827", "gradientB": "#334155", "gradientAngle": 135, "radius": 28, "borderWidth": 1, "shadow": 28, "progressHeight": 6, "progressThumbSize": 16, "volumeHeight": 5, "volumeThumbSize": 14, "blur": 26, "opacity": 72, "progressActive": "#d74642", "progressTrack": "#667085", "volumeActive": "#ffffff", "volumeTrack": "#667085", "safeArea": 64 },
+  "mediaCard": { "surface": "glass", "width": 34, "maxHeight": 72, "radius": 22, "blur": 24, "opacity": 88, "surfaceColor": "#111827", "popupOpacity": 100, "popupRadius": 24 },
+  "mediaFields": { "overview": true, "file": true, "audio": true, "image": false, "lyrics": false }
+}

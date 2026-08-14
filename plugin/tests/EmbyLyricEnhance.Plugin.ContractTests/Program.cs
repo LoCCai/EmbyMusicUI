@@ -7,7 +7,8 @@ var plugin = new Plugin(new ContractApplicationPaths(), new ContractXmlSerialize
 var result = (EmbyLyricEnhance.Core.PublicDisplayOptions)new PublicConfigurationService()
     .Get(new GetPublicConfiguration());
 
-if (plugin is null || result.ConfigurationVersion != 1)
+if (plugin is null || result.ConfigurationVersion != 1
+    || result.ThemeSchemaVersion != EmbyLyricEnhance.Core.PlayerThemeV2Schema.Version)
 {
     Console.Error.WriteLine("Plugin startup did not return safe public defaults before SetStartupInfo.");
     return 1;

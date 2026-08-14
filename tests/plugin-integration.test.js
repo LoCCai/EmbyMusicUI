@@ -107,6 +107,7 @@ assert(!serviceSource.includes("POST") && !serviceSource.includes("PUT") && !ser
 
 const publicFields = [
     "defaultTheme",
+    "themeSchemaVersion",
     "allowUserThemeOverride",
     "fontSizePercent",
     "lineHeight",

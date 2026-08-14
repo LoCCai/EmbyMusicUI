@@ -1,6 +1,6 @@
 # Emby Lyric Enhance C# 插件
 
-这是 EmbyLyricEnhance 0.5.1 的服务器设置与用户 Theme V5 存储层。它不会取代现有歌词解析器，而是向 Emby 管理后台增加显示设置页，提供经过约束的公共显示配置，并为每个认证用户保存工作区、命名主题、控制坞布局和私有资源。
+这是 EmbyLyricEnhance 0.6.0 的服务器设置与用户 Theme V6 存储层。它不会取代现有歌词解析器，而是向 Emby 管理后台增加显示设置页，提供经过约束的公共显示配置，并为每个认证用户保存工作区、命名主题、控制坞布局和私有资源。
 
 ## 与前端适配器的关系
 
@@ -58,7 +58,7 @@ plugin\scripts\build.ps1 -EmbyApiVersion <已验证的API包版本>
 
 服务器版本号与开发 API 包版本不一定完全相同；Emby Server 4.9.5.0 对应的已恢复开发 SDK 是 4.9.1.90。
 
-初版 0.2.0.0 已在 Windows x64、.NET SDK 8.0.423 上完成真实 Release 构建且设置页正确嵌入。随后 Emby 4.9.5.0 实机验证发现其插件加载上下文不能稳定解析同目录的独立 `EmbyLyricEnhance.Core.dll`，因此 0.2.1 起把 Core 源码直接编入主插件，只交付 `EmbyLyricEnhance.dll`。当前 0.5.1 使用 `MediaBrowser.Common` 与 `MediaBrowser.Server.Core` 4.9.1.90 编译，仍为单 DLL 交付；产物不引用独立 Core 程序集，并嵌入配置页 HTML 与认证页面控制器。0.5.1 还避免了插件构造阶段读取尚未由 Emby 注入的 `DataFolderPath`，修复公开配置接口返回 `Value cannot be null. (Parameter 'path2')` 的启动失败。
+初版 0.2.0.0 已在 Windows x64、.NET SDK 8.0.423 上完成真实 Release 构建且设置页正确嵌入。随后 Emby 4.9.5.0 实机验证发现其插件加载上下文不能稳定解析同目录的独立 `EmbyLyricEnhance.Core.dll`，因此 0.2.1 起把 Core 源码直接编入主插件，只交付 `EmbyLyricEnhance.dll`。当前 0.6.0 使用 `MediaBrowser.Common` 与 `MediaBrowser.Server.Core` 4.9.1.90 编译，仍为单 DLL 交付；产物不引用独立 Core 程序集，并嵌入配置页 HTML 与认证页面控制器。0.6.0 公开声明 Theme schema 6 能力，并严格校验 V6 双画布、控制坞与弹层参数；这也让前端能够明确识别旧 DLL，而不是反复提交必然失败的工作区数据。
 
 ## 本地验证
 

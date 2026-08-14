@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\EmbyLyricEnhance.Core\EmbyLyricEnhance.Core.csproj" />
+    <None Include="Fixtures\theme-v6-frontend.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

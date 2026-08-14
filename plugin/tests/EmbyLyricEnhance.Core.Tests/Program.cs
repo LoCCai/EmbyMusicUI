@@ -17,6 +17,8 @@ void Check(bool condition, string message)
 
 var defaults = DisplayOptionsSanitizer.Sanitize(new LyricDisplayOptions());
 Check(defaults.ConfigurationVersion == 1, "configuration version should be one");
+Check(defaults.ThemeSchemaVersion == PlayerThemeV2Schema.Version,
+    "public configuration should advertise the supported Theme schema version");
 Check(defaults.DefaultTheme == ThemeIds.Classic, "classic should be the default theme");
 Check(defaults.AllowUserThemeOverride, "browser theme override should default to enabled");
 Check(defaults.FontSizePercent == 100, "default font size should be 100%");
@@ -228,6 +230,33 @@ var validThemeV6Json = $$"""
 """;
 Check(PlayerThemeV2Validator.ValidateThemeJson(validThemeV6Json, 256 * 1024) == validThemeV6Json,
     "complete ThemeDocumentV6 JSON should be accepted");
+var frontendThemeV6Json = File.ReadAllText(Path.Combine(
+    AppContext.BaseDirectory, "Fixtures", "theme-v6-frontend.json"));
+Check(PlayerThemeV2Validator.ValidateThemeJson(frontendThemeV6Json, 512 * 1024) == frontendThemeV6Json,
+    "the real frontend-generated Theme V6 portable fixture should pass the server validator");
+var frontendGlobalStateJson = """
+{
+  "version": 5,
+  "layoutRepairRevision": 1,
+  "theme": "classic",
+  "layout": "album",
+  "artworkRotation": true,
+  "showSecondLine": true,
+  "backgroundMode": "blur",
+  "visualizerStyle": "spectrum",
+  "visualizerWidth": 62,
+  "visualizerHeight": 8,
+  "visualizerAmplitude": 70,
+  "visualizerColorMode": "dual",
+  "visualizerColors": ["#a8e063", "#56d6c9", "#8b9dff"],
+  "lyricAlignment": "left",
+  "lyricScale": 100,
+  "tuning": { "backgroundBlur": 44, "backgroundDim": 64 },
+  "activePlayerThemeId": null
+}
+""";
+Check(PlayerThemeV2Validator.ValidateStateJson(frontendGlobalStateJson, 512 * 1024) == frontendGlobalStateJson,
+    "the frontend-generated V6 Workspace GlobalStateJson should pass the server validator");
 foreach (var invalidV6 in new[]
 {
     validThemeV6Json.Replace("\"width\": 1920, \"height\": 1080", "\"width\": 1919, \"height\": 1080"),

@@ -45,6 +45,10 @@ New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
 $coreOutput = Join-Path $artifactRoot "EmbyLyricEnhance.Core.dll"
 $testOutput = Join-Path $artifactRoot "EmbyLyricEnhance.Core.Tests.dll"
 $pluginContractOutput = Join-Path $artifactRoot "EmbyLyricEnhance.Plugin.Contract.dll"
+$fixtureSource = Join-Path $repositoryRoot "plugin\tests\EmbyLyricEnhance.Core.Tests\Fixtures\theme-v6-frontend.json"
+$fixtureOutputDirectory = Join-Path $artifactRoot "Fixtures"
+New-Item -ItemType Directory -Path $fixtureOutputDirectory -Force | Out-Null
+Copy-Item -LiteralPath $fixtureSource -Destination (Join-Path $fixtureOutputDirectory "theme-v6-frontend.json") -Force
 $coreSources = @(Get-ChildItem -LiteralPath (Join-Path $repositoryRoot "plugin\src\EmbyLyricEnhance.Core") -Filter "*.cs" -File |
     Select-Object -ExpandProperty FullName)
 $testSources = @(Get-ChildItem -LiteralPath (Join-Path $repositoryRoot "plugin\tests\EmbyLyricEnhance.Core.Tests") -Filter "*.cs" -File |

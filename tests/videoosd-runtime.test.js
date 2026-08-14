@@ -143,7 +143,10 @@ function trigger(source, type) {
 
 function item(id, name, mediaType = "Audio") {
     return { Id: id, Name: name, MediaType: mediaType, RunTimeTicks: 1800000000, Artists: ["测试歌手"], Album: "测试专辑",
-        MediaSources: [{ Id: `source-${id}`, DefaultSubtitleStreamIndex: 2, MediaStreams: [{ Type: "Subtitle", Index: 2 }] }] };
+        MediaSources: [{ Id: `source-${id}`, DefaultSubtitleStreamIndex: -1, MediaStreams: [
+            { Type: "Audio", Index: 0 },
+            { Type: "Subtitle", Index: 2, Codec: "text", Title: "Lyrics", IsDefault: false }
+        ] }] };
 }
 const player = {};
 player.endSession = function () { calls.push(["endSession"]); return Promise.resolve(); };
@@ -181,10 +184,12 @@ const manager = {
 
 const pendingLyrics = new Map();
 const requestedUrls = [];
+const detailedItemRequests = [];
 let currentUserId = "runtime-user";
 let currentServerId = "server-a";
 let displayPreferenceWrites = 0;
 let forceWorkspaceConflict = false;
+let forceWorkspaceBadRequest = false;
 let failThemeList = false;
 let workspacePayload = null;
 let resolveInitialWorkspace;
@@ -205,6 +210,13 @@ const ApiClient = {
         if (request.url.includes("UserWorkspace") && request.type === "PUT") {
             const body = JSON.parse(request.data);
             workspaceWrites.push(body);
+            if (forceWorkspaceBadRequest) {
+                forceWorkspaceBadRequest = false;
+                return Promise.reject(Object.assign(new Error("workspace rejected"), {
+                    status: 400,
+                    responseText: "Theme schema version is unsupported."
+                }));
+            }
             if (forceWorkspaceConflict) {
                 forceWorkspaceConflict = false;
                 const conflictValue = Object.assign({}, workspacePayload, { Revision: 99 });
@@ -227,7 +239,9 @@ const ApiClient = {
         return Promise.resolve({});
     },
     getJSON(url) {
-        if (url.includes("PublicConfiguration")) return Promise.resolve({ defaultTheme: "apple", allowUserThemeOverride: true });
+        if (url.includes("PublicConfiguration")) return Promise.resolve({
+            defaultTheme: "apple", allowUserThemeOverride: true, themeSchemaVersion: 6
+        });
         if (url.includes("UserWorkspace")) return Promise.resolve({});
         if (url.endsWith("/EmbyLyricEnhance/Themes")) return Promise.resolve([]);
         const match = url.match(/\/Items\/([^/]+)\/[^/]+\/Subtitles\/2\/Stream\.js/);
@@ -239,6 +253,10 @@ const ApiClient = {
         ] });
     },
     getCurrentUserId() { return currentUserId; }, serverId() { return currentServerId; },
+    getItem(userId, itemId) {
+        detailedItemRequests.push([userId, itemId]);
+        return Promise.resolve(item(itemId, `详情 ${itemId}`));
+    },
     getDisplayPreferences() { return Promise.resolve({}); }, isMinServerVersion() { return true; },
     updatePartialDisplayPreferences() { displayPreferenceWrites += 1; return Promise.resolve(); },
     getScaledImageUrl(id) { return `/Items/${id}/Images/Primary`; }
@@ -399,6 +417,14 @@ function deferLyrics(id) {
     assert.strictEqual(root.getAttribute("data-elyric-preference-state"), "conflict");
     assert(osd.__elyricRenderer.__elyricUserPlayerThemes.some((theme) => theme.id === "conflict-copy"),
         "revision conflicts must preserve the local draft as a named conflict copy");
+    forceWorkspaceBadRequest = true;
+    root.querySelectorAll(".elyric-theme-choice")[1].click();
+    await wait(750); await settle();
+    assert.strictEqual(forceWorkspaceBadRequest, false, "the debounced Workspace PUT should reach the mock server");
+    assert.strictEqual(root.getAttribute("data-elyric-preference-state"), "local");
+    assert(root.querySelector(".elyric-player-preference-status").textContent.includes("Theme schema version is unsupported"),
+        "HTTP 400 validation details must be shown instead of being discarded");
+    assert.strictEqual(root.getAttribute("data-elyric-server-theme-schema"), "6");
     [".elyric-player-stage", ".elyric-player-lyric-viewport", ".elyric-player-queue-panel",
         ".elyric-player-settings-panel", ".elyric-player-media-panel"].forEach((selector) => {
         const element = root.querySelector(selector); assert(element && root.contains(element), `${selector} must live inside the root`);
@@ -406,10 +432,19 @@ function deferLyrics(id) {
     const settingsPanel = root.querySelector(".elyric-player-settings-panel");
     const settingsBody = settingsPanel.querySelector(".elyric-player-settings-body");
     assert(settingsBody && settingsPanel.contains(settingsBody), "settings content must scroll independently below its fixed header");
+    const settingsButton = root.querySelector(".elyric-player-button-settings");
+    settingsButton.getBoundingClientRect = () => ({ left: 520, top: 700, right: 564, bottom: 744, width: 44, height: 44 });
+    settingsPanel.getBoundingClientRect = () => {
+        const left = Number.parseFloat(settingsPanel.style.getPropertyValue("left")) || 0;
+        const top = Number.parseFloat(settingsPanel.style.getPropertyValue("top")) || 0;
+        return { left, top, right: left + 480, bottom: top + 180, width: 480, height: 180 };
+    };
     root.querySelector(".elyric-player-button-settings").click();
     assert.strictEqual(settingsPanel.getAttribute("data-elyric-anchor-mode"), "button");
     assert(["above", "below"].includes(settingsPanel.getAttribute("data-elyric-anchor-placement")));
     assert(Number.parseFloat(settingsPanel.style.getPropertyValue("max-height")) <= window.innerHeight * .78);
+    assert.strictEqual(700 - (Number.parseFloat(settingsPanel.style.getPropertyValue("top")) + 180), 12,
+        "an above overlay must use its rendered height and remain exactly 12px from the button");
     root.querySelector(".elyric-player-settings-close").click();
     root.querySelector(".elyric-player-button-queue").click(); await settle();
     const queuePanel = root.querySelector(".elyric-player-queue-panel");
@@ -456,8 +491,21 @@ function deferLyrics(id) {
     const lyrics = root.querySelector(".elyric-player-lyric-viewport");
     const lyricRows = lyrics.querySelectorAll(".lyricsItem[data-index]");
     assert.strictEqual(lyricRows.length, 1); assert(lyricRows[0].textContent.includes("translation"));
+    assert(requestedUrls.some((url) => url.includes("Items/song-a/source-song-a/Subtitles/2/Stream.js")),
+        "an explicitly named non-default Lyrics text stream must be selected");
     lyricRows[0].click(); await settle();
     assert(calls.some((call) => call[0] === "seek" && call[1] === 0 && call[2] === player));
+
+    currentItem = {
+        Id: "song-hydrated", Name: "精简播放快照", MediaType: "Audio", RunTimeTicks: 1800000000,
+        Artists: ["测试歌手"], Album: "测试专辑"
+    };
+    state = Object.assign({}, state, { NowPlayingItem: currentItem });
+    trigger(player, "timeupdate"); await settle();
+    assert(detailedItemRequests.some((entry) => entry[1] === "song-hydrated"),
+        "a playback snapshot without MediaSources must be hydrated through ApiClient");
+    assert(lyrics.textContent.includes("song-hydrated lyric"),
+        "hydrated non-default lyrics must render instead of falling back to an empty card");
 
     root.querySelector(".elyric-player-button-queue").click(); await settle();
     const queueRows = root.querySelectorAll(".elyric-player-queue-row"); assert.strictEqual(queueRows.length, 2);

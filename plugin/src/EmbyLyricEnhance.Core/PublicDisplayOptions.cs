@@ -14,6 +14,9 @@ public sealed class PublicDisplayOptions
     [DataMember(Name = "allowUserThemeOverride", Order = 3)]
     public bool AllowUserThemeOverride { get; init; }
 
+    [DataMember(Name = "themeSchemaVersion", Order = 16)]
+    public int ThemeSchemaVersion { get; init; } = PlayerThemeV2Schema.Version;
+
     [DataMember(Name = "fontSizePercent", Order = 4)]
     public int FontSizePercent { get; init; }
 
