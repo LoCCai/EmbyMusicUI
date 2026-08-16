@@ -60,7 +60,17 @@ class Node {
         return !event.defaultPrevented;
     }
     click() { this.dispatchEvent({ type: "click" }); }
-    focus() { document.activeElement = this; }
+    focus(options) {
+        this.focusOptions = options || null;
+        document.activeElement = this;
+        if (!options || true !== options.preventScroll) {
+            let root = this;
+            while (root && (!root.classList || !root.classList.contains("elyric-player-root"))) {
+                root = root.parentNode;
+            }
+            if (root) root.scrollTop = 144;
+        }
+    }
     select() {}
     scrollIntoView() { this.scrollIntoViewCount = (this.scrollIntoViewCount || 0) + 1; }
     get firstChild() { return this.children[0] || null; }
@@ -684,6 +694,11 @@ function deferLyrics(id) {
     assert(!volumePanel.hasAttribute("hidden") && volumePanel.getAttribute("data-elyric-anchor-mode") === "button",
         "portrait volume must open a root-owned button-anchored vertical slider");
     assert(["above", "below", "left", "right"].includes(volumePanel.getAttribute("data-elyric-anchor-placement")));
+    const portraitVolumeSlider = volumePanel.querySelector(".elyric-player-volume-slider-portrait");
+    assert.strictEqual(document.activeElement, portraitVolumeSlider);
+    assert.strictEqual(portraitVolumeSlider.focusOptions && portraitVolumeSlider.focusOptions.preventScroll, true,
+        "opening a root-owned overlay must focus without scrolling the fixed player");
+    assert.strictEqual(root.scrollTop, 0); assert.strictEqual(fixedStage.scrollTop, 0);
     const escapeEvent = {
         key: "Escape", type: "keydown", defaultPrevented: false,
         preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}
@@ -691,6 +706,10 @@ function deferLyrics(id) {
     (document.listeners.keydown || []).slice().forEach((listener) => listener(escapeEvent));
     assert(escapeEvent.defaultPrevented && volumePanel.hasAttribute("hidden"),
         "Escape at the document boundary must close the volume overlay before Emby handles Back");
+    assert.strictEqual(document.activeElement, muteButton);
+    assert.strictEqual(muteButton.focusOptions && muteButton.focusOptions.preventScroll, true,
+        "closing an overlay must restore trigger focus without scrolling the player");
+    assert.strictEqual(root.scrollTop, 0); assert.strictEqual(fixedStage.scrollTop, 0);
     window.innerWidth = 1440; window.innerHeight = 900;
     window.visualViewport.width = 1440; window.visualViewport.height = 900;
     window.listeners.resize.forEach((listener) => listener({ type: "resize" }));

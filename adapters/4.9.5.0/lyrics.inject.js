@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.15-theme-v6-shadow-persistence-r3 */
+/* ELYRIC_BUILD:2026.08.17-theme-v6-shadow-persistence-r4 */
 ;(function () {
     "use strict";
 
@@ -36,7 +36,7 @@
     var PLAYER_PREFERENCES_KEY = "emby-lyric-enhance.player-preferences.v2";
     var PLAYER_THEME_LIBRARY_STORAGE_KEY = "emby-lyric-enhance.player-themes.v1";
     var PLAYER_THEME_DESIGN_STORAGE_KEY = "emby-lyric-enhance.player-theme-design.v1";
-    var PLAYER_BUILD_ID = "2026.08.15-theme-v6-shadow-persistence-r3";
+    var PLAYER_BUILD_ID = "2026.08.17-theme-v6-shadow-persistence-r4";
     var PLAYER_PREFERENCES_VERSION = 6;
     var PLAYER_THEME_SCHEMA_VERSION = 6;
     var PLAYER_THEME_DOCUMENT_FORMAT = "emby-lyric-theme";
@@ -5944,12 +5944,31 @@
         });
     }
 
+    function resetPlayerOverlayOwnedScroll(panel) {
+        var root = panel;
+        while (root && (!root.classList || !root.classList.contains("elyric-player-root"))) {
+            root = root.parentNode;
+        }
+        var shadowRoot = root && root.parentNode;
+        var host = shadowRoot && shadowRoot.host;
+        var stage = root && root.querySelector ? root.querySelector(".elyric-player-stage") : null;
+        [host, root, stage].forEach(function (element) {
+            if (!element) { return; }
+            try { element.scrollTop = 0; element.scrollLeft = 0; } catch (error) {}
+        });
+    }
+
+    function focusPlayerOverlayElement(element, panel) {
+        if (!element || !element.focus) { return; }
+        try { element.focus({ preventScroll: true }); }
+        catch (error) { element.focus(); }
+        resetPlayerOverlayOwnedScroll(panel);
+    }
+
     function focusPlayerOverlay(panel) {
         var focusable = getPlayerOverlayFocusableElements(panel);
         var target = focusable[0] || panel;
-        if (target && target.focus) {
-            target.focus();
-        }
+        focusPlayerOverlayElement(target, panel);
     }
 
     function playerOverlayActiveElement(panel) {
@@ -5965,7 +5984,7 @@
         if (!activeElement
             || activeElement === document.body
             || (panel && panel.contains && panel.contains(activeElement))) {
-            button.focus();
+            focusPlayerOverlayElement(button, panel);
         }
     }
 
@@ -5993,7 +6012,7 @@
         if (event.stopPropagation) {
             event.stopPropagation();
         }
-        (shouldWrapBackward ? last : first).focus();
+        focusPlayerOverlayElement(shouldWrapBackward ? last : first, panel);
         return true;
     }
 
