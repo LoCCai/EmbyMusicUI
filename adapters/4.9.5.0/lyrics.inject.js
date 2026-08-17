@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.17-theme-v6-shadow-persistence-r5 */
+/* ELYRIC_BUILD:2026.08.17-theme-v6-shadow-persistence-r6 */
 ;(function () {
     "use strict";
 
@@ -36,7 +36,7 @@
     var PLAYER_PREFERENCES_KEY = "emby-lyric-enhance.player-preferences.v2";
     var PLAYER_THEME_LIBRARY_STORAGE_KEY = "emby-lyric-enhance.player-themes.v1";
     var PLAYER_THEME_DESIGN_STORAGE_KEY = "emby-lyric-enhance.player-theme-design.v1";
-    var PLAYER_BUILD_ID = "2026.08.17-theme-v6-shadow-persistence-r5";
+    var PLAYER_BUILD_ID = "2026.08.17-theme-v6-shadow-persistence-r6";
     var PLAYER_PREFERENCES_VERSION = 6;
     var PLAYER_THEME_SCHEMA_VERSION = 6;
     var PLAYER_THEME_DOCUMENT_FORMAT = "emby-lyric-theme";
@@ -591,6 +591,10 @@
     var PLAYER_COMPACT_MODE_PORTRAIT = "compact-portrait";
     var PLAYER_COMPACT_MODE_LANDSCAPE = "compact-landscape";
     var PLAYER_COMPACT_MODE_TIGHT = "compact-tight";
+    var PLAYER_COMPACT_DOCK_HEIGHT_LANDSCAPE = 108;
+    var PLAYER_COMPACT_DOCK_HEIGHT_STACKED = 164;
+    var PLAYER_COMPACT_DOCK_BOTTOM_MARGIN = 8;
+    var PLAYER_COMPACT_CONTENT_GAP = 16;
     var PLAYER_THEME_V2_ANCHORS = ["start", "center", "end"];
     var PLAYER_LEGACY_GEOMETRY_TUNING_IDS = [
         "artworkSize", "artworkX", "artworkY", "metadataWidth", "metadataX", "metadataY",
@@ -1690,28 +1694,49 @@
         return viewport.width < 520 ? PLAYER_COMPACT_MODE_TIGHT : PLAYER_COMPACT_MODE_LANDSCAPE;
     }
 
-    function playerThemeV2CompactContentBounds(renderer, profileId, canvasSize) {
-        var layout = resolvedPlayerThemeV2Layout(renderer, profileId);
+    function playerThemeV2CompactLayoutBounds(layout, profileId, canvasSize) {
         var top = Infinity;
         var bottom = -Infinity;
+        var invalid = false;
+        var designMetrics = {
+            designWidth: canvasSize.width,
+            designHeight: canvasSize.height
+        };
         ["artwork", "metadata", "lyrics", "visualizer"].forEach(function (layerId) {
             var layer = layout && layout[layerId];
             if (!layer || layer.hidden) { return; }
+            var x = Number(layer.x);
             var y = Number(layer.y);
             var width = Number(layer.width);
             var height = Number(layer.height);
-            if (!isFinite(y) || !isFinite(width) || !isFinite(height) || width <= 0 || height <= 0) { return; }
-            var radians = (Number(layer.rotation) || 0) * Math.PI / 180;
+            var rotation = Number(layer.rotation);
+            var anchorX = layer.anchorX || "start";
+            var anchorY = layer.anchorY || "start";
+            if (!isFinite(x) || !isFinite(y) || !isFinite(width) || !isFinite(height)
+                || !isFinite(rotation) || width <= 0 || height <= 0
+                || PLAYER_THEME_V2_ANCHORS.indexOf(anchorX) < 0
+                || PLAYER_THEME_V2_ANCHORS.indexOf(anchorY) < 0) {
+                invalid = true;
+                return;
+            }
+            var rect = playerThemeV2LayerDesignRect(layer, designMetrics);
+            var radians = rotation * Math.PI / 180;
             var rotatedHalfHeight = Math.abs(Math.sin(radians)) * width / 2
                 + Math.abs(Math.cos(radians)) * height / 2;
-            var centerY = y + height / 2;
-            top = Math.min(top, Math.max(0, centerY - rotatedHalfHeight));
-            bottom = Math.max(bottom, Math.min(canvasSize.height, centerY + rotatedHalfHeight));
+            var centerY = rect.top + height / 2;
+            top = Math.min(top, centerY - rotatedHalfHeight);
+            bottom = Math.max(bottom, centerY + rotatedHalfHeight);
         });
-        if (!isFinite(top) || !isFinite(bottom) || bottom - top < 44) {
+        if (invalid || !isFinite(top) || !isFinite(bottom) || bottom - top < 44) {
             return "portrait" === profileId ? { top: 96, bottom: 1576 } : { top: 96, bottom: 852 };
         }
         return { top: top, bottom: bottom };
+    }
+
+    function playerThemeV2CompactContentBounds(renderer, profileId, canvasSize) {
+        return playerThemeV2CompactLayoutBounds(
+            resolvedPlayerThemeV2Layout(renderer, profileId), profileId, canvasSize
+        );
     }
 
     function playerThemeV2StageMetrics(renderer, profileOverride, frozenViewport, ignoreCompact) {
@@ -1753,8 +1778,13 @@
         var originY = available.top + available.height - designHeight * scale;
         var controlMode = renderer && renderer.__elyricControlMode || PLAYER_COMPACT_MODE_FULL;
         if (!ignoreCompact && PLAYER_COMPACT_MODE_FULL !== controlMode) {
-            var dockHeight = PLAYER_COMPACT_MODE_LANDSCAPE === controlMode ? 108 : 164;
-            var contentHeight = Math.max(44, available.height - dockHeight - 32);
+            var dockHeight = PLAYER_COMPACT_MODE_LANDSCAPE === controlMode
+                ? PLAYER_COMPACT_DOCK_HEIGHT_LANDSCAPE : PLAYER_COMPACT_DOCK_HEIGHT_STACKED;
+            var dockBottom = Math.max(PLAYER_COMPACT_DOCK_BOTTOM_MARGIN, safeInsets.bottom);
+            var dockTop = viewport.top + viewport.height - dockBottom - dockHeight;
+            var contentTop = viewport.top + safeInsets.top;
+            var contentBottom = dockTop - PLAYER_COMPACT_CONTENT_GAP;
+            var contentHeight = Math.max(44, contentBottom - contentTop);
             var bounds = playerThemeV2CompactContentBounds(renderer, profileId, canvasSize);
             var contentSpan = Math.max(44, bounds.bottom - bounds.top);
             scale = Math.max(.001, Math.min(
@@ -1763,7 +1793,7 @@
                 contentHeight / contentSpan
             ));
             originX = available.left + (available.width - designWidth * scale) / 2;
-            originY = available.top + (contentHeight - contentSpan * scale) / 2 - bounds.top * scale;
+            originY = contentTop + (contentHeight - contentSpan * scale) / 2 - bounds.top * scale;
         }
         return {
             profileId: profileId, viewport: viewport, available: available,
@@ -1915,7 +1945,15 @@
             profile: currentPlayerThemeV2Profile,
             metrics: playerThemeV2StageMetrics,
             designRect: playerThemeV2LayerDesignRect,
-            renderedRect: playerThemeV2RenderedRect
+            renderedRect: playerThemeV2RenderedRect,
+            compactContentBounds: playerThemeV2CompactContentBounds,
+            compactLayoutBounds: playerThemeV2CompactLayoutBounds,
+            compactConstants: {
+                landscapeDockHeight: PLAYER_COMPACT_DOCK_HEIGHT_LANDSCAPE,
+                stackedDockHeight: PLAYER_COMPACT_DOCK_HEIGHT_STACKED,
+                dockBottomMargin: PLAYER_COMPACT_DOCK_BOTTOM_MARGIN,
+                contentGap: PLAYER_COMPACT_CONTENT_GAP
+            }
         };
         window.__elyricPlayerThemeV5Geometry = window.__elyricPlayerThemeV4Geometry;
         window.__elyricPlayerThemeV6Geometry = window.__elyricPlayerThemeV4Geometry;
@@ -6398,7 +6436,7 @@
         if (!panel) { return; }
         ["top", "right", "bottom", "left", "width", "height", "max-height", "--elyric-overlay-anchor-tip-x",
             "--elyric-overlay-anchor-tip-y",
-            "--elyric-media-anchor-tip-x"].forEach(function (propertyName) {
+            "--elyric-media-anchor-tip-x", "--elyric-v6-volume-render-height"].forEach(function (propertyName) {
             if (panel.style && panel.style.removeProperty) { panel.style.removeProperty(propertyName); }
         });
         setAttributeIfChanged(panel, "data-elyric-overlay-kind", kind);
@@ -6445,11 +6483,13 @@
                 normalizePlayerThemeV2Number(volumeStyle.popoverWidth, 64, 120, 72));
             contentHeight = normalizePlayerThemeV2Number(volumeStyle.popoverHeight, 160, 360, 240);
         }
-        var desiredHeight = Math.min(
-            contentHeight,
-            viewport.height * Math.min(profileHeight, userHeightRatio),
-            viewport.height - margin * 2
-        );
+        var desiredHeight = "volume" === kind
+            ? Math.min(contentHeight, viewport.height - margin * 2)
+            : Math.min(
+                contentHeight,
+                viewport.height * Math.min(profileHeight, userHeightRatio),
+                viewport.height - margin * 2
+            );
         var buttonLeft = Number(buttonRect.left) || 0;
         var buttonRight = Number(buttonRect.right) || buttonLeft + 44;
         var buttonTop = Number(buttonRect.top) || 0;
@@ -6465,8 +6505,8 @@
         var placements = [preferred, "above", "below", "left", "right"].filter(function (placement, index, list) {
             return ["above", "below", "left", "right"].indexOf(placement) >= 0 && list.indexOf(placement) === index;
         });
-        var requiredHeight = Math.min(desiredHeight, "volume" === kind ? 120 : 260);
-        var requiredWidth = Math.min(desiredWidth, "volume" === kind ? 48 : 260);
+        var requiredHeight = Math.min(desiredHeight, "volume" === kind ? desiredHeight : 260);
+        var requiredWidth = Math.min(desiredWidth, "volume" === kind ? desiredWidth : 260);
         var placement = placements.filter(function (candidate) {
             if ("above" === candidate) { return availableAbove >= requiredHeight; }
             if ("below" === candidate) { return availableBelow >= requiredHeight; }
@@ -6482,7 +6522,7 @@
         var verticalPlacement = "above" === placement || "below" === placement;
         var availableHeight = "above" === placement ? availableAbove
             : "below" === placement ? availableBelow : viewport.height - margin * 2;
-        var finalHeight = Math.max("volume" === kind ? 96 : 120, Math.min(desiredHeight, availableHeight));
+        var finalHeight = Math.max("volume" === kind ? 44 : 120, Math.min(desiredHeight, availableHeight));
         var left = verticalPlacement
             ? Math.min(viewport.left + viewport.width - desiredWidth - margin,
                 Math.max(viewport.left + margin, center - desiredWidth / 2))
@@ -6498,7 +6538,12 @@
         panel.style.setProperty("right", "auto", "important");
         panel.style.setProperty("bottom", "auto", "important");
         panel.style.setProperty("width", Math.round(desiredWidth) + "px", "important");
-        panel.style.setProperty("height", "auto", "important");
+        if ("volume" === kind) {
+            panel.style.setProperty("height", Math.round(finalHeight) + "px", "important");
+            panel.style.setProperty("--elyric-v6-volume-render-height", Math.round(finalHeight) + "px");
+        } else {
+            panel.style.setProperty("height", "auto", "important");
+        }
         panel.style.setProperty("max-height", Math.round(finalHeight) + "px", "important");
         var renderedRect = panel.getBoundingClientRect();
         var renderedWidth = Math.min(desiredWidth, Math.max(1,
@@ -13896,14 +13941,21 @@
         if (itemChanged) { renderer.__elyricActiveApiClient = null; loadOwnedLyrics(renderer, renderer.currentItem); }
     }
 
+    var PLAYER_MOUNT_STATUS_MOUNTED = "mounted";
+    var PLAYER_MOUNT_STATUS_NOT_READY = "not-ready";
+    var PLAYER_MOUNT_STATUS_UNSUPPORTED = "unsupported";
+    var PLAYER_MOUNT_STATUS_FAILED = "failed";
+    var PLAYER_MOUNT_RETRY_DELAYS = [0, 50, 150, 300, 600, 1000, 1600, 2400];
+
     function mountOwnedPlayer(videoOsd) {
-        if (videoOsd.__elyricRenderer) { return; }
+        if (videoOsd.__elyricRenderer) { return PLAYER_MOUNT_STATUS_MOUNTED; }
         var page = videoOsd.view || videoOsd.element || document.querySelector(".view-videoosd-videoosd");
         var manager = _playbackmanager && _playbackmanager.default;
         var currentPlayer = manager && manager.getCurrentPlayer ? manager.getCurrentPlayer() : null;
-        if (!page || !currentPlayer) { return; }
+        if (!page || !currentPlayer) { return PLAYER_MOUNT_STATUS_NOT_READY; }
         var currentItem = manager.currentItem ? manager.currentItem(currentPlayer) : null;
-        if (!currentItem || "Audio" !== currentItem.MediaType) { return; }
+        if (!currentItem) { return PLAYER_MOUNT_STATUS_NOT_READY; }
+        if ("Audio" !== currentItem.MediaType) { return PLAYER_MOUNT_STATUS_UNSUPPORTED; }
         var renderer = {
             __elyricDestroyed: false, __elyricPlayerPage: page, __elyricMountHost: page,
             currentItem: null, itemsContainer: document.createElement("div")
@@ -13949,8 +14001,10 @@
             videoOsd.__elyricRenderer = renderer;
             if (styleReady && styleReady.then) { styleReady.then(finishMount, failMount); }
             else { finishMount(); }
+            return PLAYER_MOUNT_STATUS_MOUNTED;
         } catch (error) {
             failMount(error);
+            return PLAYER_MOUNT_STATUS_FAILED;
         }
     }
 
@@ -14010,17 +14064,59 @@
         return true;
     }
 
+    function cancelOwnedPlayerMountRetry(videoOsd) {
+        if (!videoOsd) { return; }
+        if (null != videoOsd.__elyricMountRetryTimer) {
+            clearTimeout(videoOsd.__elyricMountRetryTimer);
+        }
+        videoOsd.__elyricMountRetryTimer = null;
+        videoOsd.__elyricMountRetryIndex = -1;
+    }
+
+    function scheduleOwnedPlayerMountRetry(videoOsd, generation, retryIndex) {
+        if (!videoOsd || videoOsd.__elyricMountGeneration !== generation) { return; }
+        var currentDelay = PLAYER_MOUNT_RETRY_DELAYS[retryIndex];
+        if (!isFinite(currentDelay)) { return; }
+        var previousDelay = retryIndex > 0 ? PLAYER_MOUNT_RETRY_DELAYS[retryIndex - 1] : 0;
+        var wait = Math.max(0, currentDelay - previousDelay);
+        var attempt = function () {
+            videoOsd.__elyricMountRetryTimer = null;
+            if (videoOsd.__elyricMountGeneration !== generation) { return; }
+            var page = videoOsd.view || videoOsd.element
+                || document.querySelector(".view-videoosd-videoosd");
+            if (!page || false === page.isConnected
+                || !isOwnedPlayerRouteActive({ __elyricPlayerPage: page })) {
+                cancelOwnedPlayerMountRetry(videoOsd);
+                return;
+            }
+            videoOsd.__elyricMountRetryIndex = retryIndex;
+            var status = mountOwnedPlayer(videoOsd);
+            videoOsd.__elyricMountStatus = status;
+            if (PLAYER_MOUNT_STATUS_NOT_READY === status
+                && retryIndex + 1 < PLAYER_MOUNT_RETRY_DELAYS.length) {
+                scheduleOwnedPlayerMountRetry(videoOsd, generation, retryIndex + 1);
+                return;
+            }
+            cancelOwnedPlayerMountRetry(videoOsd);
+        };
+        if (wait > 0) {
+            videoOsd.__elyricMountRetryTimer = setTimeout(attempt, wait);
+        } else {
+            Promise.resolve().then(attempt);
+        }
+    }
+
     VideoOsd.prototype.onResume = function () {
         var result = originalVideoOsdOnResume.apply(this, arguments);
-        var instance = this;
-        var generation = (instance.__elyricMountGeneration || 0) + 1;
-        instance.__elyricMountGeneration = generation;
-        Promise.resolve().then(function () {
-            if (instance.__elyricMountGeneration === generation) { mountOwnedPlayer(instance); }
-        });
+        cancelOwnedPlayerMountRetry(this);
+        var generation = (this.__elyricMountGeneration || 0) + 1;
+        this.__elyricMountGeneration = generation;
+        scheduleOwnedPlayerMountRetry(this, generation, 0);
         return result;
     };
     VideoOsd.prototype.onPause = function () {
+        cancelOwnedPlayerMountRetry(this);
+        this.__elyricMountGeneration = (this.__elyricMountGeneration || 0) + 1;
         var renderer = this.__elyricRenderer;
         if (renderer
             && Number(renderer.__elyricViewportTransitionUntil || 0) > Date.now()
@@ -14028,11 +14124,11 @@
             repositionPlayerOverlays(renderer);
             return;
         }
-        this.__elyricMountGeneration = (this.__elyricMountGeneration || 0) + 1;
         unmountOwnedPlayer(this);
         return originalVideoOsdOnPause.apply(this, arguments);
     };
     VideoOsd.prototype.destroy = function () {
+        cancelOwnedPlayerMountRetry(this);
         this.__elyricMountGeneration = (this.__elyricMountGeneration || 0) + 1;
         unmountOwnedPlayer(this);
         return originalVideoOsdDestroy.apply(this, arguments);

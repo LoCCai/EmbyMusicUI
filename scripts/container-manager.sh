@@ -2,7 +2,7 @@
 set -eu
 
 VERSION="4.9.5.0"
-BUILD_ID="2026.08.17-theme-v6-shadow-persistence-r5"
+BUILD_ID="2026.08.17-theme-v6-shadow-persistence-r6"
 TARGET_ROOT="${ELYRIC_TARGET_ROOT:-/system/dashboard-ui/videoosd}"
 CONFIG_ROOT="${ELYRIC_CONFIG_ROOT:-/config}"
 BACKUP_ROOT="$CONFIG_ROOT/emby-lyric-enhance/$VERSION"

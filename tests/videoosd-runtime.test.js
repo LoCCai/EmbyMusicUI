@@ -474,6 +474,76 @@ function deferLyrics(id) {
         });
         assert.strictEqual(fixture.visualizer.frequencyLayout, fixture.baseTheme === "mint" ? "radial" : "centerOut");
     });
+    const geometryV6 = window.__elyricPlayerThemeV6Geometry;
+    const anchorLayout = {
+        artwork: { x: -30, y: -20, width: 100, height: 60, rotation: 0, anchorX: "start", anchorY: "start" },
+        metadata: { hidden: true }, lyrics: { hidden: true }, visualizer: { hidden: true }
+    };
+    assert.deepStrictEqual(
+        geometryV6.compactLayoutBounds(anchorLayout, "portrait", { width: 1080, height: 1920 }),
+        { top: -20, bottom: 40 },
+        "compact bounds must retain legal negative coordinates instead of clipping to the canvas"
+    );
+    anchorLayout.artwork.anchorX = "center";
+    anchorLayout.artwork.anchorY = "center";
+    assert.deepStrictEqual(
+        geometryV6.compactLayoutBounds(anchorLayout, "portrait", { width: 1080, height: 1920 }),
+        { top: 910, bottom: 970 },
+        "center anchors must be resolved before compact projection"
+    );
+    anchorLayout.artwork.anchorX = "end";
+    anchorLayout.artwork.anchorY = "end";
+    anchorLayout.artwork.rotation = 90;
+    const rotatedEndBounds = geometryV6.compactLayoutBounds(
+        anchorLayout, "portrait", { width: 1080, height: 1920 }
+    );
+    assert(Math.abs(rotatedEndBounds.top - 1820) < 1e-9
+        && Math.abs(rotatedEndBounds.bottom - 1920) < 1e-9,
+    "end anchors and the rotated AABB must participate in the shared compact bounds");
+    anchorLayout.artwork.y = "invalid";
+    assert.deepStrictEqual(
+        geometryV6.compactLayoutBounds(anchorLayout, "portrait", { width: 1080, height: 1920 }),
+        { top: 96, bottom: 1576 },
+        "invalid compact geometry must fall back to the public portrait safe bounds"
+    );
+
+    const compactCases = [
+        { width: 390, height: 844, profile: "portrait", mode: "compact-portrait" },
+        { width: 844, height: 390, profile: "landscape", mode: "compact-landscape" },
+        { width: 480, height: 320, profile: "landscape", mode: "compact-tight" }
+    ];
+    compactCases.forEach((compactCase) => {
+        window.innerWidth = compactCase.width; window.innerHeight = compactCase.height;
+        window.visualViewport.width = compactCase.width; window.visualViewport.height = compactCase.height;
+        window.__elyricPlayerThemeV6Fixtures.forEach((fixture) => {
+            const projectedRenderer = {
+                __elyricThemeV2: JSON.parse(JSON.stringify(fixture)),
+                __elyricControlMode: compactCase.mode
+            };
+            const metrics = geometryV6.metrics(projectedRenderer, compactCase.profile, {
+                left: 0, top: 0, width: compactCase.width, height: compactCase.height
+            });
+            const constants = geometryV6.compactConstants;
+            const dockHeight = compactCase.mode === "compact-landscape"
+                ? constants.landscapeDockHeight : constants.stackedDockHeight;
+            const dockTop = compactCase.height - constants.dockBottomMargin - dockHeight;
+            ["artwork", "metadata", "lyrics", "visualizer"].forEach((layerId) => {
+                const layer = projectedRenderer.__elyricThemeV2.layouts[compactCase.profile][layerId];
+                if (!layer || layer.hidden) return;
+                const rect = geometryV6.designRect(layer, metrics);
+                const radians = Number(layer.rotation || 0) * Math.PI / 180;
+                const halfHeight = (Math.abs(Math.sin(radians)) * rect.width / 2
+                    + Math.abs(Math.cos(radians)) * rect.height / 2) * metrics.scale;
+                const centerY = metrics.originY + (rect.top + rect.height / 2) * metrics.scale;
+                assert(centerY + halfHeight <= dockTop - constants.contentGap + 1e-6,
+                    `${fixture.baseTheme} ${compactCase.width}x${compactCase.height} ${layerId} must stay above compact dock`);
+                assert(centerY - halfHeight >= -1e-6,
+                    `${fixture.baseTheme} ${compactCase.width}x${compactCase.height} ${layerId} must stay below the safe viewport top`);
+            });
+        });
+    });
+    window.innerWidth = 1440; window.innerHeight = 900;
+    window.visualViewport.width = 1440; window.visualViewport.height = 900;
     serverDraft.name = "账号权威主题";
     serverDraft.lyrics.style = "gradient";
     serverDraft.layouts.landscape.metadata.x = -1800;
@@ -735,12 +805,46 @@ function deferLyrics(id) {
         "closing More must restore focus to its viewport-anchored trigger");
     const muteButton = root.querySelector(".elyric-player-button-mute");
     assert.strictEqual(muteButton.getAttribute("data-elyric-volume"), "64");
-    muteButton.click();
     const volumePanel = root.querySelector(".elyric-player-volume-panel");
+    const portraitVolumeSlider = volumePanel.querySelector(".elyric-player-volume-slider-portrait");
+    muteButton.getBoundingClientRect = () => ({ left: 300, top: 560, right: 344, bottom: 604, width: 44, height: 44 });
+    volumePanel.getBoundingClientRect = () => {
+        const left = Number.parseFloat(volumePanel.style.getPropertyValue("left")) || 0;
+        const top = Number.parseFloat(volumePanel.style.getPropertyValue("top")) || 0;
+        const width = Number.parseFloat(volumePanel.style.getPropertyValue("width")) || 72;
+        const height = Number.parseFloat(volumePanel.style.getPropertyValue("height")) || 240;
+        return { left, top, right: left + width, bottom: top + height, width, height };
+    };
+    portraitVolumeSlider.getBoundingClientRect = () => {
+        const panelRect = volumePanel.getBoundingClientRect();
+        const length = panelRect.height - 38;
+        return {
+            left: panelRect.left + (panelRect.width - 44) / 2,
+            top: panelRect.top + 19,
+            right: panelRect.left + (panelRect.width + 44) / 2,
+            bottom: panelRect.top + 19 + length,
+            width: 44, height: length
+        };
+    };
+    muteButton.click();
     assert(!volumePanel.hasAttribute("hidden") && volumePanel.getAttribute("data-elyric-anchor-mode") === "button",
         "portrait volume must open a root-owned button-anchored vertical slider");
-    assert(["above", "below", "left", "right"].includes(volumePanel.getAttribute("data-elyric-anchor-placement")));
-    const portraitVolumeSlider = volumePanel.querySelector(".elyric-player-volume-slider-portrait");
+    assert.strictEqual(volumePanel.getAttribute("data-elyric-anchor-placement"), "above");
+    assert.strictEqual(volumePanel.style.getPropertyValue("width"), "72px");
+    assert.strictEqual(volumePanel.style.getPropertyValue("height"), "240px");
+    assert.strictEqual(volumePanel.style.getPropertyValue("max-height"), "240px");
+    assert.strictEqual(560 - volumePanel.getBoundingClientRect().bottom, 12,
+        "the full 72x240 volume box must remain exactly 12px from its trigger");
+    const panelBox = volumePanel.getBoundingClientRect();
+    const sliderBox = portraitVolumeSlider.getBoundingClientRect();
+    assert(sliderBox.left >= panelBox.left + 13 && sliderBox.right <= panelBox.right - 13
+        && sliderBox.top >= panelBox.top + 19 && sliderBox.bottom <= panelBox.bottom - 19,
+    "the rotated vertical volume slider must remain fully inside the panel content box");
+    notifyResize(volumePanel, 72, 240);
+    flushFrame(osd.__elyricRenderer.__elyricOverlayRepositionFrames.volume.id);
+    notifyResize(volumePanel, 72, 240);
+    assert(!osd.__elyricRenderer.__elyricOverlayRepositionFrames.volume,
+        "a stable fixed volume box must not create a ResizeObserver reposition loop");
     assert.strictEqual(document.activeElement, portraitVolumeSlider);
     assert.strictEqual(portraitVolumeSlider.focusOptions && portraitVolumeSlider.focusOptions.preventScroll, true,
         "opening a root-owned overlay must focus without scrolling the fixed player");
@@ -756,6 +860,12 @@ function deferLyrics(id) {
     assert.strictEqual(muteButton.focusOptions && muteButton.focusOptions.preventScroll, true,
         "closing an overlay must restore trigger focus without scrolling the player");
     assert.strictEqual(root.scrollTop, 0); assert.strictEqual(fixedStage.scrollTop, 0);
+    muteButton.getBoundingClientRect = () => ({ left: 300, top: 32, right: 344, bottom: 76, width: 44, height: 44 });
+    muteButton.click();
+    assert.strictEqual(volumePanel.getAttribute("data-elyric-anchor-placement"), "below",
+        "the fixed-height volume box must flip below when the full panel cannot fit above");
+    assert.strictEqual(volumePanel.getBoundingClientRect().top - 76, 12);
+    muteButton.click();
     window.innerWidth = 1440; window.innerHeight = 900;
     window.visualViewport.width = 1440; window.visualViewport.height = 900;
     window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
@@ -903,6 +1013,41 @@ function deferLyrics(id) {
     assert.strictEqual(mountedRoot().querySelector(".elyric-player-button-next").disabled, true);
     limitedOsd.onPause(); manager.nextTrack = next; limited.page.remove();
 
+    const delayedPlayerPage = createPage();
+    const getCurrentPlayer = manager.getCurrentPlayer;
+    let delayedPlayerReady = false;
+    manager.getCurrentPlayer = () => delayedPlayerReady ? player : null;
+    currentItem = item("song-delayed-player", "延迟播放器");
+    state = Object.assign({}, state, { NowPlayingItem: currentItem });
+    const delayedPlayerOsd = new VideoOsd(delayedPlayerPage.page);
+    delayedPlayerOsd.onResume(); await settle();
+    assert(!mountedRoot() && delayedPlayerOsd.__elyricMountRetryTimer,
+        "an unavailable currentPlayer must keep native OSD visible while a bounded retry is pending");
+    delayedPlayerOsd.onResume();
+    setTimeout(() => { delayedPlayerReady = true; }, 20);
+    await wait(80); await settle();
+    assert(mountedRoot() && document.body.querySelectorAll(".elyric-player-host").length === 1,
+        "a later currentPlayer must mount exactly one Shadow player after repeated onResume");
+    assert.strictEqual(delayedPlayerOsd.__elyricMountStatus, "mounted");
+    assert.strictEqual(delayedPlayerOsd.__elyricMountRetryTimer, null);
+    delayedPlayerOsd.onPause(); delayedPlayerPage.page.remove();
+    manager.getCurrentPlayer = getCurrentPlayer;
+
+    const delayedItemPage = createPage();
+    const getCurrentItem = manager.currentItem;
+    let delayedItemReady = false;
+    currentItem = item("song-delayed-item", "延迟媒体项");
+    state = Object.assign({}, state, { NowPlayingItem: currentItem });
+    manager.currentItem = () => delayedItemReady ? currentItem : null;
+    const delayedItemOsd = new VideoOsd(delayedItemPage.page);
+    delayedItemOsd.onResume(); await settle();
+    setTimeout(() => { delayedItemReady = true; }, 20);
+    await wait(80); await settle();
+    assert(mountedRoot(), "a delayed currentItem must mount on the next bounded retry");
+    assert.strictEqual(delayedItemOsd.__elyricMountRetryTimer, null);
+    delayedItemOsd.onPause(); delayedItemPage.page.remove();
+    manager.currentItem = getCurrentItem;
+
     const failed = createPage(); const getState = manager.getPlayerState; manager.getPlayerState = null;
     const failedOsd = new VideoOsd(failed.page); const oldError = console.error; console.error = function () {};
     failedOsd.onResume(); await settle(); console.error = oldError;
@@ -911,12 +1056,27 @@ function deferLyrics(id) {
 
     const video = createPage(); currentItem = item("video-a", "视频 A", "Video"); state = Object.assign({}, state, { NowPlayingItem: currentItem });
     const videoOsd = new VideoOsd(video.page); videoOsd.onResume(); await settle();
-    assert(!mountedRoot()); videoOsd.onPause(); video.page.remove();
+    assert(!mountedRoot());
+    assert.strictEqual(videoOsd.__elyricMountStatus, "unsupported");
+    assert.strictEqual(videoOsd.__elyricMountRetryTimer, null);
+    videoOsd.onPause(); video.page.remove();
 
     const rapid = createPage(); currentItem = item("song-a", "歌曲 A"); state = Object.assign({}, state, { NowPlayingItem: currentItem });
     const rapidOsd = new VideoOsd(rapid.page); rapidOsd.onResume(); rapidOsd.onPause(); await settle();
     assert(!mountedRoot(), "an onPause before the resume microtask must cancel mounting");
-    assert.strictEqual(rapid.native.style.visibility, "visible"); rapid.page.remove();
+    assert.strictEqual(rapid.native.style.visibility, "visible");
+    assert.strictEqual(rapidOsd.__elyricMountRetryTimer, null); rapid.page.remove();
+
+    const destroyedRetry = createPage();
+    manager.getCurrentPlayer = () => null;
+    const destroyedRetryOsd = new VideoOsd(destroyedRetry.page);
+    destroyedRetryOsd.onResume(); await settle();
+    assert(destroyedRetryOsd.__elyricMountRetryTimer);
+    destroyedRetryOsd.destroy(); await wait(70); await settle();
+    assert.strictEqual(destroyedRetryOsd.__elyricMountRetryTimer, null);
+    assert(!mountedRoot(), "destroy must cancel all delayed mount attempts");
+    manager.getCurrentPlayer = getCurrentPlayer;
+    destroyedRetry.page.remove();
 
     const outerStyle = document.createElement("style");
     outerStyle.textContent = "button,input,*{all:unset!important}.lyricsItem{position:fixed!important}";
@@ -984,7 +1144,7 @@ function deferLyrics(id) {
     unsupportedOsd.onPause(); unsupported.page.remove();
     Node.prototype.attachShadow = attachShadow;
 
-    assert(resumes >= 5 && pauses >= 5 && destroys === 2);
+    assert(resumes >= 5 && pauses >= 5 && destroys === 3);
     assert(requestedUrls.some((url) => url.includes("Items/song-a/source-song-a/Subtitles/2/Stream.js")));
     console.log("VideoOsd runtime single-root, bridge, lyrics, queue and rollback: ok");
 })().catch((error) => { console.error(error); process.exitCode = 1; });

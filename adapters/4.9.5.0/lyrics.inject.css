@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.17-theme-v6-shadow-persistence-r5 */
+/* ELYRIC_BUILD:2026.08.17-theme-v6-shadow-persistence-r6 */
 .elyric-player-host {
     position: fixed !important;
     inset: 0 !important;
@@ -5447,15 +5447,21 @@
 .elyric-player-root .elyric-player-cast-target span,
 .elyric-player-root .elyric-player-cast-status { opacity: .68; font-size: .86rem; }
 .elyric-player-root .elyric-player-volume-panel {
-    display: grid;
-    place-items: center;
+    display: block;
+    position: fixed !important;
     width: var(--elyric-v6-volume-popover-width, 72px) !important;
-    height: var(--elyric-v6-volume-popover-height, 240px) !important;
+    height: var(--elyric-v6-volume-render-height, var(--elyric-v6-volume-popover-height, 240px)) !important;
     padding: 18px 12px;
 }
 .elyric-player-root .elyric-player-volume-slider-portrait {
-    width: 190px !important;
-    transform: rotate(-90deg);
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    width: calc(var(--elyric-v6-volume-render-height, var(--elyric-v6-volume-popover-height, 240px)) - 38px) !important;
+    height: 44px !important;
+    margin: 0 !important;
+    transform: translate(-50%, -50%) rotate(-90deg) !important;
+    transform-origin: center !important;
 }
 .elyric-player-root .elyric-player-button-mute {
     background: linear-gradient(to top,
