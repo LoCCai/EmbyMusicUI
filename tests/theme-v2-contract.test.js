@@ -144,8 +144,11 @@ assert(!adapter.includes("rect.left / window.innerWidth"),
     "saved layout data must never be inferred from rendered viewport rectangles");
 assert(!css.includes("data-elyric-player-layout"),
     "theme ids must never select geometry or hidden visual CSS");
-assert(!css.includes("data-elyric-compact") && !adapter.includes("data-elyric-compact"),
-    "the V4 runtime must not retain a third compact layout mode");
+assert(!adapter.includes('layouts: { compact:') && !adapter.includes('profiles: { compact:'),
+    "r5 compact must remain a runtime safety projection instead of a third serialized theme profile");
+assert(adapter.includes('data-elyric-control-mode') && adapter.includes('compact-portrait')
+    && css.includes('data-elyric-control-mode^="compact-"'),
+    "small screens should select the non-exported viewport ControlDock projection");
 assert(!adapter.includes('setAttributeIfChanged(body, "data-elyric-player-layout"')
     && !adapter.includes('setAttributeIfChanged(renderer.itemsContainer, "data-elyric-player-layout"'),
 "the V4 renderer must not expose a theme-id styling hook");

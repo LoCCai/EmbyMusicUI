@@ -490,6 +490,8 @@ function deferLyrics(id) {
     assert.strictEqual(root.getAttribute("data-elyric-workspace-source"), "server");
     assert.strictEqual(root.getAttribute("data-elyric-workspace-revision"), "7");
     assert.strictEqual(root.getAttribute("data-elyric-account-scope"), "server-a.runtime-user");
+    assert.strictEqual(root.getAttribute("data-elyric-control-mode"), "full",
+        "1440x900 should keep the ordinary V6 ControlDock");
     assert.strictEqual(root.querySelector(".elyric-player-lyric-viewport").getAttribute("data-elyric-theme"), "gradient");
     const fixedStage = root.querySelector(".elyric-player-stage");
     assert.strictEqual(fixedStage.style.getPropertyValue("width"), "1920px");
@@ -588,6 +590,9 @@ function deferLyrics(id) {
     assert.strictEqual(secondCommitDocument.layouts.portrait.lyrics.x, -31);
     assert.strictEqual(secondCommitDocument.console.material, "rainbow",
         "console material must round-trip from the V6 document rather than a legacy choices cache");
+    assert.strictEqual(secondCommitDocument.controlMode, undefined);
+    assert.strictEqual(secondCommitDocument.compact, undefined,
+        "compact safety projection must never enter portable ThemeDocumentV6 JSON");
 
     const validDockX = osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.controlDock.x;
     osd.__elyricRenderer.__elyricThemeV2.layouts.landscape.controlDock.x = -5000;
@@ -675,6 +680,7 @@ function deferLyrics(id) {
     window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
     assert.strictEqual(root.getAttribute("data-elyric-theme-v2-profile"), "portrait",
         "visualViewport must win over a stale landscape-sized Emby documentElement");
+    assert.strictEqual(root.getAttribute("data-elyric-control-mode"), "compact-portrait");
     assert.strictEqual(fixedStage.style.getPropertyValue("width"), "1080px");
     assert.strictEqual(fixedStage.style.getPropertyValue("height"), "1920px");
     assert(fixedStage.style.getPropertyValue("transform").includes("scale(0.3611111111111111)"),
@@ -687,6 +693,46 @@ function deferLyrics(id) {
     assert.strictEqual(root.querySelector(".elyric-player-lyric-viewport").textContent, lyricTextBeforeResize,
         "profile changes must preserve the current lyric window");
     assert.strictEqual(root.scrollTop, 0); assert.strictEqual(fixedStage.scrollTop, 0);
+    const compactHost = root.querySelector(".elyric-player-compact-dock-host");
+    const controlDock = root.querySelector(".elyric-player-control-dock");
+    assert.strictEqual(controlDock.parentNode, compactHost,
+        "compact must move the same ControlDock node into the viewport safety host");
+    assert.strictEqual(controlDock.style.getPropertyValue("--elyric-v6-dock-button"), "44px");
+    assert.strictEqual(controlDock.style.getPropertyValue("--elyric-v6-dock-play"), "58px");
+
+    window.innerWidth = 844; window.innerHeight = 390;
+    window.visualViewport.width = 844; window.visualViewport.height = 390;
+    window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
+    assert.strictEqual(root.getAttribute("data-elyric-control-mode"), "compact-landscape");
+    window.innerWidth = 480; window.innerHeight = 320;
+    window.visualViewport.width = 480; window.visualViewport.height = 320;
+    window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
+    assert.strictEqual(root.getAttribute("data-elyric-control-mode"), "compact-tight");
+    window.innerWidth = 390; window.innerHeight = 844;
+    window.visualViewport.width = 390; window.visualViewport.height = 844;
+    window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
+
+    const moreButton = root.querySelector(".elyric-player-button-more");
+    const controlsPanel = root.querySelector(".elyric-player-compact-controls-panel");
+    moreButton.getBoundingClientRect = () => ({ left: 310, top: 752, right: 354, bottom: 796, width: 44, height: 44 });
+    controlsPanel.getBoundingClientRect = () => {
+        const left = Number.parseFloat(controlsPanel.style.getPropertyValue("left")) || 0;
+        const top = Number.parseFloat(controlsPanel.style.getPropertyValue("top")) || 0;
+        return { left, top, right: left + 320, bottom: top + 156, width: 320, height: 156 };
+    };
+    moreButton.click();
+    assert.strictEqual(controlsPanel.getAttribute("data-elyric-anchor-mode"), "button");
+    assert.strictEqual(controlsPanel.querySelectorAll(".elyric-player-compact-control-tile").length, 6);
+    assert.strictEqual(document.activeElement.focusOptions && document.activeElement.focusOptions.preventScroll, true,
+        "More must focus its first real control without scrolling the player");
+    const controlsEscape = {
+        key: "Escape", type: "keydown", defaultPrevented: false,
+        preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}
+    };
+    (document.listeners.keydown || []).slice().forEach((listener) => listener(controlsEscape));
+    assert(controlsEscape.defaultPrevented && controlsPanel.hasAttribute("hidden"));
+    assert.strictEqual(document.activeElement, moreButton,
+        "closing More must restore focus to its viewport-anchored trigger");
     const muteButton = root.querySelector(".elyric-player-button-mute");
     assert.strictEqual(muteButton.getAttribute("data-elyric-volume"), "64");
     muteButton.click();
@@ -714,10 +760,27 @@ function deferLyrics(id) {
     window.visualViewport.width = 1440; window.visualViewport.height = 900;
     window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
     assert.strictEqual(root.getAttribute("data-elyric-theme-v2-profile"), "landscape");
+    assert.strictEqual(root.getAttribute("data-elyric-control-mode"), "full");
+    assert.strictEqual(root.querySelector(".elyric-player-control-dock").parentNode, fixedStage,
+        "leaving compact must return the same ControlDock node to the V6 stage");
     assert.strictEqual(fixedStage.style.getPropertyValue("width"), "1920px");
     assert.strictEqual(fixedStage.style.getPropertyValue("height"), "1080px");
     assert.strictEqual(document.body.querySelectorAll(".elyric-player-host").length, 1);
     assert.strictEqual(calls.filter((call) => call[0] === "stop").length, stopsBeforeResize);
+
+    window.innerWidth = 768; window.innerHeight = 1024;
+    window.visualViewport.width = 768; window.visualViewport.height = 1024;
+    window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
+    assert.strictEqual(root.getAttribute("data-elyric-control-mode"), "full",
+        "768x1024 has enough viewport space for an inverse-sized full portrait dock");
+    window.innerWidth = 1024; window.innerHeight = 768;
+    window.visualViewport.width = 1024; window.visualViewport.height = 768;
+    window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
+    assert.strictEqual(root.getAttribute("data-elyric-control-mode"), "full",
+        "1024x768 has enough viewport space for an inverse-sized full landscape dock");
+    window.innerWidth = 1440; window.innerHeight = 900;
+    window.visualViewport.width = 1440; window.visualViewport.height = 900;
+    window.listeners.resize.forEach((listener) => listener({ type: "resize" }));
     assert.strictEqual(first.native.getAttribute("aria-hidden"), "true"); assert(first.native.hasAttribute("inert"));
     assert.strictEqual(first.native.style.visibility, "hidden");
 

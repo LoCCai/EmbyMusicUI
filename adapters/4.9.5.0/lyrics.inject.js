@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.17-theme-v6-shadow-persistence-r4 */
+/* ELYRIC_BUILD:2026.08.17-theme-v6-shadow-persistence-r5 */
 ;(function () {
     "use strict";
 
@@ -36,7 +36,7 @@
     var PLAYER_PREFERENCES_KEY = "emby-lyric-enhance.player-preferences.v2";
     var PLAYER_THEME_LIBRARY_STORAGE_KEY = "emby-lyric-enhance.player-themes.v1";
     var PLAYER_THEME_DESIGN_STORAGE_KEY = "emby-lyric-enhance.player-theme-design.v1";
-    var PLAYER_BUILD_ID = "2026.08.17-theme-v6-shadow-persistence-r4";
+    var PLAYER_BUILD_ID = "2026.08.17-theme-v6-shadow-persistence-r5";
     var PLAYER_PREFERENCES_VERSION = 6;
     var PLAYER_THEME_SCHEMA_VERSION = 6;
     var PLAYER_THEME_DOCUMENT_FORMAT = "emby-lyric-theme";
@@ -582,6 +582,15 @@
     };
     var PLAYER_CONTROL_DOCK_JUSTIFY_IDS = ["start", "center", "end", "space-between"];
     var PLAYER_CONTROL_DOCK_ALIGN_IDS = ["start", "center", "end"];
+    var PLAYER_COMPACT_PINNED_IDS = ["stop", "queue", "media", "settings"];
+    var PLAYER_COMPACT_OVERFLOW_IDS = [
+        "shuffle", "repeat", "visualizerToggle", "secondaryLyrics", "tertiaryLyrics", "artworkRotation"
+    ];
+    var PLAYER_COMPACT_CORE_IDS = ["previous", "playPause", "next", "settings"];
+    var PLAYER_COMPACT_MODE_FULL = "full";
+    var PLAYER_COMPACT_MODE_PORTRAIT = "compact-portrait";
+    var PLAYER_COMPACT_MODE_LANDSCAPE = "compact-landscape";
+    var PLAYER_COMPACT_MODE_TIGHT = "compact-tight";
     var PLAYER_THEME_V2_ANCHORS = ["start", "center", "end"];
     var PLAYER_LEGACY_GEOMETRY_TUNING_IDS = [
         "artworkSize", "artworkX", "artworkY", "metadataWidth", "metadataX", "metadataY",
@@ -1585,7 +1594,127 @@
         };
     }
 
-    function playerThemeV2StageMetrics(renderer, profileOverride, frozenViewport) {
+    function playerControlDockItemHidden(profile, groupId, itemId, compact) {
+        var group = profile && profile.groups && profile.groups[groupId];
+        if (compact && PLAYER_COMPACT_CORE_IDS.indexOf(itemId) >= 0) { return false; }
+        if (!group || false === group.visible) { return true; }
+        return Array.isArray(group.hiddenButtons) && group.hiddenButtons.indexOf(itemId) >= 0;
+    }
+
+    function playerControlDockDesignSizes(scale) {
+        scale = Math.max(.001, Number(scale) || 1);
+        return {
+            button: Math.max(44, 44 / scale),
+            play: Math.max(58, 56 / scale),
+            icon: Math.max(18, 18 / scale),
+            progress: Math.max(44, 44 / scale)
+        };
+    }
+
+    function playerControlDockEstimatedGroupWidth(profile, groupId, sizes, portrait) {
+        var group = profile.groups[groupId];
+        if (!group || false === group.visible) { return 0; }
+        var gap = Number(group.gap) || 0;
+        if ("progress" === groupId) { return 0; }
+        if ("volume" === groupId) {
+            if (playerControlDockItemHidden(profile, groupId, "mute", false)) { return 0; }
+            if (portrait) { return sizes.button; }
+            return Math.max(250, sizes.button + 164 + gap * 2);
+        }
+        var visible = (group.order || []).filter(function (itemId) {
+            return !playerControlDockItemHidden(profile, groupId, itemId, false);
+        });
+        return visible.reduce(function (width, itemId, index) {
+            return width + ("playPause" === itemId ? sizes.play : sizes.button) + (index ? gap : 0);
+        }, 0);
+    }
+
+    function playerControlDockEstimatedGroupHeight(profile, groupId, sizes) {
+        var group = profile.groups[groupId];
+        if (!group || false === group.visible) { return 0; }
+        if ("progress" === groupId) { return sizes.progress; }
+        if ("transport" === groupId
+            && !playerControlDockItemHidden(profile, groupId, "playPause", false)) {
+            return sizes.play;
+        }
+        return sizes.button;
+    }
+
+    function playerControlDockRequiredDesignSize(profile, sizes, portrait) {
+        var rowHeights = [];
+        var width = 0;
+        (profile.rows || []).forEach(function (row) {
+            var visibleGroups = row.groups.filter(function (groupId) {
+                return profile.groups[groupId] && false !== profile.groups[groupId].visible;
+            });
+            width = Math.max(width, visibleGroups.reduce(function (total, groupId, index) {
+                return total + playerControlDockEstimatedGroupWidth(
+                    profile, groupId, sizes, portrait
+                ) + (index ? Number(row.gap || 0) : 0);
+            }, 0));
+            rowHeights.push(visibleGroups.reduce(function (height, groupId) {
+                return Math.max(height, playerControlDockEstimatedGroupHeight(profile, groupId, sizes));
+            }, 0));
+        });
+        return {
+            width: width + 28,
+            height: rowHeights.reduce(function (total, height) { return total + height; }, 0)
+                + Math.max(0, rowHeights.length - 1) * 8 + 28
+        };
+    }
+
+    function playerControlDockProfileOverflows(renderer, profileId, metrics) {
+        var theme = renderer && renderer.__elyricThemeV2;
+        var layout = theme && theme.layouts && theme.layouts[profileId];
+        var dockLayer = layout && layout.controlDock;
+        var profile = normalizePlayerControlDockProfile(
+            theme && theme.controls && theme.controls.profiles && theme.controls.profiles[profileId],
+            "portrait" === profileId
+        );
+        if (!dockLayer || !profile) { return true; }
+        var sizes = playerControlDockDesignSizes(metrics.scale);
+        var required = playerControlDockRequiredDesignSize(
+            profile, sizes, "portrait" === profileId
+        );
+        return required.width > Number(dockLayer.width) + .5
+            || required.height > Number(dockLayer.y) + Number(dockLayer.height) + .5;
+    }
+
+    function resolvedPlayerControlMode(renderer, profileId, metrics) {
+        if (renderer && renderer.__elyricThemeV2DesignerOpen) { return PLAYER_COMPACT_MODE_FULL; }
+        var viewport = metrics && metrics.viewport || playerThemeV2ViewportRect();
+        var compact = viewport.width < 600 || viewport.height < 480
+            || playerControlDockProfileOverflows(renderer, profileId, metrics);
+        if (!compact) { return PLAYER_COMPACT_MODE_FULL; }
+        if ("portrait" === profileId) { return PLAYER_COMPACT_MODE_PORTRAIT; }
+        return viewport.width < 520 ? PLAYER_COMPACT_MODE_TIGHT : PLAYER_COMPACT_MODE_LANDSCAPE;
+    }
+
+    function playerThemeV2CompactContentBounds(renderer, profileId, canvasSize) {
+        var layout = resolvedPlayerThemeV2Layout(renderer, profileId);
+        var top = Infinity;
+        var bottom = -Infinity;
+        ["artwork", "metadata", "lyrics", "visualizer"].forEach(function (layerId) {
+            var layer = layout && layout[layerId];
+            if (!layer || layer.hidden) { return; }
+            var y = Number(layer.y);
+            var width = Number(layer.width);
+            var height = Number(layer.height);
+            if (!isFinite(y) || !isFinite(width) || !isFinite(height) || width <= 0 || height <= 0) { return; }
+            var radians = (Number(layer.rotation) || 0) * Math.PI / 180;
+            var rotatedHalfHeight = Math.abs(Math.sin(radians)) * width / 2
+                + Math.abs(Math.cos(radians)) * height / 2;
+            var centerY = y + height / 2;
+            top = Math.min(top, Math.max(0, centerY - rotatedHalfHeight));
+            bottom = Math.max(bottom, Math.min(canvasSize.height, centerY + rotatedHalfHeight));
+        });
+        if (!isFinite(top) || !isFinite(bottom) || bottom - top < 44) {
+            return "portrait" === profileId ? { top: 96, bottom: 1576 } : { top: 96, bottom: 852 };
+        }
+        return { top: top, bottom: bottom };
+    }
+
+    function playerThemeV2StageMetrics(renderer, profileOverride, frozenViewport, ignoreCompact) {
         var profileId = PLAYER_THEME_V2_PROFILE_IDS.indexOf(profileOverride) >= 0
             ? profileOverride : currentPlayerThemeV2Profile();
         var viewport = frozenViewport || playerThemeV2ViewportRect();
@@ -1622,11 +1751,26 @@
         var designHeight = baseHeight;
         var originX = available.left + (available.width - designWidth * scale) / 2;
         var originY = available.top + available.height - designHeight * scale;
+        var controlMode = renderer && renderer.__elyricControlMode || PLAYER_COMPACT_MODE_FULL;
+        if (!ignoreCompact && PLAYER_COMPACT_MODE_FULL !== controlMode) {
+            var dockHeight = PLAYER_COMPACT_MODE_LANDSCAPE === controlMode ? 108 : 164;
+            var contentHeight = Math.max(44, available.height - dockHeight - 32);
+            var bounds = playerThemeV2CompactContentBounds(renderer, profileId, canvasSize);
+            var contentSpan = Math.max(44, bounds.bottom - bounds.top);
+            scale = Math.max(.001, Math.min(
+                PLAYER_THEME_MAX_RENDER_SCALE,
+                available.width / designWidth,
+                contentHeight / contentSpan
+            ));
+            originX = available.left + (available.width - designWidth * scale) / 2;
+            originY = available.top + (contentHeight - contentSpan * scale) / 2 - bounds.top * scale;
+        }
         return {
             profileId: profileId, viewport: viewport, available: available,
             baseWidth: baseWidth, baseHeight: baseHeight,
             designWidth: designWidth, designHeight: designHeight,
             baseScale: baseScale, scale: scale, originX: originX, originY: originY,
+            controlMode: controlMode,
             forward: function (x, y) {
                 return { x: originX + x * scale, y: originY + y * scale };
             },
@@ -1722,6 +1866,28 @@
         var displayedLayer = layer;
         var metrics = playerThemeV2StageMetrics(renderer, renderer.__elyricThemeV2Profile);
         metrics.renderer = renderer;
+        if ("controlDock" === layerId && PLAYER_COMPACT_MODE_FULL === renderer.__elyricControlMode) {
+            var controlProfile = normalizePlayerControlDockProfile(
+                renderer.__elyricThemeV2.controls
+                    && renderer.__elyricThemeV2.controls.profiles
+                    && renderer.__elyricThemeV2.controls.profiles[renderer.__elyricThemeV2Profile],
+                "portrait" === renderer.__elyricThemeV2Profile
+            );
+            var requiredDock = playerControlDockRequiredDesignSize(
+                controlProfile,
+                playerControlDockDesignSizes(metrics.scale),
+                "portrait" === renderer.__elyricThemeV2Profile
+            );
+            if (requiredDock.width > Number(layer.width) || requiredDock.height > Number(layer.height)) {
+                displayedLayer = clonePlayerThemeV2Value(layer);
+                var right = Number(layer.x) + Number(layer.width);
+                var bottom = Number(layer.y) + Number(layer.height);
+                displayedLayer.width = Math.max(Number(layer.width), requiredDock.width);
+                displayedLayer.height = Math.max(Number(layer.height), requiredDock.height);
+                displayedLayer.x = right - displayedLayer.width;
+                displayedLayer.y = bottom - displayedLayer.height;
+            }
+        }
         var rect = playerThemeV2LayerDesignRect(displayedLayer, metrics);
         applyPlayerThemeV6Stage(renderer, metrics);
         element.classList.add("elyric-player-v2-layer", "elyric-player-v2-layer-" + layerId);
@@ -1826,6 +1992,131 @@
         return value;
     }
 
+    function playerCompactOverflowOrder(profile) {
+        var auxiliary = profile && profile.groups && profile.groups.auxiliary;
+        var order = auxiliary && Array.isArray(auxiliary.order) ? auxiliary.order : [];
+        return order.concat(PLAYER_COMPACT_OVERFLOW_IDS).filter(function (itemId, index, all) {
+            return PLAYER_COMPACT_OVERFLOW_IDS.indexOf(itemId) >= 0
+                && all.indexOf(itemId) === index
+                && !playerControlDockItemHidden(profile, "auxiliary", itemId, true);
+        });
+    }
+
+    function playerCompactPinnedOrder(profile) {
+        var auxiliary = profile && profile.groups && profile.groups.auxiliary;
+        var order = auxiliary && Array.isArray(auxiliary.order) ? auxiliary.order : [];
+        return order.concat(PLAYER_COMPACT_PINNED_IDS).filter(function (itemId, index, all) {
+            return PLAYER_COMPACT_PINNED_IDS.indexOf(itemId) >= 0
+                && all.indexOf(itemId) === index
+                && !playerControlDockItemHidden(profile, "auxiliary", itemId, true);
+        });
+    }
+
+    function createPlayerCompactControlRow(className) {
+        var row = document.createElement("div");
+        row.className = "elyric-player-control-row " + className;
+        return row;
+    }
+
+    function appendPlayerCompactControl(renderer, parent, element, itemId) {
+        if (!parent || !element) { return; }
+        element.style.setProperty("display", "inline-flex", "important");
+        element.setAttribute("data-elyric-control-item", itemId);
+        parent.appendChild(element);
+    }
+
+    function renderPlayerCompactControlsPanel(renderer, profile) {
+        var panel = renderer.__elyricCompactControlsPanel;
+        var grid = renderer.__elyricCompactControlsGrid;
+        var items = renderer.__elyricControlDockItems;
+        if (!panel || !grid || !items || !items.auxiliary) { return false; }
+        var activeElement = renderer.__elyricControlsOpen ? playerOverlayActiveElement(panel) : null;
+        var activeItemId = activeElement && activeElement.getAttribute
+            ? activeElement.getAttribute("data-elyric-control-item") : "";
+        while (grid.firstChild) { grid.removeChild(grid.firstChild); }
+        var labels = {
+            shuffle: "随机", repeat: "循环", visualizerToggle: "律动",
+            secondaryLyrics: "注音", tertiaryLyrics: "翻译", artworkRotation: "旋转"
+        };
+        var visible = playerCompactOverflowOrder(profile);
+        visible.forEach(function (itemId) {
+            var button = items.auxiliary[itemId];
+            if (!button) { return; }
+            var tile = document.createElement("div");
+            tile.className = "elyric-player-compact-control-tile";
+            tile.setAttribute("data-elyric-compact-item", itemId);
+            button.style.setProperty("display", "inline-flex", "important");
+            button.setAttribute("data-elyric-control-item", itemId);
+            tile.appendChild(button);
+            var label = document.createElement("span");
+            label.appendChild(document.createTextNode(labels[itemId] || itemId));
+            tile.appendChild(label);
+            grid.appendChild(tile);
+        });
+        if (!visible.length && renderer.__elyricControlsOpen) {
+            setControlsPanelOpen(renderer, false);
+        } else if (activeItemId && items.auxiliary[activeItemId]) {
+            focusPlayerOverlayElement(items.auxiliary[activeItemId]);
+        }
+        return !!visible.length;
+    }
+
+    function applyPlayerCompactControlDock(renderer, profile, controlMode) {
+        var dock = renderer.__elyricPlayerControlDock;
+        var host = renderer.__elyricCompactDockHost;
+        var items = renderer.__elyricControlDockItems;
+        if (!dock || !host || !items) { return false; }
+        if (dock.parentNode !== host) { host.appendChild(dock); }
+        clearPlayerThemeV2LayerElement(dock, "controlDock");
+        while (dock.firstChild) { dock.removeChild(dock.firstChild); }
+        var surface = document.createElement("div");
+        surface.className = "elyric-player-control-dock-surface";
+        surface.setAttribute("aria-hidden", "true");
+        dock.appendChild(surface);
+
+        var progressRow = createPlayerCompactControlRow("elyric-player-compact-progress-row");
+        if (renderer.__elyricPlayerProgress) { progressRow.appendChild(renderer.__elyricPlayerProgress); }
+        dock.appendChild(progressRow);
+
+        var mainRow = createPlayerCompactControlRow("elyric-player-compact-main-row");
+        var transportGroup = document.createElement("div");
+        transportGroup.className = "elyric-player-transport elyric-player-control-group";
+        var transportOrder = (profile.groups.transport && profile.groups.transport.order || []).slice();
+        ["previous", "playPause", "next"].forEach(function (fallbackId) {
+            if (transportOrder.indexOf(fallbackId) < 0) { transportOrder.push(fallbackId); }
+        });
+        transportOrder.forEach(function (itemId) {
+            if (["previous", "playPause", "next"].indexOf(itemId) >= 0) {
+                appendPlayerCompactControl(renderer, transportGroup, items.transport[itemId], itemId);
+            }
+        });
+        mainRow.appendChild(transportGroup);
+
+        var commonRow = PLAYER_COMPACT_MODE_LANDSCAPE === controlMode
+            ? mainRow : createPlayerCompactControlRow("elyric-player-compact-common-row");
+        var commonGroup = document.createElement("div");
+        commonGroup.className = "elyric-player-tools elyric-player-control-group elyric-player-compact-common";
+        playerCompactPinnedOrder(profile).forEach(function (itemId) {
+            appendPlayerCompactControl(renderer, commonGroup, items.auxiliary[itemId], itemId);
+        });
+        if (!playerControlDockItemHidden(profile, "volume", "mute", true)) {
+            appendPlayerCompactControl(renderer, commonGroup, items.volume.mute, "mute");
+        }
+        var hasOverflow = renderPlayerCompactControlsPanel(renderer, profile);
+        if (renderer.__elyricCompactMoreButton) {
+            renderer.__elyricCompactMoreButton.style.setProperty(
+                "display", hasOverflow ? "inline-flex" : "none", "important"
+            );
+            if (hasOverflow) { commonGroup.appendChild(renderer.__elyricCompactMoreButton); }
+        }
+        commonRow.appendChild(commonGroup);
+        dock.appendChild(mainRow);
+        if (commonRow !== mainRow) { dock.appendChild(commonRow); }
+        setAttributeIfChanged(dock, "data-elyric-control-profile", renderer.__elyricThemeV2Profile);
+        setAttributeIfChanged(dock, "data-elyric-compact-mode", controlMode);
+        return true;
+    }
+
     function applyPlayerControlDock(renderer, profileOverride) {
         var dock = renderer.__elyricPlayerControlDock;
         var groups = renderer.__elyricControlDockGroups;
@@ -1840,6 +2131,25 @@
             "portrait" === profileId
         );
         renderer.__elyricThemeV2.controls.profiles[profileId] = profile;
+        var metrics = playerThemeV2StageMetrics(renderer, profileId, null, true);
+        var controlMode = renderer.__elyricControlMode || PLAYER_COMPACT_MODE_FULL;
+        if (PLAYER_COMPACT_MODE_FULL !== controlMode
+            && applyPlayerCompactControlDock(renderer, profile, controlMode)) {
+            dock.style.setProperty("--elyric-v6-dock-button", "44px");
+            dock.style.setProperty("--elyric-v6-dock-play", "58px");
+            dock.style.setProperty("--elyric-v6-dock-icon", "18px");
+            dock.style.setProperty("--elyric-v6-dock-progress", "44px");
+            return;
+        }
+        if (renderer.__elyricPlayerStage && dock.parentNode !== renderer.__elyricPlayerStage) {
+            renderer.__elyricPlayerStage.appendChild(dock);
+        }
+        removeAttributeIfPresent(dock, "data-elyric-compact-mode");
+        var designSizes = playerControlDockDesignSizes(metrics.scale);
+        dock.style.setProperty("--elyric-v6-dock-button", designSizes.button + "px");
+        dock.style.setProperty("--elyric-v6-dock-play", designSizes.play + "px");
+        dock.style.setProperty("--elyric-v6-dock-icon", designSizes.icon + "px");
+        dock.style.setProperty("--elyric-v6-dock-progress", designSizes.progress + "px");
         while (dock.firstChild) { dock.removeChild(dock.firstChild); }
         var surface = document.createElement("div");
         surface.className = "elyric-player-control-dock-surface";
@@ -2000,10 +2310,27 @@
         renderer.__elyricThemeV2Profile = PLAYER_THEME_V2_PROFILE_IDS.indexOf(profileOverride) >= 0
             ? profileOverride
             : currentPlayerThemeV2Profile();
+        var previousControlMode = renderer.__elyricControlMode || PLAYER_COMPACT_MODE_FULL;
+        var baseMetrics = playerThemeV2StageMetrics(
+            renderer, renderer.__elyricThemeV2Profile, playerThemeV2ViewportRect(), true
+        );
+        renderer.__elyricControlMode = resolvedPlayerControlMode(
+            renderer, renderer.__elyricThemeV2Profile, baseMetrics
+        );
+        if (previousControlMode !== renderer.__elyricControlMode && renderer.__elyricControlsOpen) {
+            setControlsPanelOpen(renderer, false);
+        }
         var renderedState = renderer.__elyricThemeV2;
         var profile = clonePlayerThemeV2Value(renderedState.layouts[renderer.__elyricThemeV2Profile]);
         PLAYER_THEME_V2_LAYER_IDS.forEach(function (layerId) {
-            applyPlayerThemeV2Layer(renderer, layerId, profile[layerId]);
+            if ("controlDock" === layerId && PLAYER_COMPACT_MODE_FULL !== renderer.__elyricControlMode) {
+                clearPlayerThemeV2LayerElement(renderer.__elyricPlayerControlDock, layerId);
+                applyPlayerThemeV6Stage(
+                    renderer, playerThemeV2StageMetrics(renderer, renderer.__elyricThemeV2Profile)
+                );
+            } else {
+                applyPlayerThemeV2Layer(renderer, layerId, profile[layerId]);
+            }
         });
         setSecondLineOverride(renderer, renderer.__elyricThemeV2.lyrics.showSecondLine, false);
         setThirdLineOverride(renderer, renderer.__elyricThemeV2.lyrics.showThirdAndLaterLines, false);
@@ -2040,6 +2367,7 @@
         syncPlayerThemeV6Settings(renderer);
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-theme-v2", "true");
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-theme-v2-profile", renderer.__elyricThemeV2Profile);
+        setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-control-mode", renderer.__elyricControlMode);
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-theme-v2", "true");
         setAttributeIfChanged(renderer.itemsContainer, "data-elyric-theme-v2-profile", renderer.__elyricThemeV2Profile);
         syncPlayerThemeV2Designer(renderer);
@@ -6038,6 +6366,7 @@
         queue: { minimumWidth: 380, maximumWidth: 460, landscapeHeight: .66, portraitHeight: .66 },
         settings: { minimumWidth: 420, maximumWidth: 560, landscapeHeight: .78, portraitHeight: .78 },
         cast: { minimumWidth: 320, maximumWidth: 420, landscapeHeight: .56, portraitHeight: .56 },
+        controls: { minimumWidth: 280, maximumWidth: 360, landscapeHeight: .56, portraitHeight: .56 },
         volume: { minimumWidth: 64, maximumWidth: 96, landscapeHeight: .32, portraitHeight: .32 }
     };
 
@@ -6058,6 +6387,9 @@
         if ("volume" === kind) {
             return { panel: renderer.__elyricVolumePanel, button: anchored || renderer.__elyricPlayerButtons.mute };
         }
+        if ("controls" === kind) {
+            return { panel: renderer.__elyricCompactControlsPanel, button: anchored || renderer.__elyricCompactMoreButton };
+        }
         return { panel: renderer.__elyricSettingsPanel, button: anchored || renderer.__elyricSettingsButton };
     }
 
@@ -6065,6 +6397,7 @@
         var panel = playerOverlayParts(renderer, kind).panel;
         if (!panel) { return; }
         ["top", "right", "bottom", "left", "width", "height", "max-height", "--elyric-overlay-anchor-tip-x",
+            "--elyric-overlay-anchor-tip-y",
             "--elyric-media-anchor-tip-x"].forEach(function (propertyName) {
             if (panel.style && panel.style.removeProperty) { panel.style.removeProperty(propertyName); }
         });
@@ -6200,6 +6533,7 @@
             media: "__elyricMediaOpen",
             queue: "__elyricQueueOpen",
             cast: "__elyricCastOpen",
+            controls: "__elyricControlsOpen",
             volume: "__elyricVolumeOpen"
         };
         return !!(renderer && flags[kind] && renderer[flags[kind]]);
@@ -6278,7 +6612,7 @@
     }
 
     function stopAllPlayerOverlayTracking(renderer) {
-        ["settings", "media", "queue", "cast", "volume"].forEach(function (kind) {
+        ["settings", "media", "queue", "cast", "controls", "volume"].forEach(function (kind) {
             stopPlayerOverlayTracking(renderer, kind);
         });
     }
@@ -6288,6 +6622,7 @@
         if (renderer.__elyricMediaOpen) { startPlayerOverlayTracking(renderer, "media"); }
         if (renderer.__elyricQueueOpen) { startPlayerOverlayTracking(renderer, "queue"); }
         if (renderer.__elyricCastOpen) { startPlayerOverlayTracking(renderer, "cast"); }
+        if (renderer.__elyricControlsOpen) { startPlayerOverlayTracking(renderer, "controls"); }
         if (renderer.__elyricVolumeOpen) { startPlayerOverlayTracking(renderer, "volume"); }
     }
 
@@ -6306,12 +6641,14 @@
                 else if ("queue" === kind) { setQueueOpen(renderer, true); }
                 else if ("settings" === kind) { setSettingsPanelOpen(renderer, true); }
                 else if ("cast" === kind) { setCastPanelOpen(renderer, true); }
+                else if ("controls" === kind) { setControlsPanelOpen(renderer, true); }
                 else if ("volume" === kind) { setVolumePanelOpen(renderer, true); }
                 else if ("designer" === kind) {
                     setSettingsPanelOpen(renderer, false, true);
                     setMediaPanelOpen(renderer, false);
                     setQueueOpen(renderer, false);
                     setCastPanelOpen(renderer, false);
+                    setControlsPanelOpen(renderer, false);
                     setVolumePanelOpen(renderer, false);
                     setPlayerThemeV2DesignerOpen(renderer, true);
                 }
@@ -6321,6 +6658,7 @@
                 else if ("queue" === kind) { setQueueOpen(renderer, false); }
                 else if ("settings" === kind) { setSettingsPanelOpen(renderer, false); }
                 else if ("cast" === kind) { setCastPanelOpen(renderer, false); }
+                else if ("controls" === kind) { setControlsPanelOpen(renderer, false); }
                 else if ("volume" === kind) { setVolumePanelOpen(renderer, false); }
                 else if ("designer" === kind) { setPlayerThemeV2DesignerOpen(renderer, false); }
             },
@@ -6341,6 +6679,7 @@
         else if ("queue" === kind) { setQueueOpen(renderer, true); }
         else if ("settings" === kind) { setSettingsPanelOpen(renderer, true); }
         else if ("cast" === kind) { setCastPanelOpen(renderer, true); }
+        else if ("controls" === kind) { setControlsPanelOpen(renderer, true); }
         else if ("volume" === kind) { setVolumePanelOpen(renderer, true); }
         else if ("designer" === kind) { setPlayerThemeV2DesignerOpen(renderer, true); }
     }
@@ -6354,6 +6693,7 @@
         else if ("queue" === kind) { setQueueOpen(renderer, false); }
         else if ("settings" === kind) { setSettingsPanelOpen(renderer, false); }
         else if ("cast" === kind) { setCastPanelOpen(renderer, false); }
+        else if ("controls" === kind) { setControlsPanelOpen(renderer, false); }
         else if ("volume" === kind) { setVolumePanelOpen(renderer, false); }
         else if ("designer" === kind) { setPlayerThemeV2DesignerOpen(renderer, false); }
     }
@@ -6365,6 +6705,7 @@
             setSettingsPanelOpen(renderer, false);
             setMediaPanelOpen(renderer, false);
             if (renderer.__elyricQueueOpen) { setQueueOpen(renderer, false); }
+            if (renderer.__elyricControlsOpen) { setControlsPanelOpen(renderer, false); }
             if (renderer.__elyricVolumeOpen) { setVolumePanelOpen(renderer, false); }
         }
         renderer.__elyricCastOpen = open;
@@ -6387,6 +6728,13 @@
     function setVolumePanelOpen(renderer, open) {
         open = !!open;
         var wasOpen = !!renderer.__elyricVolumeOpen;
+        if (open) {
+            setSettingsPanelOpen(renderer, false);
+            setMediaPanelOpen(renderer, false);
+            if (renderer.__elyricQueueOpen) { setQueueOpen(renderer, false); }
+            if (renderer.__elyricCastOpen) { setCastPanelOpen(renderer, false); }
+            if (renderer.__elyricControlsOpen) { setControlsPanelOpen(renderer, false); }
+        }
         renderer.__elyricVolumeOpen = open;
         if (renderer.__elyricVolumePanel) {
             if (open) { removeAttributeIfPresent(renderer.__elyricVolumePanel, "hidden"); }
@@ -6404,6 +6752,37 @@
         }
     }
 
+    function setControlsPanelOpen(renderer, open) {
+        open = !!open && PLAYER_COMPACT_MODE_FULL !== renderer.__elyricControlMode;
+        var wasOpen = !!renderer.__elyricControlsOpen;
+        if (open) {
+            setSettingsPanelOpen(renderer, false);
+            setMediaPanelOpen(renderer, false);
+            if (renderer.__elyricQueueOpen) { setQueueOpen(renderer, false); }
+            if (renderer.__elyricCastOpen) { setCastPanelOpen(renderer, false); }
+            if (renderer.__elyricVolumeOpen) { setVolumePanelOpen(renderer, false); }
+        }
+        renderer.__elyricControlsOpen = open;
+        if (renderer.__elyricCompactControlsPanel) {
+            if (open) { removeAttributeIfPresent(renderer.__elyricCompactControlsPanel, "hidden"); }
+            else { setAttributeIfChanged(renderer.__elyricCompactControlsPanel, "hidden", "hidden"); }
+        }
+        if (renderer.__elyricCompactMoreButton) {
+            setAttributeIfChanged(renderer.__elyricCompactMoreButton, "aria-expanded", open ? "true" : "false");
+            setAttributeIfChanged(renderer.__elyricCompactMoreButton, "data-elyric-active", open ? "true" : "false");
+        }
+        syncPlayerOverlayScrim(renderer);
+        if (open) {
+            startPlayerOverlayTracking(renderer, "controls");
+            if (!wasOpen) { focusPlayerOverlay(renderer.__elyricCompactControlsPanel); }
+        } else {
+            stopPlayerOverlayTracking(renderer, "controls");
+            if (wasOpen) {
+                restorePlayerOverlayFocus(renderer.__elyricCompactControlsPanel, renderer.__elyricCompactMoreButton);
+            }
+        }
+    }
+
     function setSettingsPanelOpen(renderer, open, preserveDesigner) {
         open = !!open;
         var wasOpen = !!renderer.__elyricSettingsOpen;
@@ -6416,6 +6795,7 @@
                 setQueueOpen(renderer, false);
             }
             if (renderer.__elyricCastOpen) { setCastPanelOpen(renderer, false); }
+            if (renderer.__elyricControlsOpen) { setControlsPanelOpen(renderer, false); }
             if (renderer.__elyricVolumeOpen) { setVolumePanelOpen(renderer, false); }
         }
         renderer.__elyricSettingsOpen = open;
@@ -6482,6 +6862,7 @@
                 setQueueOpen(renderer, false);
             }
             if (renderer.__elyricCastOpen) { setCastPanelOpen(renderer, false); }
+            if (renderer.__elyricControlsOpen) { setControlsPanelOpen(renderer, false); }
             if (renderer.__elyricVolumeOpen) { setVolumePanelOpen(renderer, false); }
         }
         renderer.__elyricMediaOpen = open;
@@ -6519,7 +6900,7 @@
         }
             if (false !== pageVisible
             && (renderer.__elyricSettingsOpen || renderer.__elyricMediaOpen || renderer.__elyricQueueOpen
-                || renderer.__elyricCastOpen || renderer.__elyricVolumeOpen)) {
+                || renderer.__elyricCastOpen || renderer.__elyricControlsOpen || renderer.__elyricVolumeOpen)) {
             removeAttributeIfPresent(scrim, "hidden");
         } else {
             setAttributeIfChanged(scrim, "hidden", "hidden");
@@ -7800,6 +8181,7 @@
             setSettingsPanelOpen(renderer, false);
             setMediaPanelOpen(renderer, false);
             if (renderer.__elyricCastOpen) { setCastPanelOpen(renderer, false); }
+            if (renderer.__elyricControlsOpen) { setControlsPanelOpen(renderer, false); }
             if (renderer.__elyricVolumeOpen) { setVolumePanelOpen(renderer, false); }
         }
         renderer.__elyricQueueOpen = open;
@@ -7953,6 +8335,7 @@
         translation: "M4 5h9 M8.5 3v2 M6 9c1.5 2.5 3.5 4.5 6 6 M12 9c-1.3 2.2-3.2 4.2-6 6 M15 19l3-8 3 8 M16 16h4",
         rotation: "M20 7v5h-5 M4 17v-5h5 M18.5 9A7 7 0 0 0 6.2 6.2L4 8 M5.5 15A7 7 0 0 0 17.8 17.8L20 16",
         settings: "M4 7h8 M16 7h4 M4 17h2 M10 17h10 M12 4v6 M6 14v6",
+        more: "M5 12h.01 M12 12h.01 M19 12h.01",
         close: "M6 6l12 12 M18 6L6 18",
         locate: "M12 2v3 M12 19v3 M2 12h3 M19 12h3 M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z",
         reset: "M4 4v6h6 M5.5 15a7 7 0 1 0 1.2-7.5L4 10"
@@ -10074,6 +10457,7 @@
     }
 
     function setPlayerThemeV2DesignerOpen(renderer, open) {
+        if (open && renderer.__elyricControlsOpen) { setControlsPanelOpen(renderer, false); }
         renderer.__elyricThemeV2DesignerOpen = !!open;
         ensurePlayerThemeV2State(renderer);
         setAttributeIfChanged(renderer.__elyricThemeControl, "data-elyric-designer-open", open ? "true" : "false");
@@ -10081,6 +10465,7 @@
         if (renderer.__elyricThemeV2DesignerToggle) {
             setAttributeIfChanged(renderer.__elyricThemeV2DesignerToggle, "aria-pressed", open ? "true" : "false");
         }
+        applyPlayerThemeV2State(renderer, renderer.__elyricThemeV2, renderer.__elyricThemeV2Profile);
         buildPlayerThemeV2DesignerBoxes(renderer);
     }
 
@@ -11237,6 +11622,26 @@
         });
         settingsButton.addEventListener("pointerdown", stopControlEvent);
         tools.appendChild(settingsButton);
+
+        var compactMoreButton = document.createElement("button");
+        compactMoreButton.className = "elyric-player-button elyric-player-button-more";
+        compactMoreButton.setAttribute("type", "button");
+        compactMoreButton.setAttribute("aria-label", "更多播放控制");
+        compactMoreButton.setAttribute("aria-haspopup", "dialog");
+        compactMoreButton.setAttribute("aria-expanded", "false");
+        compactMoreButton.setAttribute("data-elyric-control-item", "more");
+        compactMoreButton.setAttribute("data-elyric-tooltip", "更多播放控制");
+        setButtonIcon(compactMoreButton, "more");
+        compactMoreButton.addEventListener("click", function (event) {
+            stopControlEvent(event);
+            if (renderer.__elyricControlsOpen) { requestPlayerOverlayClose(renderer, "controls"); }
+            else { requestPlayerOverlayOpen(renderer, "controls", compactMoreButton, "above"); }
+        });
+        compactMoreButton.addEventListener("pointerdown", stopControlEvent);
+
+        var compactDockHost = document.createElement("div");
+        compactDockHost.className = "elyric-player-compact-dock-host";
+        control.appendChild(compactDockHost);
         stage.appendChild(controlDock);
 
         var visualizer = document.createElement("div");
@@ -11322,6 +11727,8 @@
             requestPlayerOverlayClose(renderer, "media");
             requestPlayerOverlayClose(renderer, "queue");
             requestPlayerOverlayClose(renderer, "cast");
+            requestPlayerOverlayClose(renderer, "controls");
+            requestPlayerOverlayClose(renderer, "volume");
         });
 
         var settingsPanel = document.createElement("div");
@@ -11947,6 +12354,19 @@
         volumePanel.appendChild(portraitVolumeSlider);
         control.appendChild(volumePanel);
 
+        var compactControlsPanel = document.createElement("div");
+        compactControlsPanel.className = "elyric-player-compact-controls-panel";
+        compactControlsPanel.setAttribute("role", "dialog");
+        compactControlsPanel.setAttribute("aria-label", "更多播放控制");
+        compactControlsPanel.setAttribute("aria-modal", "true");
+        compactControlsPanel.setAttribute("hidden", "hidden");
+        var compactControlsGrid = document.createElement("div");
+        compactControlsGrid.className = "elyric-player-compact-controls-grid";
+        compactControlsPanel.appendChild(compactControlsGrid);
+        compactControlsPanel.addEventListener("click", stopControlEvent);
+        compactControlsPanel.addEventListener("pointerdown", stopControlEvent);
+        control.appendChild(compactControlsPanel);
+
         control.addEventListener("click", stopControlEvent);
         control.addEventListener("pointerdown", stopControlEvent);
         renderer.__elyricThemeSelect = null;
@@ -11970,6 +12390,11 @@
         renderer.__elyricPlayerVolume = volume;
         renderer.__elyricPlayerTools = tools;
         renderer.__elyricPlayerControlDock = controlDock;
+        renderer.__elyricCompactDockHost = compactDockHost;
+        renderer.__elyricCompactMoreButton = compactMoreButton;
+        renderer.__elyricCompactControlsPanel = compactControlsPanel;
+        renderer.__elyricCompactControlsGrid = compactControlsGrid;
+        renderer.__elyricControlsOpen = false;
         renderer.__elyricControlDockGroups = {
             progress: progress, transport: transport, volume: volume, auxiliary: tools
         };
@@ -12103,7 +12528,7 @@
             if (renderer.__elyricThemeV2) {
                 var profileChanged = v2Profile !== renderer.__elyricThemeV2Profile;
                 if (profileChanged && renderer.__elyricOverlayManager) {
-                    ["settings", "media", "queue", "cast", "volume"].forEach(function (kind) {
+                    ["settings", "media", "queue", "cast", "controls", "volume"].forEach(function (kind) {
                         renderer.__elyricOverlayManager.close(kind);
                     });
                 }
@@ -12184,7 +12609,8 @@
             if (event && "Escape" === event.key
                 && (renderer.__elyricSettingsOpen || renderer.__elyricMediaOpen
                     || renderer.__elyricQueueOpen || renderer.__elyricCastOpen
-                    || renderer.__elyricVolumeOpen || renderer.__elyricThemeV2DesignerOpen)) {
+                    || renderer.__elyricControlsOpen || renderer.__elyricVolumeOpen
+                    || renderer.__elyricThemeV2DesignerOpen)) {
                 if (event.preventDefault) {
                     event.preventDefault();
                 }
@@ -12195,6 +12621,7 @@
                 requestPlayerOverlayClose(renderer, "media");
                 requestPlayerOverlayClose(renderer, "queue");
                 requestPlayerOverlayClose(renderer, "cast");
+                requestPlayerOverlayClose(renderer, "controls");
                 requestPlayerOverlayClose(renderer, "volume");
                 if (renderer.__elyricThemeV2DesignerOpen) {
                     requestPlayerOverlayClose(renderer, "designer");
@@ -12211,8 +12638,10 @@
                                 ? renderer.__elyricQueuePanel
                                 : renderer.__elyricCastOpen
                                     ? renderer.__elyricCastPanel
-                                    : renderer.__elyricVolumeOpen
-                                        ? renderer.__elyricVolumePanel : null,
+                                    : renderer.__elyricControlsOpen
+                                        ? renderer.__elyricCompactControlsPanel
+                                        : renderer.__elyricVolumeOpen
+                                            ? renderer.__elyricVolumePanel : null,
                     event
                 );
             }
@@ -12588,6 +13017,12 @@
         renderer.__elyricPlayerVolume = null;
         renderer.__elyricPlayerTools = null;
         renderer.__elyricPlayerControlDock = null;
+        renderer.__elyricCompactDockHost = null;
+        renderer.__elyricCompactMoreButton = null;
+        renderer.__elyricCompactControlsPanel = null;
+        renderer.__elyricCompactControlsGrid = null;
+        renderer.__elyricControlsOpen = false;
+        renderer.__elyricControlMode = PLAYER_COMPACT_MODE_FULL;
         renderer.__elyricControlDockGroups = null;
         renderer.__elyricControlDockItems = null;
         renderer.__elyricControlDockDesigner = null;

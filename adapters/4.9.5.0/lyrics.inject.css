@@ -1,5 +1,5 @@
 /* ELYRIC_ENHANCE_BEGIN:4.9.5.0 */
-/* ELYRIC_BUILD:2026.08.17-theme-v6-shadow-persistence-r4 */
+/* ELYRIC_BUILD:2026.08.17-theme-v6-shadow-persistence-r5 */
 .elyric-player-host {
     position: fixed !important;
     inset: 0 !important;
@@ -5372,7 +5372,7 @@
 }
 .elyric-player-root .elyric-player-control-dock .elyric-player-progress-slider,
 .elyric-player-root .elyric-player-control-dock .elyric-player-volume-slider {
-    min-height: 26px !important;
+    min-height: var(--elyric-v6-dock-progress, 44px) !important;
 }
 .elyric-player-root .elyric-player-control-dock .elyric-player-volume {
     width: 250px !important;
@@ -5664,6 +5664,224 @@
     .elyric-player-control-dock {
     gap: 8px !important;
     padding: 14px !important;
+}
+
+/* V6 r5: compact is a viewport-level safety projection. The same ControlDock
+   and button nodes move here at runtime; no compact state is serialized. */
+.elyric-player-root .elyric-player-compact-dock-host {
+    display: none;
+    position: fixed;
+    z-index: var(--elyric-layer-dock-content) !important;
+    left: max(16px, env(safe-area-inset-left, 0px));
+    right: max(16px, env(safe-area-inset-right, 0px));
+    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    height: 164px;
+    pointer-events: none;
+}
+
+.elyric-player-root[data-elyric-control-mode^="compact-"] .elyric-player-compact-dock-host {
+    display: block;
+}
+
+.elyric-player-root[data-elyric-control-mode="compact-landscape"] .elyric-player-compact-dock-host {
+    height: 108px;
+}
+
+.elyric-player-root[data-elyric-control-mode^="compact-"] .elyric-player-compact-dock-host > .elyric-player-control-dock {
+    position: absolute !important;
+    inset: 0 !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 5px 10px !important;
+    gap: 4px !important;
+    transform: none !important;
+    transform-origin: center !important;
+    opacity: 1 !important;
+    overflow: visible !important;
+    pointer-events: auto;
+}
+
+.elyric-player-root[data-elyric-control-mode="compact-landscape"]
+    .elyric-player-compact-dock-host > .elyric-player-control-dock {
+    padding: 1px 8px !important;
+}
+
+.elyric-player-root[data-elyric-control-mode^="compact-"] .elyric-player-control-row {
+    display: flex;
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.elyric-player-root[data-elyric-control-mode^="compact-"] .elyric-player-compact-progress-row {
+    height: 44px;
+    min-height: 44px;
+}
+
+.elyric-player-root[data-elyric-control-mode^="compact-"] .elyric-player-compact-main-row {
+    height: 58px;
+    min-height: 58px;
+}
+
+.elyric-player-root[data-elyric-control-mode^="compact-"] .elyric-player-compact-common-row {
+    height: 44px;
+    min-height: 44px;
+}
+
+.elyric-player-root[data-elyric-control-mode^="compact-"] .elyric-player-control-dock .elyric-player-control-group {
+    display: flex !important;
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    height: auto !important;
+    position: static !important;
+    inset: auto !important;
+    align-items: center;
+    justify-content: center;
+    gap: 4px !important;
+    transform: none !important;
+}
+
+.elyric-player-root[data-elyric-control-mode^="compact-"] .elyric-player-control-dock .elyric-player-progress {
+    display: grid !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 44px !important;
+    grid-template-columns: 42px minmax(0, 1fr) 42px !important;
+    gap: 6px !important;
+}
+
+.elyric-player-root[data-elyric-control-mode^="compact-"] .elyric-player-control-dock .elyric-player-progress-slider {
+    min-width: 0 !important;
+    min-height: 44px !important;
+}
+
+.elyric-player-root[data-elyric-control-mode^="compact-"] .elyric-player-control-dock .elyric-player-button {
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    flex: 0 0 44px !important;
+    padding: 0 !important;
+}
+
+.elyric-player-root[data-elyric-control-mode^="compact-"] .elyric-player-control-dock .elyric-player-button-playPause {
+    width: 58px !important;
+    min-width: 58px !important;
+    height: 58px !important;
+    min-height: 58px !important;
+    flex-basis: 58px !important;
+}
+
+.elyric-player-root[data-elyric-control-mode^="compact-"] .elyric-player-control-dock .elyric-player-icon {
+    width: 18px !important;
+    height: 18px !important;
+}
+
+.elyric-player-root[data-elyric-control-mode^="compact-"] .elyric-player-control-dock .elyric-player-volume-slider,
+.elyric-player-root[data-elyric-control-mode^="compact-"] .elyric-player-control-dock .elyric-player-volume-value {
+    display: none !important;
+}
+
+.elyric-player-root .elyric-player-compact-controls-panel {
+    position: fixed !important;
+    z-index: var(--elyric-layer-overlay) !important;
+    inset: auto !important;
+    box-sizing: border-box;
+    min-width: 0 !important;
+    max-width: calc(100vw - 32px) !important;
+    max-height: 56dvh;
+    overflow: visible !important;
+    padding: 12px;
+    color: var(--elyric-v6-overlay-text, #fff) !important;
+    border: 1px solid color-mix(in srgb, currentColor 17%, transparent) !important;
+    border-radius: var(--elyric-v2-popup-radius, 24px) !important;
+    background: color-mix(in srgb, var(--elyric-v6-overlay-bg, #111827) var(--elyric-v2-popup-opacity, 92%), transparent) !important;
+    box-shadow: 0 1.25rem 4rem rgb(0 0 0 / .34), inset 0 1px rgb(255 255 255 / .09) !important;
+    -webkit-backdrop-filter: blur(var(--elyric-v6-overlay-blur, 24px)) saturate(135%) !important;
+    backdrop-filter: blur(var(--elyric-v6-overlay-blur, 24px)) saturate(135%) !important;
+    transition: opacity var(--elyric-v6-overlay-duration, 200ms) ease,
+        transform var(--elyric-v6-overlay-duration, 200ms) cubic-bezier(.2,.78,.2,1);
+    transform-origin: var(--elyric-overlay-anchor-tip-x, 50%) bottom;
+}
+
+.elyric-player-root .elyric-player-compact-controls-panel[hidden] { display: none !important; }
+.elyric-player-root .elyric-player-compact-controls-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    min-width: 0;
+    max-height: calc(56dvh - 24px);
+    overflow: hidden auto;
+}
+
+.elyric-player-root .elyric-player-compact-control-tile {
+    display: grid;
+    place-items: center;
+    gap: 4px;
+    min-width: 0;
+    min-height: 64px;
+    padding: 4px;
+    border-radius: 12px;
+}
+
+.elyric-player-root .elyric-player-compact-control-tile > .elyric-player-button {
+    position: relative !important;
+    inset: auto !important;
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    flex: 0 0 44px !important;
+    padding: 0 !important;
+    transform: none !important;
+}
+
+.elyric-player-root .elyric-player-compact-control-tile > span {
+    max-width: 100%;
+    overflow: hidden;
+    color: inherit;
+    font-size: 12px;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.elyric-player-root[data-elyric-overlay-surface="none"] .elyric-player-compact-controls-panel {
+    background: transparent !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+}
+.elyric-player-root[data-elyric-overlay-surface="black"] .elyric-player-compact-controls-panel {
+    background: #07090d !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+}
+.elyric-player-root[data-elyric-overlay-surface="white"] .elyric-player-compact-controls-panel { background: #f8fafc !important; }
+.elyric-player-root[data-elyric-overlay-surface="gradient"] .elyric-player-compact-controls-panel {
+    background: linear-gradient(145deg, var(--elyric-v6-overlay-bg, #111827), color-mix(in srgb, var(--elyric-v6-overlay-accent, #fff) 30%, var(--elyric-v6-overlay-bg, #111827))) !important;
+}
+
+@starting-style {
+    .elyric-player-root .elyric-player-compact-controls-panel:not([hidden]) {
+        opacity: 0;
+        transform: translateY(8px) scale(.97);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .elyric-player-root .elyric-player-compact-controls-panel { transition-duration: 1ms !important; }
 }
 
 /* ELYRIC_ENHANCE_END:4.9.5.0 */

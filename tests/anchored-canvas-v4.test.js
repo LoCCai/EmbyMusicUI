@@ -108,6 +108,19 @@ assert(adapter.includes('"artwork", "metadata", "lyrics", "visualizer", "control
     "V6 should expose exactly five editable canvas layers");
 assert(adapter.includes("normalizePlayerControlDockProfile") && adapter.includes("applyPlayerControlDock"),
     "V6 should normalize and render the constrained control dock");
+assert(adapter.includes('PLAYER_COMPACT_MODE_PORTRAIT = "compact-portrait"')
+    && adapter.includes('PLAYER_COMPACT_MODE_LANDSCAPE = "compact-landscape"')
+    && adapter.includes('PLAYER_COMPACT_MODE_TIGHT = "compact-tight"'),
+    "r5 must expose the three non-serialized compact safety projections");
+assert(adapter.includes("playerControlDockDesignSizes")
+    && adapter.includes("44 / scale") && adapter.includes("56 / scale"),
+    "ordinary V6 layouts must inverse-size controls to preserve physical touch targets");
+assert(adapter.includes("playerThemeV2CompactContentBounds")
+    && adapter.includes('["artwork", "metadata", "lyrics", "visualizer"]'),
+    "compact must reserve the real viewport dock by uniformly projecting all non-dock layers");
+assert(adapter.includes('controls: { minimumWidth: 280, maximumWidth: 360')
+    && adapter.includes('setControlsPanelOpen(renderer, true)'),
+    "secondary playback actions must use the shared anchored OverlayManager");
 const css = fs.readFileSync(
     path.join(__dirname, "..", "adapters", "4.9.5.0", "lyrics.inject.css"),
     "utf8"
@@ -121,7 +134,13 @@ assert(!css.includes("calc(52px * var(--elyric-control-stage-scale"),
     "fixed design-pixel buttons must scale only through their stage ancestor");
 assert(css.includes(".elyric-player-settings-body") && css.includes("--elyric-layer-overlay"),
     "settings and themed popovers must share the compact root-owned overlay system");
+assert(css.includes('[data-elyric-control-mode^="compact-"] .elyric-player-compact-dock-host')
+    && css.includes("width: 44px !important") && css.includes("width: 58px !important"),
+    "compact must pin one themed dock to the viewport with 44px/58px targets");
+assert(css.includes(".elyric-player-compact-controls-grid")
+    && css.includes("grid-template-columns: repeat(3, minmax(0, 1fr))"),
+    "the More overlay must present secondary actions as a three-column touch grid");
 assert(!adapter.includes("playerThemeV5CompactLandscape")
     && !css.includes('data-elyric-short-landscape="true"'),
-    "non-standard landscape sizes must not hide or rearrange individual V6 controls");
+    "r5 must not revive legacy media-query control rearrangement");
 console.log("fixed dual-canvas V6 geometry matrix and control dock: ok");
